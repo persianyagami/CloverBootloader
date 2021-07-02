@@ -14,6 +14,7 @@
 #include "APFS.h"
 #include "Nvram.h"
 #include "BootOptions.h"
+#include "../Platform/Volumes.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_HIB 1
@@ -397,13 +398,13 @@ GetSleepImageLocation(IN REFIT_VOLUME *Volume, REFIT_VOLUME **SleepImageVolume, 
       if (EFI_ERROR(Status)) {
         Status = egLoadFile(Volume->RootDir, PrefName2, &PrefBuffer, &PrefBufferLen);
         if (!EFI_ERROR(Status)) {
-          DBG("    read prefs %ls status=%s\n", PrefName2, efiStrError(Status));
+          DBG("      read prefs %ls status=%s\n", PrefName2, efiStrError(Status));
         }
       } else {
-        DBG("    read prefs %ls status=%s\n", PrefName3.wc_str(), efiStrError(Status));
+        DBG("      read prefs %ls status=%s\n", PrefName3.wc_str(), efiStrError(Status));
       }
     } else {
-      DBG("    read prefs %ls status=%s\n", PrefName, efiStrError(Status));
+      DBG("      read prefs %ls status=%s\n", PrefName, efiStrError(Status));
     }
   }
   
@@ -445,13 +446,7 @@ GetSleepImageLocation(IN REFIT_VOLUME *Volume, REFIT_VOLUME **SleepImageVolume, 
             } else {
               SleepImageName = SWPrintf("%s", prop->getString()->stringValue().c_str());
             }
-            wchar_t* p = SleepImageName.data(0);
-            while (*p) {
-              if (*p == L'/') {
-                *p = L'\\';
-              }
-              p++;
-            }
+            SleepImageName.replaceAll('/', '\\');
             DBG("    SleepImage name from pref: ImageVolume = '%ls', ImageName = '%ls'\n", ImageVolume->VolName.wc_str(), SleepImageName.wc_str());
           }
         }
@@ -462,7 +457,7 @@ GetSleepImageLocation(IN REFIT_VOLUME *Volume, REFIT_VOLUME **SleepImageVolume, 
   
   if (SleepImageName.isEmpty()) {
     SleepImageName = SWPrintf("\\private\\var\\vm\\sleepimage");
-    DBG("    using default sleep image name = %ls\n", SleepImageName.wc_str());
+    DBG("      using default sleep image name = %ls\n", SleepImageName.wc_str());
   }
   if (PrefBuffer) {
     FreePool(PrefBuffer); //allocated by egLoadFile
@@ -495,7 +490,7 @@ GetSleepImagePosition (IN REFIT_VOLUME *Volume, REFIT_VOLUME **SleepImageVolume)
   }
   
   if (Volume->WholeDiskBlockIO == NULL) {
-    DBG("    no disk BlockIo\n");
+    DBG("      no disk BlockIo\n");
     return 0;
   }
   
@@ -505,7 +500,7 @@ GetSleepImagePosition (IN REFIT_VOLUME *Volume, REFIT_VOLUME **SleepImageVolume)
       // Update caller's SleepImageVolume when requested
       GetSleepImageLocation(Volume, SleepImageVolume, &ImageName);
     }
-	  DBG("    returning previously calculated offset: %llx\n", Volume->SleepImageOffset);
+	  DBG("      returning previously calculated offset: %llx\n", Volume->SleepImageOffset);
     return Volume->SleepImageOffset;
   }
   
@@ -516,7 +511,7 @@ GetSleepImagePosition (IN REFIT_VOLUME *Volume, REFIT_VOLUME **SleepImageVolume)
     // Open sleepimage
     Status = ImageVolume->RootDir->Open(ImageVolume->RootDir, &File, ImageName.wc_str(), EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(Status)) {
-      DBG("    sleepimage not found -> %s\n", efiStrError(Status));
+      DBG("      cannot open sleepimage -> %s\n", efiStrError(Status));
       return 0;
     }
   }
@@ -525,14 +520,14 @@ GetSleepImagePosition (IN REFIT_VOLUME *Volume, REFIT_VOLUME **SleepImageVolume)
   BufferSize = 512;
   Buffer = (__typeof__(Buffer))AllocatePool(BufferSize);
   if (Buffer == NULL) {
-    DBG("    could not allocate buffer for sleepimage\n");
+    DBG("      could not allocate buffer for sleepimage\n");
     return 0;
   }
   
   //  DBG("    Reading first %d bytes of sleepimage ...\n", BufferSize);
   
   if (!ImageVolume->WholeDiskBlockIO) {
-    DBG("     can not get whole disk\n");
+    DBG("       can not get whole disk\n");
     if (Buffer) {
       FreePool(Buffer);
     }
@@ -563,16 +558,16 @@ GetSleepImagePosition (IN REFIT_VOLUME *Volume, REFIT_VOLUME **SleepImageVolume)
   }
   
   if (EFI_ERROR(Status)) {
-    DBG("     can not read sleepimage -> %s\n", efiStrError(Status));
+    DBG("       can not read sleepimage -> %s\n", efiStrError(Status));
     return 0;
   }
   
   // We store SleepImageOffset, in case our BlockIoRead does not execute again on next read due to driver caching.
   if (gSleepImageOffset != 0) {
-	  DBG("     sleepimage offset acquired successfully: %llx\n", gSleepImageOffset);
+	  DBG("       sleepimage offset acquired successfully: %llx\n", gSleepImageOffset);
     ImageVolume->SleepImageOffset = gSleepImageOffset;
   } else {
-    DBG("     sleepimage offset could not be acquired\n");
+    DBG("       sleepimage offset could not be acquired\n");
   }
   
   if (SleepImageVolume != NULL) {
@@ -658,7 +653,7 @@ IsSleepImageValidBySignature (IN REFIT_VOLUME *Volume)
   // We'll have to detect offset here also in case driver caches
   // some data and stops us from detecting offset later.
   // So, make first call to GetSleepImagePosition() now.
-  DBG("    Check sleep image 'by signature':\n");
+  DBG("      Check sleep image 'by signature':\n");
   return (GetSleepImagePosition (Volume, NULL) != 0);
 }
 
@@ -796,7 +791,7 @@ IsOsxHibernated (IN LOADER_ENTRY *Entry)
    EFI_GUID TmpGuid;
    CHAR16 *Ptr = GuidLEToStr(&Volume->RootUUID);
    DBG("got str=%ls\n", Ptr);
-   Status = StrToGuidLE (Ptr, &TmpGuid);
+   Status = StrToGuidBE (Ptr, &TmpGuid);
    if (EFI_ERROR(Status)) {
    DBG("    cant convert Str %ls to GUID\n", Ptr);
    } else {
@@ -810,32 +805,32 @@ IsOsxHibernated (IN LOADER_ENTRY *Entry)
   
   //if sleep image is good but OSX was not hibernated.
   //or we choose "cancel hibernate wake" then it must be canceled
-  if (GlobalConfig.NeverHibernate) {
+  if (gSettings.Boot.NeverHibernate) {
     DBG("    hibernated: set as never\n");
     return FALSE;
   }
   
-  DBG("    Check if volume Is Hibernated:\n");
+  DBG("      Check if volume Is Hibernated:\n");
   
-  if (!GlobalConfig.StrictHibernate) {
+  if (!gSettings.Boot.StrictHibernate) {
     // CloverEFI or UEFI with EmuVariable
     if (IsSleepImageValidBySignature(Volume)) {
       if ((gSleepTime == 0) || IsSleepImageValidBySleepTime(Volume)) {
-        DBG("    hibernated: yes\n");
+        DBG("      hibernated: yes\n");
         ret = TRUE;
       } else {
-        DBG("    hibernated: no - time\n");
+        DBG("      hibernated: no - time\n");
         return FALSE;
       }
       //    IsHibernate = TRUE;
     } else {
-      DBG("    hibernated: no - sign\n");
+      DBG("      hibernated: no - sign\n");
       return FALSE; //test
     }
   }
   
   if (!gFirmwareClover &&
-      (!gDriversFlags.EmuVariableLoaded || GlobalConfig.HibernationFixup)) {
+      (!gDriversFlags.EmuVariableLoaded || gSettings.Boot.HibernationFixup)) {
     DBG("    UEFI with NVRAM? ");
     Status = GetVariable2 (L"Boot0082", &gEfiGlobalVariableGuid, (void**)&Data, &Size);
     if (EFI_ERROR(Status))  {
@@ -872,7 +867,7 @@ IsOsxHibernated (IN LOADER_ENTRY *Entry)
         DBG("    Boot0082 points to Volume with UUID:%s\n", strguid(BootGUID));
         
         //3. Checks for boot-image exists
-        if (GlobalConfig.StrictHibernate) {
+        if (gSettings.Boot.StrictHibernate) {
           /*
            Variable NV+RT+BS '7C436110-AB2A-4BBB-A880-FE41995C9F82:boot-image' DataSize = 0x3A
            00000000: 02 01 0C 00 D0 41 03 0A-00 00 00 00 01 01 06 00  *.....A..........*
@@ -914,7 +909,9 @@ IsOsxHibernated (IN LOADER_ENTRY *Entry)
               
               ResumeFromCoreStorage = TRUE;
               //         DBG("got str=%ls\n", Ptr);
-              Status = StrToGuidLE(Ptr, &TmpGuid);
+              XString8 xs8;
+              xs8.takeValueFrom(Ptr);
+              Status = StrToGuidBE(xs8, &TmpGuid);
               if (EFI_ERROR(Status)) {
                 DBG("    cant convert Str %ls to GUID\n", Ptr);
               } else {
@@ -995,7 +992,7 @@ PrepareHibernation (IN REFIT_VOLUME *Volume)
   
   DBG("PrepareHibernation:\n");
   
-  if (!GlobalConfig.StrictHibernate) {
+  if (!gSettings.Boot.StrictHibernate) {
     // Find sleep image offset
     SleepImageOffset = GetSleepImagePosition (Volume, &SleepImageVolume);
 	  DBG(" SleepImageOffset: %llx\n", SleepImageOffset);
@@ -1050,7 +1047,7 @@ PrepareHibernation (IN REFIT_VOLUME *Volume)
   //
   // Work with RTC memory if allowed.
   //
-  if (GlobalConfig.RtcHibernateAware) {
+  if (gSettings.Boot.RtcHibernateAware) {
     UINT8  Index;
     UINT8 *RtcRawVars = (UINT8 *)&RtcVars;
     for (Index = 0; Index < sizeof(AppleRTCHibernateVars); Index++) {
@@ -1153,7 +1150,7 @@ PrepareHibernation (IN REFIT_VOLUME *Volume)
   // For now let's preserve old behaviour without RtcHibernateAware for compatibility reasons.
   //
   Attributes = EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS;
-  if (!GlobalConfig.RtcHibernateAware) {
+  if (!gSettings.Boot.RtcHibernateAware) {
     Attributes |= EFI_VARIABLE_NON_VOLATILE;
   }
   

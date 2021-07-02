@@ -1,12 +1,10 @@
-//*************************************************************************************************
-//*************************************************************************************************
-//
-//                                      STRING
-//
-// Developed by jief666, from 1997.
-//
-//*************************************************************************************************
-//*************************************************************************************************
+/*
+ *
+ * Created by jief in 1997.
+ * Copyright (c) 2020 Jief
+ * All rights reserved.
+ *
+ */
 
 
 #if 0
@@ -29,24 +27,24 @@ const XStringW NullXStringW;
 
 XString8 S8Printf(const char* format, ...)
 {
-  va_list     va;
+  XTOOLS_VA_LIST     va;
   XString8 str;
 
-  va_start (va, format);
+  XTOOLS_VA_START (va, format);
   str.vS8Printf(format, va);
-  va_end(va);
+  XTOOLS_VA_END(va);
 
   return str;
 }
 
 XStringW SWPrintf(const char* format, ...)
 {
-  va_list     va;
+  XTOOLS_VA_LIST     va;
   XStringW str;
 
-  va_start (va, format);
+  XTOOLS_VA_START (va, format);
   str.vSWPrintf(format, va);
-  va_end(va);
+  XTOOLS_VA_END(va);
 
   return str;
 }

@@ -49,7 +49,7 @@ public:
   }
   void setKeyValue(const XString8& xstring)
   {
-    if ( xstring.isEmpty() ) panic("TagKey::setKeyValue() : xstring.isEmpty() ");
+    if ( xstring.isEmpty() ) log_technical_bug("TagKey::setKeyValue() : xstring.isEmpty() ");
     _string = xstring;
   }
 

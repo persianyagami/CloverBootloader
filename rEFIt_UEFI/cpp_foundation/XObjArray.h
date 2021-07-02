@@ -1,12 +1,10 @@
-//*************************************************************************************************
-//*************************************************************************************************
-//
-//                                          XObjArray
-//
-// Developed by jief666, from 1997.
-//
-//*************************************************************************************************
-//*************************************************************************************************
+/*
+ *
+ * Created by jief in 1997.
+ * Copyright (c) 2020 Jief
+ * All rights reserved.
+ *
+ */
 
 #if !defined(__XOBJARRAY_H__)
 #define __XOBJARRAY_H__
@@ -34,12 +32,14 @@ class XObjArrayEntry
 template<class TYPE>
 class XObjArrayNC
 {
-  public:
+  protected:
 	XObjArrayEntry<TYPE> *_Data;
 	size_t _Len;
 	size_t m_allocatedSize;
 
   public:
+  typedef TYPE type;
+
 	void Init();
 	XObjArrayNC() : _Data(0), _Len(0), m_allocatedSize(0) { Init(); }
 	virtual ~XObjArrayNC();
@@ -63,24 +63,40 @@ class XObjArrayNC
 	const TYPE &ElementAt(IntegralType nIndex) const
 	{
 		if (nIndex < 0) {
-			panic("XObjArrayNC::ElementAt() : i < 0. System halted\n");
+			if ( _Len == 0 ) {
+	      // Impossible to return anything
+  	    panic("XObjArrayNC::ElementAt(IntegralType nIndex) : BUG nIndex (%lld) < 0.", (int64_t)nIndex); // TODO: remove cast with new printf
+  	   }else{
+  	    log_technical_bug("XObjArrayNC::ElementAt(IntegralType nIndex) : BUG nIndex (%lld) < 0.", (int64_t)nIndex); // TODO: remove cast with new printf
+				nIndex = 0;
+  	   }
 		}
-		if ( (unsigned_type(IntegralType))nIndex >= _Len ) {
-			panic("XObjArrayNC::ElementAt() -> operator []  -  index (%zu) greater than length (%zu)\n", (size_t)nIndex, _Len);
+    unsigned_type(IntegralType) uIndex = (unsigned_type(IntegralType))nIndex;
+		if ( uIndex >= _Len ) {
+			log_technical_bug("XObjArrayNC::ElementAt() -> operator []  -  index (%zu) greater than length (%zu)\n", (size_t)nIndex, _Len); // TODO: remove cast with new printf
+      uIndex = (unsigned_type(IntegralType))_Len; // safe cast : uIndex is >= _Len, so _Len can fit
 		}
-		return  *((TYPE *)(_Data[nIndex].Object));
+		return  *((TYPE *)(_Data[uIndex].Object));
 	}
 
 	template<typename IntegralType, enable_if(is_integral(IntegralType))>
 	TYPE &ElementAt(IntegralType nIndex)
 	{
-		if (nIndex < 0) {
-			panic("XObjArrayNC::ElementAt() : i < 0. System halted\n");
-		}
-		if ( (unsigned_type(IntegralType))nIndex >= _Len ) {
-			panic("XObjArrayNC::ElementAt() const -> operator []  -  index (%zu) greater than length (%zu)\n", (size_t)nIndex, _Len);
-		}
-		return  *((TYPE *)(_Data[nIndex].Object));
+    if (nIndex < 0) {
+			if ( _Len == 0 ) {
+	      // Impossible to return anything
+  	    panic("XObjArrayNC::ElementAt(IntegralType nIndex) : BUG nIndex (%lld) < 0.", (int64_t)nIndex); // TODO: remove cast with new printf
+  	   }else{
+  	    log_technical_bug("XObjArrayNC::ElementAt(IntegralType nIndex) : BUG nIndex (%lld) < 0.", (int64_t)nIndex); // TODO: remove cast with new printf
+				nIndex = 0;
+  	   }
+    }
+    unsigned_type(IntegralType) uIndex = (unsigned_type(IntegralType))nIndex;
+    if ( uIndex >= _Len ) {
+      log_technical_bug("XObjArrayNC::ElementAt() -> operator []  -  index (%zu) greater than length (%zu)\n", (size_t)nIndex, _Len); // TODO: remove cast with new printf
+      uIndex = (unsigned_type(IntegralType))_Len; // safe cast : uIndex is >= _Len, so _Len can fit
+    }
+    return  *((TYPE *)(_Data[uIndex].Object));
 	}
 
 	// This was useful for realtime debugging with a debugger that do not recognise references. That was years and years ago. Probably not needed anymore.
@@ -94,6 +110,26 @@ class XObjArrayNC
 	template<typename IntegralType, enable_if(is_integral(IntegralType))>
 	TYPE &operator[](IntegralType nIndex) { return ElementAt(nIndex); }
 
+  bool operator==(const XObjArrayNC<TYPE>& other) const
+  {
+    if ( size() != other.size() ) return false;
+    for ( size_t idx = 0 ; idx < other.size() ; ++idx ) {
+      if ( !( ElementAt(idx) == other.ElementAt(idx) ) ) return false;
+    }
+    return true;
+  }
+  bool operator!=(const XObjArrayNC<TYPE>& other) const {return !(*this == other); }
+
+  bool isEqual(const XObjArrayNC<TYPE>& other) const
+  {
+    if ( size() != other.size() ) return false;
+    for ( size_t idx = 0 ; idx < other.size() ; ++idx ) {
+      if ( ! ElementAt(idx).isEqual(other.ElementAt(idx)) ) return false;
+    }
+    return true;
+  }
+
+
 	size_t AddReference(TYPE *newElement, bool FreeIt);
 
 //	size_t InsertRef(TYPE *newElement, size_t pos, bool FreeIt = false);
@@ -105,9 +141,49 @@ class XObjArrayNC
 	void Remove(const TYPE *Element);
 	void RemoveWithoutFreeing(const TYPE *Element);
 	void Remove(const TYPE &Element);
-	void RemoveAtIndex(size_t nIndex);
-	void RemoveAtIndex(int nIndex);
-	void RemoveWithoutFreeingAtIndex(size_t nIndex); // If you use this, there might be a design problem somewhere ???
+
+  template<typename IntegralType, enable_if(is_integral(IntegralType))>
+	void RemoveAtIndex(IntegralType nIndex)
+  {
+    if (nIndex < 0) {
+      log_technical_bug("XObjArrayNC::RemoveAtIndex(IntegralType nIndex) : BUG nIndex (%lld) < 0.", (int64_t)nIndex); // TODO: remove cast with new printf
+      return;
+    }
+    unsigned_type(IntegralType) uIndex = (unsigned_type(IntegralType))nIndex;
+    if ( uIndex >= XObjArrayNC<TYPE>::_Len ) {
+      log_technical_bug("void XObjArrayNC<TYPE>::RemoveAtIndex(IntegralType nIndex) : BUG nIndex (%llu) is > length().", (uint64_t)nIndex); // TODO: remove cast with new printf
+      return;
+    }
+    if ( _Data[nIndex].FreeIt )
+    {
+      TYPE *TmpObject; // BCB 4 oblige me to use a tmp var for doing the delete.
+
+      TmpObject = (TYPE *)(_Data[nIndex].Object);
+      delete TmpObject;
+    }
+    if ( uIndex < _Len-1 ) memmove(&_Data[nIndex], &_Data[nIndex+1], (_Len-nIndex-1)*sizeof(XObjArrayEntry<TYPE>));
+    _Len -= 1;
+    return;
+  }
+
+  template<typename IntegralType, enable_if(is_integral(IntegralType))>
+	TYPE* RemoveWithoutFreeingAtIndex(IntegralType nIndex)
+  {
+    if (nIndex < 0) {
+      log_technical_bug("XObjArrayNC::RemoveWithoutFreeingAtIndex(IntegralType nIndex) : BUG nIndex (%lld) < 0.", (int64_t)nIndex); // TODO: remove cast with new printf
+      return NULL;
+    }
+    unsigned_type(IntegralType) uIndex = (unsigned_type(IntegralType))nIndex;
+    if ( uIndex >= _Len ) {
+      log_technical_bug("XObjArrayNC<TYPE>::RemoveWithoutFreeingAtIndex(IntegralType nIndex) : BUG nIndex (%llu) is > length().", (uint64_t)nIndex); // TODO: remove cast with new printf
+		  return NULL;
+    }
+    TYPE* tmp = _Data[uIndex].Object;
+    if ( uIndex < _Len-1 ) memcpy(&_Data[nIndex], &_Data[uIndex+1], (_Len-uIndex-1)*sizeof(XObjArrayEntry<TYPE>));
+    _Len -= 1;
+    return tmp;
+  }
+
 	//void Remove(int nIndex);
 	void RemoveAllBut(const TYPE *Element);
 
@@ -192,28 +268,28 @@ void XObjArrayNC<TYPE>::Init()
 template<class TYPE>
 XObjArray<TYPE>::XObjArray(bool FreeThem, TYPE* n1, ...)
 {
-  va_list     va;
+  XTOOLS_VA_LIST     va;
 
-  va_start (va, n1);
+  XTOOLS_VA_START (va, n1);
   size_t count = 0;
   TYPE* t = va_arg(va, TYPE*);
   while ( t != nullptr ) {
     count++;
     t = va_arg(va, TYPE*);
   }
-  va_end(va);
+  XTOOLS_VA_END(va);
 
   XObjArrayNC<TYPE>::Init();
   this->CheckSize(count+1, (size_t)0);
   XObjArrayNC<TYPE>::AddReference(n1, FreeThem);
 
-  va_start (va, n1);
+  XTOOLS_VA_START (va, n1);
   t = va_arg(va, TYPE*);
   while ( t != nullptr ) {
     XObjArrayNC<TYPE>::AddReference(t, FreeThem);
     t = va_arg(va, TYPE*);
   }
-  va_end(va);
+  XTOOLS_VA_END(va);
 }
 
 
@@ -449,7 +525,12 @@ void XObjArrayNC<TYPE>::CheckSize(size_t nNewSize, size_t nGrowBy)
 		nNewSize += nGrowBy + 1;
 		_Data = (XObjArrayEntry<TYPE> *)Xrealloc((void *)_Data, sizeof(XObjArrayEntry<TYPE>) * nNewSize, sizeof(XObjArrayEntry<TYPE>) * m_allocatedSize);
 		if ( !_Data ) {
+#ifdef DEBUG
 			panic("XObjArrayNC<TYPE>::CheckSize(nNewSize=%zu, nGrowBy=%zu) : Xrealloc(%zu, %zu, %" PRIuPTR ") returned NULL. System halted\n", nNewSize, nGrowBy, m_allocatedSize, sizeof(XObjArrayEntry<TYPE>) * nNewSize, (uintptr_t)_Data);
+#else
+      m_allocatedSize = 0;
+      return;
+#endif
 		}
 //		memset(&_Data[m_allocatedSize], 0, (nNewSize-m_allocatedSize) * sizeof(XObjArrayEntry<TYPE>));
 		m_allocatedSize = nNewSize;
@@ -641,7 +722,7 @@ void XObjArrayNC<TYPE>::SetFreeIt(size_t nIndex, bool Flag)
 	}
 	else{
 		#if defined(_DEBUG)
-			throw "XObjArray::SetFreeIt(size_t) -> nIndex >= _Len\n";
+			panic("XObjArray::SetFreeIt(size_t) -> nIndex >= _Len\n");
 		#endif
 	}
 }
@@ -659,61 +740,14 @@ void XObjArrayNC<TYPE>::SetFreeIt(const TYPE *Element, bool Flag)
 		}
 	}
 	#if defined(_DEBUG)
-		throw "XObjArray::SetFreeIt(const TYPE *) -> nIndex >= _Len\n";
+		panic("XObjArray::SetFreeIt(const TYPE *) -> nIndex >= _Len\n");
 	#endif
 }
 
-/* Remove(size_t) */
-template<class TYPE>
-void XObjArrayNC<TYPE>::RemoveAtIndex(size_t nIndex)
-{
-  if ( nIndex >= XObjArrayNC<TYPE>::_Len ) {
-    panic("void XObjArrayNC<TYPE>::RemoveAtIndex(size_t nIndex) : BUG nIndex (%zu) is > length(). System halted\n", nIndex);
-  }
-	if ( _Data[nIndex].FreeIt )
-	{
-		TYPE *TmpObject; // BCB 4 oblige me to use a tmp var for doing the delete.
-
-		TmpObject = (TYPE *)(_Data[nIndex].Object);
-		delete TmpObject;
-	}
-	if ( nIndex<XObjArrayNC<TYPE>::_Len-1 ) memmove(&_Data[nIndex], &_Data[nIndex+1], (_Len-nIndex-1)*sizeof(XObjArrayEntry<TYPE>));
-	_Len -= 1;
-	return;
-}
 
 //-------------------------------------------------------------------------------------------------
 //                                               
 //-------------------------------------------------------------------------------------------------
-/* RemoveWithoutFreeing(size_t) */
-template<class TYPE>
-void XObjArrayNC<TYPE>::RemoveWithoutFreeingAtIndex(size_t nIndex)
-{
-	if ( nIndex < _Len )
-	{
-		if ( nIndex<_Len-1 ) memcpy(&_Data[nIndex], &_Data[nIndex+1], (_Len-nIndex-1)*sizeof(XObjArrayEntry<TYPE>));
-		_Len -= 1;
-		return;
-	}
-	#if defined(_DEBUG)
-		panic("XObjArray::RemoveWithoutFreeing(size_t) -> nIndex > _Len");
-	#endif
-}
-
-//-------------------------------------------------------------------------------------------------
-//                                               
-//-------------------------------------------------------------------------------------------------
-/* Remove(int) */
-template<class TYPE>
-void XObjArrayNC<TYPE>::RemoveAtIndex(int nIndex)
-{
-  #if defined(__XTOOLS_CHECK_OVERFLOW__)
-  	if ( nIndex < 0 ) {
-  	  panic("XArray<TYPE>::RemoveAtIndex(int nIndex) : BUG nIndex (%d) is < 0. System halted\n", nIndex);
-	}
-	#endif
-	RemoveAtIndex( (size_t)nIndex ); // Remove(size_t) will check that index is < _Len
-}
 
 /* Remove(const TYPE &) */
 template<class TYPE>
@@ -749,7 +783,7 @@ void XObjArrayNC<TYPE>::Remove(const TYPE *Element)
 		}
 	}
 	#if defined(_DEBUG)
-		throw "XObjArray::Remove(TYPE *) -> not found\n";
+		panic("XObjArray::Remove(TYPE *) -> not found\n");
 	#endif
 }
 
@@ -769,7 +803,7 @@ void XObjArrayNC<TYPE>::RemoveWithoutFreeing(const TYPE *Element)
 		}
 	}
 	#if defined(_DEBUG)
-		throw "XObjArray::RemoveWithoutFreeing(TYPE *) -> not found\n";
+		panic("XObjArray::RemoveWithoutFreeing(TYPE *) -> not found\n");
 	#endif
 }
 

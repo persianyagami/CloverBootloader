@@ -35,9 +35,10 @@
  */
 
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
+#include <cpp_util/globals_ctor.h>
+#include <cpp_util/globals_dtor.h>
+
 #include "../cpp_foundation/XString.h"
-#include "../cpp_util/globals_ctor.h"
-#include "../cpp_util/globals_dtor.h"
 #include "../cpp_unit_test/all_tests.h"
 
 #include "../entry_scan/entry_scan.h"
@@ -63,18 +64,24 @@
 #include "../Platform/PlatformDriverOverride.h"
 #include "../Platform/Edid.h"
 #include "../Platform/Console.h"
-#include "../Platform/Net.h"
 #include "../Platform/spd.h"
 #include "../Platform/Injectors.h"
 #include "../Platform/StartupSound.h"
 #include "../Platform/BootOptions.h"
 #include "../Platform/boot.h"
 #include "../Platform/kext_inject.h"
+#include "../Platform/KextList.h"
 #include "../gui/REFIT_MENU_SCREEN.h"
-#include "Self.h"
-#include "SelfOem.h"
-#include "../Platform/Net.h"
-#include "../include/OsType.h"
+#include "../gui/REFIT_MAINMENU_SCREEN.h"
+#include "../Settings/Self.h"
+#include "../Settings/SelfOem.h"
+#include "../Platform/BasicIO.h"
+#include "../include/OSTypes.h"
+#include "../include/OSFlags.h"
+#include "../libeg/XTheme.h"
+#include "../Settings/ConfigManager.h"
+#include "../Platform/CloverVersion.h"
+#include "../Platform/SmbiosFillPatchingValues.h"
 
 #include "../include/OC.h"
 
@@ -121,16 +128,7 @@ EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL* SimpleTextEx;
 EFI_KEY_DATA KeyData;
 
 EFI_HANDLE AudioDriverHandle;
-
-CONST CHAR8* AudioOutputNames[] = {
-  "LineOut",
-  "Speaker",
-  "Headphones",
-  "SPDIF",
-  "Garniture",
-  "HDMI",
-  "Other"
-};
+XStringW OpenRuntimeEfiName;
 
 extern void HelpRefit(void);
 extern void AboutRefit(void);
@@ -173,16 +171,21 @@ static EFI_STATUS LoadEFIImageList(IN EFI_DEVICE_PATH **DevicePaths,
   ReturnStatus = Status = EFI_NOT_FOUND;  // in case the list is empty
   for (DevicePathIndex = 0; DevicePaths[DevicePathIndex] != NULL; DevicePathIndex++) {
     ReturnStatus = Status = gBS->LoadImage(FALSE, self.getSelfImageHandle(), DevicePaths[DevicePathIndex], NULL, 0, &ChildImageHandle);
-    DBG("  status=%s", efiStrError(Status));
+    DBG(" status=%s", efiStrError(Status));
     if (ReturnStatus != EFI_NOT_FOUND)
       break;
   }
-  XStringW ErrorInfo =  SWPrintf("while loading %ls", ImageTitle.wc_str());
+  XStringW ErrorInfo =  SWPrintf(" while loading %ls", ImageTitle.wc_str());
   if (CheckError(Status, ErrorInfo.wc_str())) {
     if (ErrorInStep != NULL)
       *ErrorInStep = 1;
-    PauseForKey(L"press any key");
+    PauseForKey(NullXString8);
     goto bailout;
+  }else{
+    DBG("\n");
+#ifdef JIEF_DEBUG
+    DBG("ChildImaheHandle=%llx\n", uintptr_t(ChildImageHandle));
+#endif
   }
 
   if (!EFI_ERROR(ReturnStatus)) { //why unload driver?!
@@ -192,9 +195,9 @@ static EFI_STATUS LoadEFIImageList(IN EFI_DEVICE_PATH **DevicePaths,
 #ifdef JIEF_DEBUG
     EFI_LOADED_IMAGE_PROTOCOL* loadedBootImage = NULL;
     if (!EFI_ERROR(Status = gBS->HandleProtocol(ChildImageHandle, &gEfiLoadedImageProtocolGuid, (void**)(&loadedBootImage)))) {
-		DBG("%S : Image base = 0x%llx", ImageTitle.wc_str(), (uintptr_t)loadedBootImage->ImageBase); // Jief : Do not change this, it's used by grep to feed the debugger
+      DBG("%ls : Image base = 0x%llx\n", ImageTitle.wc_str(), (uintptr_t)loadedBootImage->ImageBase); // Jief : Do not change this, it's used by grep to feed the debugger
     }else{
-      DBG("Can't get loaded image protocol");
+      DBG("Can't get loaded image protocol\n");
     }
 #endif
     goto bailout;
@@ -203,13 +206,12 @@ static EFI_STATUS LoadEFIImageList(IN EFI_DEVICE_PATH **DevicePaths,
   // unload the image, we don't care if it works or not...
   Status = gBS->UnloadImage(ChildImageHandle);
 bailout:
-  DBG("\n");
   return ReturnStatus;
 }
 
 
 static EFI_STATUS StartEFILoadedImage(IN EFI_HANDLE ChildImageHandle,
-                                    IN CONST XString8Array& LoadOptions, IN CONST CHAR16 *LoadOptionsPrefix,
+                                    IN CONST XString8Array& LoadOptions, IN CONST XStringW& LoadOptionsPrefix,
                                     IN CONST XStringW& ImageTitle,
                                     OUT UINTN *ErrorInStep)
 {
@@ -238,10 +240,10 @@ static EFI_STATUS StartEFILoadedImage(IN EFI_HANDLE ChildImageHandle,
       goto bailout_unload;
     }
 
-    if (LoadOptionsPrefix != NULL) {
+    if ( LoadOptionsPrefix.notEmpty() ) {
       // NOTE: That last space is also added by the EFI shell and seems to be significant
       //  when passing options to Apple's boot.efi...
-      loadOptionsW = SWPrintf("%ls %s ", LoadOptionsPrefix, LoadOptions.ConcatAll(" "_XS8).c_str());
+      loadOptionsW = SWPrintf("%ls %s ", LoadOptionsPrefix.wc_str(), LoadOptions.ConcatAll(" "_XS8).c_str());
     }else{
       loadOptionsW = SWPrintf("%s ", LoadOptions.ConcatAll(" "_XS8).c_str()); // Jief : should we add a space ? Wasn't the case before big refactoring. Yes, a space required.
     }
@@ -277,7 +279,7 @@ static EFI_STATUS StartEFILoadedImage(IN EFI_HANDLE ChildImageHandle,
   ReinitRefitLib();
   // control returns here when the child image calls Exit()
   if (ImageTitle.notEmpty()) {
-	  snwprintf(ErrorInfo, 512, "returned from %ls", ImageTitle.s());
+    snwprintf(ErrorInfo, 512, "returned from %ls", ImageTitle.s());
   }
 
   if (CheckError(Status, ErrorInfo)) {
@@ -305,7 +307,7 @@ static EFI_STATUS LoadEFIImage(IN EFI_DEVICE_PATH *DevicePath,
 
 #ifdef ENABLE_SECURE_BOOT
   // Verify secure boot policy
-  if (gSettings.SecureBoot && gSettings.SecureBootSetupMode) {
+  if (GlobalConfig.SecureBoot && GlobalConfig.SecureBootSetupMode) {
     // Only verify if in forced secure boot mode
     EFI_STATUS Status = VerifySecureBootImage(DevicePath);
     if (EFI_ERROR(Status)) {
@@ -322,7 +324,7 @@ static EFI_STATUS LoadEFIImage(IN EFI_DEVICE_PATH *DevicePath,
 
 
 static EFI_STATUS StartEFIImage(IN EFI_DEVICE_PATH *DevicePath,
-                                IN CONST XString8Array& LoadOptions, IN CONST CHAR16 *LoadOptionsPrefix,
+                                IN CONST XString8Array& LoadOptions, IN CONST XStringW& LoadOptionsPrefix,
                                 IN CONST XStringW& ImageTitle,
                                 OUT UINTN *ErrorInStep,
                                 OUT EFI_HANDLE *NewImageHandle)
@@ -390,7 +392,7 @@ void DumpKernelAndKextPatches(KERNEL_AND_KEXT_PATCHES *Patches)
     return;
   }
   DBG("Kernel and Kext Patches at %llx:\n", (uintptr_t)Patches);
-  DBG("\tAllowed: %c\n", gSettings.KextPatchesAllowed ? 'y' : 'n');
+  DBG("\tAllowed: %c\n", GlobalConfig.KextPatchesAllowed ? 'y' : 'n');
   DBG("\tDebug: %c\n", Patches->KPDebug ? 'y' : 'n');
 //  DBG("\tKernelCpu: %c\n", Patches->KPKernelCpu ? 'y' : 'n');
   DBG("\tKernelLapic: %c\n", Patches->KPKernelLapic ? 'y' : 'n');
@@ -403,11 +405,11 @@ void DumpKernelAndKextPatches(KERNEL_AND_KEXT_PATCHES *Patches)
   DBG("\tFakeCPUID: 0x%X\n", Patches->FakeCPUID);
   DBG("\tATIController: %s\n", Patches->KPATIConnectorsController.isEmpty() ? "(null)": Patches->KPATIConnectorsController.c_str());
   DBG("\tATIDataLength: %zu\n", Patches->KPATIConnectorsData.size());
-  DBG("\t%zu Kexts to load\n", Patches->ForceKexts.size());
-  if (Patches->ForceKexts.size()) {
+  DBG("\t%zu Kexts to load\n", Patches->ForceKextsToLoad.size());
+  if (Patches->ForceKextsToLoad.size()) {
     size_t i = 0;
-    for (; i < Patches->ForceKexts.size(); ++i) {
-       DBG("\t  KextToLoad[%zu]: %ls\n", i, Patches->ForceKexts[i].wc_str());
+    for (; i < Patches->ForceKextsToLoad.size(); ++i) {
+       DBG("\t  KextToLoad[%zu]: %ls\n", i, Patches->ForceKextsToLoad[i].wc_str());
     }
   }
   DBG("\t%zu Kexts to patch\n", Patches->KextPatches.size());
@@ -425,14 +427,14 @@ void DumpKernelAndKextPatches(KERNEL_AND_KEXT_PATCHES *Patches)
 #endif
 void LOADER_ENTRY::FilterKextPatches()
 {
-  if ( gSettings.KextPatchesAllowed && KernelAndKextPatches.KextPatches.size() > 0 ) {
+  if ( GlobalConfig.KextPatchesAllowed && KernelAndKextPatches.KextPatches.size() > 0 ) {
     DBG("Filtering KextPatches:\n");
     for (size_t i = 0; i < KernelAndKextPatches.KextPatches.size(); i++) {
       DBG(" - [%02zu]: %s :: %s :: [OS: %s | MatchOS: %s | MatchBuild: %s]",
         i,
         KernelAndKextPatches.KextPatches[i].Label.c_str(),
         KernelAndKextPatches.KextPatches[i].IsPlistPatch ? "PlistPatch" : "BinPatch",
-        OSVersion.asString().c_str(),
+        macOSVersion.asString().c_str(),
         KernelAndKextPatches.KextPatches[i].MatchOS.notEmpty() ? KernelAndKextPatches.KextPatches[i].MatchOS.c_str() : "All",
         KernelAndKextPatches.KextPatches[i].MatchBuild.notEmpty() ? KernelAndKextPatches.KextPatches[i].MatchBuild.c_str() : "All"
       );
@@ -443,12 +445,12 @@ void LOADER_ENTRY::FilterKextPatches()
       }
       KernelAndKextPatches.KextPatches[i].MenuItem.BValue = true;
       if ((BuildVersion.notEmpty()) && (KernelAndKextPatches.KextPatches[i].MatchBuild.notEmpty())) {
-        KernelAndKextPatches.KextPatches[i].MenuItem.BValue = IsPatchEnabledByBuildNumber(KernelAndKextPatches.KextPatches[i].MatchBuild, BuildVersion);
+        KernelAndKextPatches.KextPatches[i].MenuItem.BValue = KernelAndKextPatches.KextPatches[i].IsPatchEnabledByBuildNumber(BuildVersion);
         DBG(" ==> %s\n", KernelAndKextPatches.KextPatches[i].MenuItem.BValue ? "allowed" : "not allowed");
         continue; 
       }
 
-      KernelAndKextPatches.KextPatches[i].MenuItem.BValue = IsPatchEnabled(KernelAndKextPatches.KextPatches[i].MatchOS, OSVersion);
+      KernelAndKextPatches.KextPatches[i].MenuItem.BValue = KernelAndKextPatches.KextPatches[i].IsPatchEnabled(macOSVersion);
       DBG(" ==> %s\n", KernelAndKextPatches.KextPatches[i].MenuItem.BValue ? "allowed" : "not allowed");
     }
   }
@@ -456,13 +458,13 @@ void LOADER_ENTRY::FilterKextPatches()
 
 void LOADER_ENTRY::FilterKernelPatches()
 {
-  if ( gSettings.KernelPatchesAllowed && KernelAndKextPatches.KernelPatches.notEmpty() ) {
+  if ( GlobalConfig.KernelPatchesAllowed && KernelAndKextPatches.KernelPatches.notEmpty() ) {
     DBG("Filtering KernelPatches:\n");
     for (size_t i = 0; i < KernelAndKextPatches.KernelPatches.size(); ++i) {
       DBG(" - [%02zu]: %s :: [OS: %s | MatchOS: %s | MatchBuild: %s]",
         i,
         KernelAndKextPatches.KernelPatches[i].Label.c_str(),
-        OSVersion.asString().c_str(),
+        macOSVersion.asString().c_str(),
         KernelAndKextPatches.KernelPatches[i].MatchOS.notEmpty() ? KernelAndKextPatches.KernelPatches[i].MatchOS.c_str() : "All",
         KernelAndKextPatches.KernelPatches[i].MatchBuild.notEmpty() ? KernelAndKextPatches.KernelPatches[i].MatchBuild.c_str() : "no"
       );
@@ -473,12 +475,12 @@ void LOADER_ENTRY::FilterKernelPatches()
       }
       KernelAndKextPatches.KernelPatches[i].MenuItem.BValue = true;
       if ((BuildVersion.notEmpty()) && (KernelAndKextPatches.KernelPatches[i].MatchBuild.notEmpty())) {
-        KernelAndKextPatches.KernelPatches[i].MenuItem.BValue = IsPatchEnabledByBuildNumber(KernelAndKextPatches.KernelPatches[i].MatchBuild, BuildVersion);
+        KernelAndKextPatches.KernelPatches[i].MenuItem.BValue = KernelAndKextPatches.KernelPatches[i].IsPatchEnabledByBuildNumber(BuildVersion);
         DBG(" ==> %s by build\n", KernelAndKextPatches.KernelPatches[i].MenuItem.BValue ? "allowed" : "not allowed");
         continue; 
       }
 
-      KernelAndKextPatches.KernelPatches[i].MenuItem.BValue = IsPatchEnabled(KernelAndKextPatches.KernelPatches[i].MatchOS, OSVersion);
+      KernelAndKextPatches.KernelPatches[i].MenuItem.BValue = KernelAndKextPatches.KernelPatches[i].IsPatchEnabled(macOSVersion);
       DBG(" ==> %s by OS\n", KernelAndKextPatches.KernelPatches[i].MenuItem.BValue ? "allowed" : "not allowed");
     }
   }
@@ -492,7 +494,7 @@ void LOADER_ENTRY::FilterBootPatches()
       DBG(" - [%02zu]: %s :: [OS: %s | MatchOS: %s | MatchBuild: %s]",
           i,
           KernelAndKextPatches.BootPatches[i].Label.c_str(),
-          OSVersion.asString().c_str(),
+          macOSVersion.asString().c_str(),
           KernelAndKextPatches.BootPatches[i].MatchOS.notEmpty() ? KernelAndKextPatches.BootPatches[i].MatchOS.c_str() : "All",
           KernelAndKextPatches.BootPatches[i].MatchBuild.notEmpty() ? KernelAndKextPatches.BootPatches[i].MatchBuild.c_str() : "no"
           );
@@ -502,12 +504,12 @@ void LOADER_ENTRY::FilterBootPatches()
       }
       KernelAndKextPatches.BootPatches[i].MenuItem.BValue = true;
       if ((BuildVersion.notEmpty()) && (KernelAndKextPatches.BootPatches[i].MatchBuild.notEmpty())) {
-        KernelAndKextPatches.BootPatches[i].MenuItem.BValue = IsPatchEnabledByBuildNumber(KernelAndKextPatches.BootPatches[i].MatchBuild, BuildVersion);
+        KernelAndKextPatches.BootPatches[i].MenuItem.BValue = KernelAndKextPatches.BootPatches[i].IsPatchEnabledByBuildNumber(BuildVersion);
         DBG(" ==> %s by build\n", KernelAndKextPatches.BootPatches[i].MenuItem.BValue ? "allowed" : "not allowed");
         continue;
       }
  
-      KernelAndKextPatches.BootPatches[i].MenuItem.BValue = IsPatchEnabled(KernelAndKextPatches.BootPatches[i].MatchOS, OSVersion);
+      KernelAndKextPatches.BootPatches[i].MenuItem.BValue = KernelAndKextPatches.BootPatches[i].IsPatchEnabled(macOSVersion);
       DBG(" ==> %s by OS\n", KernelAndKextPatches.BootPatches[i].MenuItem.BValue ? "allowed" : "not allowed");
   
     }
@@ -516,7 +518,7 @@ void LOADER_ENTRY::FilterBootPatches()
 /*
 void ReadSIPCfg()
 {
-  UINT32 csrCfg = gSettings.CsrActiveConfig & CSR_VALID_FLAGS;
+  UINT32 csrCfg = gSettings.RtVariables.CsrActiveConfig & CSR_VALID_FLAGS;
   CHAR16 *csrLog = (__typeof__(csrLog))AllocateZeroPool(SVALUE_MAX_SIZE);
 
   if (csrCfg & CSR_ALLOW_UNTRUSTED_KEXTS)
@@ -552,7 +554,7 @@ void ReadSIPCfg()
 // text output from boot.efi when booting in graphics mode
 //
 EFI_STATUS EFIAPI
-NullConOutOutputString(IN EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This, IN CONST CHAR16 *String) {
+NullConOutOutputString(IN EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, IN CONST CHAR16 *) {
   return EFI_SUCCESS;
 }
 
@@ -563,16 +565,16 @@ NullConOutOutputString(IN EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This, IN CONST CHAR16
 
 void CheckEmptyFB()
 {
-  BOOLEAN EmptyFB = (gSettings.IgPlatform == 0x00050000) ||
-  (gSettings.IgPlatform == 0x01620007) ||
-  (gSettings.IgPlatform == 0x04120004) ||
-  (gSettings.IgPlatform == 0x19120001) ||
-  (gSettings.IgPlatform == 0x59120003) ||
-  (gSettings.IgPlatform == 0x3E910003);
+  BOOLEAN EmptyFB = (GlobalConfig.IgPlatform == 0x00050000) ||
+  (GlobalConfig.IgPlatform == 0x01620007) ||
+  (GlobalConfig.IgPlatform == 0x04120004) ||
+  (GlobalConfig.IgPlatform == 0x19120001) ||
+  (GlobalConfig.IgPlatform == 0x59120003) ||
+  (GlobalConfig.IgPlatform == 0x3E910003);
   if (EmptyFB) {
-    gPlatformFeature |= PT_FEATURE_HAS_HEADLESS_GPU;
+    gSettings.Smbios.gPlatformFeature |= PT_FEATURE_HAS_HEADLESS_GPU;
   } else {
-    gPlatformFeature &= ~PT_FEATURE_HAS_HEADLESS_GPU;
+    gSettings.Smbios.gPlatformFeature &= ~PT_FEATURE_HAS_HEADLESS_GPU;
   }
 }
 
@@ -582,7 +584,11 @@ size_t setKextAtPos(XObjArray<SIDELOAD_KEXT>* kextArrayPtr, const XString8& kext
 
   for (size_t kextIdx = 0 ; kextIdx < kextArray.size() ; kextIdx++ ) {
     if ( kextArray[kextIdx].FileName.contains(kextName) ) {
+#ifdef DEBUG
       if ( pos >= kextArray.size() ) panic("pos >= kextArray.size()");
+#else
+      //it is impossible
+#endif
       if ( pos == kextIdx ) return pos+1;
       if ( pos > kextIdx ) pos -= 1;
       SIDELOAD_KEXT* kextToMove = &kextArray[kextIdx];
@@ -601,7 +607,7 @@ static XStringW getDriversPath()
     if (FileExists(&self.getCloverDir(), L"drivers\\BIOS")) {
       return L"drivers\\BIOS"_XSW;
     } else {
-      return L"drivers64"_XSW;
+      return L"drivers64"_XSW; //backward compatibility
     }
   } else
   if (FileExists(&self.getCloverDir(), L"drivers\\UEFI")) {
@@ -614,9 +620,10 @@ static XStringW getDriversPath()
 #endif
 }
 
+#ifdef DEBUG
 void debugStartImageWithOC()
 {
-MsgLog("debugStartImageWithOC\n");
+  MsgLog("debugStartImageWithOC\n");
   UINT64 CPUFrequencyFromART;
   InternalCalculateARTFrequencyIntel(&CPUFrequencyFromART, NULL, 1);
 
@@ -683,10 +690,13 @@ MsgLog("debugStartImageWithOC\n");
     MsgLog("debugStartImageWithOC : not found\n");
   }
 }
+#endif
+
+//const UINT32 standardMask[4] = {0xFF, 0xFF, 0xFF, 0xFF};
 
 void LOADER_ENTRY::DelegateKernelPatches()
 {
-  XObjArray<KEXT_PATCH> selectedPathArray;
+  XObjArray<ABSTRACT_KEXT_OR_KERNEL_PATCH> selectedPathArray;
   for (size_t kextPatchIdx = 0 ; kextPatchIdx < KernelAndKextPatches.KextPatches.size() ; kextPatchIdx++ )
   {
     if ( KernelAndKextPatches.KextPatches[kextPatchIdx].MenuItem.BValue )
@@ -702,11 +712,22 @@ void LOADER_ENTRY::DelegateKernelPatches()
   mOpenCoreConfiguration.Kernel.Patch.ValueSize = sizeof(__typeof_am__(**mOpenCoreConfiguration.Kernel.Patch.Values));
   mOpenCoreConfiguration.Kernel.Patch.Values = (__typeof_am__(*mOpenCoreConfiguration.Kernel.Patch.Values)*)malloc(mOpenCoreConfiguration.Kernel.Patch.AllocCount*sizeof(__typeof_am__(*mOpenCoreConfiguration.Kernel.Patch.Values)));
   memset(mOpenCoreConfiguration.Kernel.Patch.Values, 0, mOpenCoreConfiguration.Kernel.Patch.AllocCount*sizeof(*mOpenCoreConfiguration.Kernel.Patch.Values));
+  
+  UINT32 FakeCPU = gSettings.KernelAndKextPatches.FakeCPUID;
+//  for (size_t Idx = 0; Idx < 4; Idx++) {
+//    mOpenCoreConfiguration.Kernel.Emulate.Cpuid1Data[Idx] = FakeCPU & 0xFF;
+//    mOpenCoreConfiguration.Kernel.Emulate.Cpuid1Mask[Idx] = 0xFF;
+//    FakeCPU >>= 8;
+//  }
+  memset(mOpenCoreConfiguration.Kernel.Emulate.Cpuid1Data, 0, sizeof(mOpenCoreConfiguration.Kernel.Emulate.Cpuid1Data));
+  memset(mOpenCoreConfiguration.Kernel.Emulate.Cpuid1Mask, 0, sizeof(mOpenCoreConfiguration.Kernel.Emulate.Cpuid1Mask));
+  mOpenCoreConfiguration.Kernel.Emulate.Cpuid1Data[0] = FakeCPU;
+  mOpenCoreConfiguration.Kernel.Emulate.Cpuid1Mask[0] = 0xFFFFFFFF;
 
   for (size_t kextPatchIdx = 0 ; kextPatchIdx < selectedPathArray.size() ; kextPatchIdx++ )
   {
-    const KEXT_PATCH& kextPatch = selectedPathArray[kextPatchIdx];  //as well as kernel patches
-    DBG("Bridge %s patch to OC : %s\n", kextPatch.Name.c_str(), kextPatch.Label.c_str());
+    const ABSTRACT_KEXT_OR_KERNEL_PATCH& kextPatch = selectedPathArray[kextPatchIdx];  //as well as kernel patches
+    DBG("Bridge %s patch to OC : %s\n", kextPatch.getName().c_str(), kextPatch.Label.c_str());
     mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx] = (__typeof_am__(*mOpenCoreConfiguration.Kernel.Patch.Values))AllocateZeroPool(mOpenCoreConfiguration.Kernel.Patch.ValueSize); // sizeof(OC_KERNEL_ADD_ENTRY) == 680
     OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Arch, OC_BLOB_GET(&mOpenCoreConfiguration.Kernel.Scheme.KernelArch));
     OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Base, kextPatch.ProcedureName.c_str());
@@ -714,13 +735,13 @@ void LOADER_ENTRY::DelegateKernelPatches()
     mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Count = (UINT32)kextPatch.Count;
     mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Enabled = 1;
     
-    OC_STRING_ASSIGN_N(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Find, kextPatch.Data.data(), kextPatch.Data.size());
-    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Identifier, kextPatch.Name.c_str());
+    OC_STRING_ASSIGN_N(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Find, kextPatch.Find.data(), kextPatch.Find.size());
+    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Identifier, kextPatch.getName().c_str());
     mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Limit = (UINT32)kextPatch.SearchLen;
     OC_STRING_ASSIGN_N(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Mask, kextPatch.MaskFind.vdata(), kextPatch.MaskFind.size());
     OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->MaxKernel, ""); // it has been filtered, so we don't need to set Min and MaxKernel
     OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->MinKernel, "");
-    OC_STRING_ASSIGN_N(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Replace, kextPatch.Patch.vdata(), kextPatch.Patch.size());
+    OC_STRING_ASSIGN_N(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Replace, kextPatch.Replace.vdata(), kextPatch.Replace.size());
     OC_STRING_ASSIGN_N(mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->ReplaceMask, kextPatch.MaskReplace.vdata(), kextPatch.MaskReplace.size());
     mOpenCoreConfiguration.Kernel.Patch.Values[kextPatchIdx]->Skip = (UINT32)kextPatch.Skip;
 #ifdef JIEF_DEBUG
@@ -746,37 +767,24 @@ void LOADER_ENTRY::StartLoader()
 
   if (Settings.notEmpty()) {
     DBG("  Settings: %ls\n", Settings.wc_str());
-    TagDict* dict;
-    Status = LoadUserSettings(Settings, &dict);
+    Status = gConf.ReLoadConfig(Settings);
     if (!EFI_ERROR(Status)) {
       DBG(" - found custom settings for this entry: %ls\n", Settings.wc_str());
-      gBootChanged = TRUE;
-      Status = GetUserSettings(dict);
-      if (EFI_ERROR(Status)) {
-        DBG(" - ... but: %s\n", efiStrError(Status));
-      } else {
-        if ((gSettings.CpuFreqMHz > 100) && (gSettings.CpuFreqMHz < 20000)) {
-          gCPUStructure.MaxSpeed      = gSettings.CpuFreqMHz;
-        }
-        //CopyMem(KernelAndKextPatches,
-        //         &gSettings.KernelAndKextPatches,
-        //         sizeof(KERNEL_AND_KEXT_PATCHES));
-        //DBG("Custom KernelAndKextPatches copyed to started entry\n");
-      }
     } else {
       DBG(" - [!] LoadUserSettings failed: %s\n", efiStrError(Status));
+      /* we are not sure of the state of gSettings here... try to boot anyway */
     }
   }
   
-	DBG("Finally: ExternalClock=%lluMHz BusSpeed=%llukHz CPUFreq=%uMHz",
-  				DivU64x32(gCPUStructure.ExternalClock + kilo - 1, kilo),
-  				DivU64x32(gCPUStructure.FSBFrequency + kilo - 1, kilo),
+  DBG("Finally: ExternalClock=%lluMHz BusSpeed=%llukHz CPUFreq=%uMHz",
+          DivU64x32(gCPUStructure.ExternalClock + Kilo - 1, Kilo),
+          DivU64x32(gCPUStructure.FSBFrequency + Kilo - 1, Kilo),
           gCPUStructure.MaxSpeed);
-  if (gSettings.QPI) {
-	  DBG(" QPI: hw.busfrequency=%lluHz\n", MultU64x32(gSettings.QPI, Mega));
+  if (gSettings.CPU.QPI) {
+    DBG(" QPI: hw.busfrequency=%lluHz\n", MultU64x32(gSettings.CPU.QPI, Mega));
   } else {
     // to match the value of hw.busfrequency in the terminal
-	  DBG(" PIS: hw.busfrequency=%lluHz\n", MultU64x32(LShiftU64(DivU64x32(gCPUStructure.ExternalClock + kilo - 1, kilo), 2), Mega));
+    DBG(" PIS: hw.busfrequency=%lluHz\n", MultU64x32(LShiftU64(DivU64x32(gCPUStructure.ExternalClock + Kilo - 1, Kilo), 2), Mega));
   }
   
   //Free memory
@@ -817,384 +825,482 @@ void LOADER_ENTRY::StartLoader()
 
   if ( OSTYPE_IS_OSX(LoaderType) || OSTYPE_IS_OSX_RECOVERY(LoaderType) || OSTYPE_IS_OSX_INSTALLER(LoaderType) ) {
 
-  {
-    EFI_HANDLE Interface = NULL;
-    Status = gBS->LocateProtocol(&gAptioMemoryFixProtocolGuid, NULL, &Interface );
-    if ( !EFI_ERROR(Status) ) {
-      panic("Remove AptioMemoryFix.efi and OcQuirks.efi from your driver folder\n");
+      // These 2 drivers are now filtered and won't load. This check is currentmy useless.
+//    {
+//      EFI_HANDLE Interface = NULL;
+//      Status = gBS->LocateProtocol(&gAptioMemoryFixProtocolGuid, NULL, &Interface );
+//      if ( !EFI_ERROR(Status) ) {
+//#ifdef DEBUG
+//        panic("Remove AptioMemoryFix.efi and OcQuirks.efi from your driver folder\n");
+//#else
+//        DBG("Remove AptioMemoryFix.efi and OcQuirks.efi from your driver folder\n");
+//#endif
+//      }
+//    }
+
+
+  // if OC is NOT initialized with OcMain, we need the following
+  //  OcConfigureLogProtocol (
+  //    9,
+  //    0,
+  //    2151678018,
+  //    2147483648,
+  //    OPEN_CORE_LOG_PREFIX_PATH,
+  //    mOpenCoreStorage.FileSystem
+  //    );
+  //  DEBUG ((DEBUG_INFO, "OC: Log initialized...\n"));
+  //  OcAppleDebugLogInstallProtocol(0);
+
+
+  //debugStartImageWithOC();
+
+  DBG("Beginning OC\n");
+
+//    UINT64 CPUFrequencyFromART;
+//    InternalCalculateARTFrequencyIntel(&CPUFrequencyFromART, NULL, 1);
+
+    EFI_LOADED_IMAGE* OcLoadedImage;
+    Status = gBS->HandleProtocol(gImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **) &OcLoadedImage);
+    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* FileSystem = LocateFileSystem(OcLoadedImage->DeviceHandle, OcLoadedImage->FilePath);
+    Status = OcStorageInitFromFs(&mOpenCoreStorage, FileSystem, self.getCloverDirFullPath().wc_str(), NULL);
+
+  /*
+   * Define READ_FROM_OC to have mOpenCoreConfiguration initialized from config-oc.plist
+   * The boot should work.
+   * Next, comment out the next lines one by one. Once the boot failed, we got the section that
+   * holds the setting that makes a difference.
+   */
+  //#define USE_OC_SECTION_Acpi
+  //#define USE_OC_SECTION_Booter
+  //#define USE_OC_SECTION_DeviceProperties
+  //#define USE_OC_SECTION_Kernel
+  //#define USE_OC_SECTION_Misc
+  //#define USE_OC_SECTION_Nvram
+  //#define USE_OC_SECTION_PlatformInfo
+  //#define USE_OC_SECTION_Uefi
+
+  #if !defined(USE_OC_SECTION_Acpi) && !defined(USE_OC_SECTION_Booter) && !defined(USE_OC_SECTION_DeviceProperties) && !defined(USE_OC_SECTION_Kernel) && !defined(USE_OC_SECTION_Misc) && \
+      !defined(USE_OC_SECTION_Nvram) && !defined(USE_OC_SECTION_PlatformInfo) && !defined(USE_OC_SECTION_Uefi)
+
+    memset(&mOpenCoreConfiguration, 0, sizeof(mOpenCoreConfiguration));
+    DBG("config-oc.plist isn't use at all\n");
+
+  #else
+    Status = ClOcReadConfigurationFile(&mOpenCoreStorage, L"config-oc.plist", &mOpenCoreConfiguration);
+    if ( EFI_ERROR(Status) ) panic("ClOcReadConfigurationFile");
+
+    #ifndef USE_OC_SECTION_Acpi
+      memset(&mOpenCoreConfiguration.Acpi, 0, sizeof(mOpenCoreConfiguration.Acpi));
+      DBG("Erase mOpenCoreConfiguration.Acpi\n");
+    #else
+      DBG("Keep mOpenCoreConfiguration.Acpi\n");
+    #endif
+    #ifndef USE_OC_SECTION_Booter
+      memset(&mOpenCoreConfiguration.Booter, 0, sizeof(mOpenCoreConfiguration.Booter));
+      DBG("Erase mOpenCoreConfiguration.Booter\n");
+    #else
+      DBG("Keep mOpenCoreConfiguration.Booter\n");
+    #endif
+    #ifndef USE_OC_SECTION_DeviceProperties
+      memset(&mOpenCoreConfiguration.DeviceProperties, 0, sizeof(mOpenCoreConfiguration.DeviceProperties));
+      DBG("Erase mOpenCoreConfiguration.DeviceProperties\n");
+    #else
+      DBG("Keep mOpenCoreConfiguration.DeviceProperties\n");
+    #endif
+    #ifndef USE_OC_SECTION_Kernel
+      memset(&mOpenCoreConfiguration.Kernel, 0, sizeof(mOpenCoreConfiguration.Kernel));
+      DBG("Erase mOpenCoreConfiguration.Kernel\n");
+    #else
+      DBG("Keep mOpenCoreConfiguration.Kernel\n");
+      for ( size_t i = 0 ; i < mOpenCoreConfiguration.Kernel.Add.Count ; i ++ ) {
+        OC_KERNEL_ADD_ENTRY* entry = mOpenCoreConfiguration.Kernel.Add.Values[i];
+        OC_STRING_ASSIGN(entry->BundlePath, S8Printf("Kexts\\%s", OC_BLOB_GET(&entry->BundlePath)).c_str());
+      }
+    #endif
+    #ifndef USE_OC_SECTION_Misc
+      memset(&mOpenCoreConfiguration.Misc, 0, sizeof(mOpenCoreConfiguration.Misc));
+      DBG("Erase mOpenCoreConfiguration.Misc\n");
+    #else
+      DBG("Keep mOpenCoreConfiguration.Misc\n");
+    #endif
+    #ifndef USE_OC_SECTION_Nvram
+      memset(&mOpenCoreConfiguration.Nvram, 0, sizeof(mOpenCoreConfiguration.Nvram));
+      DBG("Erase mOpenCoreConfiguration.Nvram\n");
+    #else
+      DBG("Keep mOpenCoreConfiguration.Nvram\n");
+    #endif
+    #ifndef USE_OC_SECTION_PlatformInfo
+      memset(&mOpenCoreConfiguration.PlatformInfo, 0, sizeof(mOpenCoreConfiguration.PlatformInfo));
+      DBG("Erase mOpenCoreConfiguration.PlatformInfo\n");
+    #else
+      DBG("Keep mOpenCoreConfiguration.PlatformInfo\n");
+    #endif
+    #ifndef USE_OC_SECTION_Uefi
+      memset(&mOpenCoreConfiguration.Uefi, 0, sizeof(mOpenCoreConfiguration.Uefi));
+      DBG("Erase mOpenCoreConfiguration.Uefi\n");
+    #else
+      DBG("Keep mOpenCoreConfiguration.Uefi\n");
+  //    memset(&mOpenCoreConfiguration.Uefi.Apfs, 0, sizeof(mOpenCoreConfiguration.Uefi.Apfs));
+  //    memset(&mOpenCoreConfiguration.Uefi.Audio, 0, sizeof(mOpenCoreConfiguration.Uefi.Audio));
+  //    memset(&mOpenCoreConfiguration.Uefi.ConnectDrivers, 0, sizeof(mOpenCoreConfiguration.Uefi.ConnectDrivers));
+  //    memset(&mOpenCoreConfiguration.Uefi.Drivers, 0, sizeof(mOpenCoreConfiguration.Uefi.Drivers));
+  //    memset(&mOpenCoreConfiguration.Uefi.Input, 0, sizeof(mOpenCoreConfiguration.Uefi.Input));
+  //    memset(&mOpenCoreConfiguration.Uefi.Output, 0, sizeof(mOpenCoreConfiguration.Uefi.Output));
+  //    memset(&mOpenCoreConfiguration.Uefi.ProtocolOverrides, 0, sizeof(mOpenCoreConfiguration.Uefi.ProtocolOverrides));
+  //    memset(&mOpenCoreConfiguration.Uefi.Quirks, 0, sizeof(mOpenCoreConfiguration.Uefi.Quirks));
+  //    memset(&mOpenCoreConfiguration.Uefi.ReservedMemory, 0, sizeof(mOpenCoreConfiguration.Uefi.ReservedMemory)); // doesn't matter
+    #endif
+
+  #endif
+
+
+
+    if ( gSettings.Boot.DebugLog ) {
+      mOpenCoreConfiguration.Misc.Debug.AppleDebug = true;
+      mOpenCoreConfiguration.Misc.Debug.ApplePanic = true;
+  //    mOpenCoreConfiguration.Misc.Debug.DisableWatchDog = true; // already done by Clover ?
+  #ifndef LESS_DEBUG
+      mOpenCoreConfiguration.Misc.Debug.DisplayLevel = 0x80400042;
+  #else
+      mOpenCoreConfiguration.Misc.Debug.DisplayLevel = 0x80000042;
+  #endif
+      mOpenCoreConfiguration.Misc.Debug.Target = 0x41;
+    }else{
+  #ifdef JIEF_DEBUG
+      egSetGraphicsModeEnabled(false);
+      mOpenCoreConfiguration.Misc.Debug.ApplePanic = true;
+      mOpenCoreConfiguration.Misc.Debug.DisplayLevel = 0x80000042;
+      mOpenCoreConfiguration.Misc.Debug.Target = 0x3;
+  #endif
     }
-  }
-
-
-// if OC is NOT initialized with OcMain, we need the following
-//  OcConfigureLogProtocol (
-//    9,
-//    0,
-//    2151678018,
-//    2147483648,
-//    OPEN_CORE_LOG_PREFIX_PATH,
-//    mOpenCoreStorage.FileSystem
-//    );
-//  DEBUG ((DEBUG_INFO, "OC: Log initialized...\n"));
-//  OcAppleDebugLogInstallProtocol(0);
-
-
-//debugStartImageWithOC();
-
-DBG("Beginning OC\n");
-
-  UINT64 CPUFrequencyFromART;
-  InternalCalculateARTFrequencyIntel(&CPUFrequencyFromART, NULL, 1);
-
-  EFI_LOADED_IMAGE* OcLoadedImage;
-  Status = gBS->HandleProtocol(gImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **) &OcLoadedImage);
-  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* FileSystem = LocateFileSystem(OcLoadedImage->DeviceHandle, OcLoadedImage->FilePath);
-  Status = OcStorageInitFromFs(&mOpenCoreStorage, FileSystem, self.getCloverDirFullPath().wc_str(), NULL);
-
-
-
-/*
- * Define READ_FROM_OC to have mOpenCoreConfiguration initialized from config-oc.plist
- * The boot should work.
- * Next, comment out the next lines one by one. Once the boot failed, we got the section that
- * holds the setting that makes a difference.
- */
-//#define USE_OC_SECTION_Acpi
-//#define USE_OC_SECTION_Booter
-//#define USE_OC_SECTION_DeviceProperties
-//#define USE_OC_SECTION_Kernel
-//#define USE_OC_SECTION_Misc
-//#define USE_OC_SECTION_Nvram
-//#define USE_OC_SECTION_PlatformInfo
-//#define USE_OC_SECTION_Uefi
-
-#if !defined(USE_OC_SECTION_Acpi) && !defined(USE_OC_SECTION_Booter) && !defined(USE_OC_SECTION_DeviceProperties) && !defined(USE_OC_SECTION_Kernel) && !defined(USE_OC_SECTION_Misc) && \
-    !defined(USE_OC_SECTION_Nvram) && !defined(USE_OC_SECTION_PlatformInfo) && !defined(USE_OC_SECTION_Uefi)
-
-  memset(&mOpenCoreConfiguration, 0, sizeof(mOpenCoreConfiguration));
-  DBG("config-oc.plist isn't use at all\n");
-
-#else
-  Status = ClOcReadConfigurationFile(&mOpenCoreStorage, L"config-oc.plist", &mOpenCoreConfiguration);
-  if ( EFI_ERROR(Status) ) panic("ClOcReadConfigurationFile");
-
-  #ifndef USE_OC_SECTION_Acpi
-    memset(&mOpenCoreConfiguration.Acpi, 0, sizeof(mOpenCoreConfiguration.Acpi));
-    DBG("Erase mOpenCoreConfiguration.Acpi\n");
-  #else
-    DBG("Keep mOpenCoreConfiguration.Acpi\n");
-  #endif
-  #ifndef USE_OC_SECTION_Booter
-    memset(&mOpenCoreConfiguration.Booter, 0, sizeof(mOpenCoreConfiguration.Booter));
-    DBG("Erase mOpenCoreConfiguration.Booter\n");
-  #else
-    DBG("Keep mOpenCoreConfiguration.Booter\n");
-  #endif
-  #ifndef USE_OC_SECTION_DeviceProperties
-    memset(&mOpenCoreConfiguration.DeviceProperties, 0, sizeof(mOpenCoreConfiguration.DeviceProperties));
-    DBG("Erase mOpenCoreConfiguration.DeviceProperties\n");
-  #else
-    DBG("Keep mOpenCoreConfiguration.DeviceProperties\n");
-  #endif
-  #ifndef USE_OC_SECTION_Kernel
-    memset(&mOpenCoreConfiguration.Kernel, 0, sizeof(mOpenCoreConfiguration.Kernel));
-    DBG("Erase mOpenCoreConfiguration.Kernel\n");
-  #else
-    DBG("Keep mOpenCoreConfiguration.Kernel\n");
-    for ( size_t i = 0 ; i < mOpenCoreConfiguration.Kernel.Add.Count ; i ++ ) {
-      OC_KERNEL_ADD_ENTRY* entry = mOpenCoreConfiguration.Kernel.Add.Values[i];
-      OC_STRING_ASSIGN(entry->BundlePath, S8Printf("Kexts\\%s", OC_BLOB_GET(&entry->BundlePath)).c_str());
-    }
-  #endif
-  #ifndef USE_OC_SECTION_Misc
-    memset(&mOpenCoreConfiguration.Misc, 0, sizeof(mOpenCoreConfiguration.Misc));
-    DBG("Erase mOpenCoreConfiguration.Misc\n");
-  #else
-    DBG("Keep mOpenCoreConfiguration.Misc\n");
-  #endif
-  #ifndef USE_OC_SECTION_Nvram
-    memset(&mOpenCoreConfiguration.Nvram, 0, sizeof(mOpenCoreConfiguration.Nvram));
-    DBG("Erase mOpenCoreConfiguration.Nvram\n");
-  #else
-    DBG("Keep mOpenCoreConfiguration.Nvram\n");
-  #endif
-  #ifndef USE_OC_SECTION_PlatformInfo
-    memset(&mOpenCoreConfiguration.PlatformInfo, 0, sizeof(mOpenCoreConfiguration.PlatformInfo));
-    DBG("Erase mOpenCoreConfiguration.PlatformInfo\n");
-  #else
-    DBG("Keep mOpenCoreConfiguration.PlatformInfo\n");
-  #endif
-  #ifndef USE_OC_SECTION_Uefi
-    memset(&mOpenCoreConfiguration.Uefi, 0, sizeof(mOpenCoreConfiguration.Uefi));
-    DBG("Erase mOpenCoreConfiguration.Uefi\n");
-  #else
-    DBG("Keep mOpenCoreConfiguration.Uefi\n");
-//    memset(&mOpenCoreConfiguration.Uefi.Apfs, 0, sizeof(mOpenCoreConfiguration.Uefi.Apfs));
-//    memset(&mOpenCoreConfiguration.Uefi.Audio, 0, sizeof(mOpenCoreConfiguration.Uefi.Audio));
-//    memset(&mOpenCoreConfiguration.Uefi.ConnectDrivers, 0, sizeof(mOpenCoreConfiguration.Uefi.ConnectDrivers));
-//    memset(&mOpenCoreConfiguration.Uefi.Drivers, 0, sizeof(mOpenCoreConfiguration.Uefi.Drivers));
-//    memset(&mOpenCoreConfiguration.Uefi.Input, 0, sizeof(mOpenCoreConfiguration.Uefi.Input));
-//    memset(&mOpenCoreConfiguration.Uefi.Output, 0, sizeof(mOpenCoreConfiguration.Uefi.Output));
-//    memset(&mOpenCoreConfiguration.Uefi.ProtocolOverrides, 0, sizeof(mOpenCoreConfiguration.Uefi.ProtocolOverrides));
-//    memset(&mOpenCoreConfiguration.Uefi.Quirks, 0, sizeof(mOpenCoreConfiguration.Uefi.Quirks));
-//    memset(&mOpenCoreConfiguration.Uefi.ReservedMemory, 0, sizeof(mOpenCoreConfiguration.Uefi.ReservedMemory)); // doesn't matter
-  #endif
-
-#endif
-    
-    
-
-  if ( GlobalConfig.DebugLog ) {
-    mOpenCoreConfiguration.Misc.Debug.AppleDebug = true;
-    mOpenCoreConfiguration.Misc.Debug.ApplePanic = true;
-//    mOpenCoreConfiguration.Misc.Debug.DisableWatchDog = true; // already done by Clover ?
-#ifndef LESS_DEBUG
-    mOpenCoreConfiguration.Misc.Debug.DisplayLevel = 0x80400042;
-#else
-    mOpenCoreConfiguration.Misc.Debug.DisplayLevel = 0x80000042;
-#endif
-    mOpenCoreConfiguration.Misc.Debug.Target = 0x41;
-  }else{
-#ifdef JIEF_DEBUG
-    egSetGraphicsModeEnabled(false);
-    mOpenCoreConfiguration.Misc.Debug.ApplePanic = true;
-    mOpenCoreConfiguration.Misc.Debug.DisplayLevel = 0x80000042;
-    mOpenCoreConfiguration.Misc.Debug.Target = 0x3;
-#endif
-  }
 
   #ifndef USE_OC_SECTION_Misc
-  OC_STRING_ASSIGN(mOpenCoreConfiguration.Misc.Security.SecureBootModel, "Disabled");
-  OC_STRING_ASSIGN(mOpenCoreConfiguration.Misc.Security.Vault, "Optional");
+    OC_STRING_ASSIGN(mOpenCoreConfiguration.Misc.Security.SecureBootModel, "Disabled");
+    OC_STRING_ASSIGN(mOpenCoreConfiguration.Misc.Security.Vault, "Optional");
   #endif
   #ifdef USE_OC_SECTION_Nvram
-  mOpenCoreConfiguration.Nvram.WriteFlash = true;
-#endif
-
-#ifndef USE_OC_SECTION_Booter
-
-  mOpenCoreConfiguration.Booter.MmioWhitelist.Count = (UINT32)gSettings.mmioWhiteListArray.size();
-  mOpenCoreConfiguration.Booter.MmioWhitelist.AllocCount = mOpenCoreConfiguration.Booter.MmioWhitelist.Count;
-  mOpenCoreConfiguration.Booter.MmioWhitelist.ValueSize = sizeof(__typeof_am__(**mOpenCoreConfiguration.Booter.MmioWhitelist.Values)); // sizeof(OC_KERNEL_ADD_ENTRY) == 680
-  if ( mOpenCoreConfiguration.Booter.MmioWhitelist.Count > 0 ) {
-    mOpenCoreConfiguration.Booter.MmioWhitelist.Values = (OC_BOOTER_WL_ENTRY**)AllocatePool(mOpenCoreConfiguration.Booter.MmioWhitelist.AllocCount*sizeof(*mOpenCoreConfiguration.Booter.MmioWhitelist.Values)); // sizeof(OC_KERNEL_ADD_ENTRY) == 680
-  }else{
-    mOpenCoreConfiguration.Booter.MmioWhitelist.Values = NULL;
-  }
-  for ( size_t idx = 0 ; idx < gSettings.mmioWhiteListArray.size() ; idx++ ) {
-    const MMIOWhiteList& entry = gSettings.mmioWhiteListArray[idx];
-    DBG("Bridge mmioWhiteList[%zu] to OC : comment=%s\n", idx, entry.comment.c_str());
-    mOpenCoreConfiguration.Booter.MmioWhitelist.Values[idx] = (__typeof_am__(*mOpenCoreConfiguration.Booter.MmioWhitelist.Values))AllocatePool(mOpenCoreConfiguration.Booter.MmioWhitelist.ValueSize);
-    mOpenCoreConfiguration.Booter.MmioWhitelist.Values[idx]->Address = entry.address;
-    OC_STRING_ASSIGN(mOpenCoreConfiguration.Booter.MmioWhitelist.Values[idx]->Comment, entry.comment.c_str());
-    mOpenCoreConfiguration.Booter.MmioWhitelist.Values[idx]->Enabled = entry.enabled;
-  }
-
-  static_assert(sizeof(gSettings.ocBooterQuirks) == sizeof(mOpenCoreConfiguration.Booter.Quirks), "sizeof(gSettings.ocBooterQuirks) == sizeof(mOpenCoreConfiguration.Booter.Quirks)");
-  memcpy(&mOpenCoreConfiguration.Booter.Quirks, &gSettings.ocBooterQuirks, sizeof(mOpenCoreConfiguration.Booter.Quirks));
-
-#endif
-
-
-// if OC is NOT initialized with OcMain, we need the following
-//  OcLoadBooterUefiSupport(&mOpenCoreConfiguration);
-//  OcLoadKernelSupport(&mOpenCoreStorage, &mOpenCoreConfiguration, &mOpenCoreCpuInfo);
-//  OcImageLoaderInit ();
-
-#ifndef USE_OC_SECTION_Kernel
-
-  XObjArray<SIDELOAD_KEXT> kextArray;
-  if (!DoHibernateWake) {
-    AddKextsInArray(&kextArray);
-  }
-
-
-
-  OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Scheme.KernelArch, "x86_64");
-  OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Scheme.KernelCache, gSettings.KernelAndKextPatches.OcKernelCache.c_str());
-  mOpenCoreConfiguration.Kernel.Scheme.FuzzyMatch = gSettings.KernelAndKextPatches.FuzzyMatch;
-  memcpy(&mOpenCoreConfiguration.Kernel.Quirks, &gSettings.KernelAndKextPatches.OcKernelQuirks, sizeof(mOpenCoreConfiguration.Kernel.Quirks));
-
-  mOpenCoreConfiguration.Kernel.Add.Count = (UINT32)kextArray.size();
-  mOpenCoreConfiguration.Kernel.Add.AllocCount = mOpenCoreConfiguration.Kernel.Add.Count;
-  mOpenCoreConfiguration.Kernel.Add.ValueSize = sizeof(__typeof_am__(**mOpenCoreConfiguration.Kernel.Add.Values)); // sizeof(OC_KERNEL_ADD_ENTRY) == 680
-  mOpenCoreConfiguration.Kernel.Add.Values = (OC_KERNEL_ADD_ENTRY**)malloc(mOpenCoreConfiguration.Kernel.Add.AllocCount*sizeof(*mOpenCoreConfiguration.Kernel.Add.Values)); // sizeof(OC_KERNEL_ADD_ENTRY*) == sizeof(ptr)
-  memset(mOpenCoreConfiguration.Kernel.Add.Values, 0, mOpenCoreConfiguration.Kernel.Add.AllocCount*sizeof(*mOpenCoreConfiguration.Kernel.Add.Values));
-
-  // Seems that Lilu must be first.
-  size_t pos = setKextAtPos(&kextArray, "Lilu.kext"_XS8, 0);
-  pos = setKextAtPos(&kextArray, "VirtualSMC.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "FakePCIID.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "FakePCIID_XHCIMux.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "AMDRyzenCPUPowerManagement﻿﻿.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "SMCAMDProcessor.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "WhateverGreen.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "AppleALC.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "IntelMausi.kext"_XS8, pos); // not needed special order?
-  pos = setKextAtPos(&kextArray, "SMCProcessor.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "SMCSuperIO.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "USBPorts.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "VoodooGPIO.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "VoodooI2CServices.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "VoodooI2C.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "VoodooI2CHID.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "BrcmFirmwareData.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "BrcmPatchRAM2.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "BrcmPatchRAM3.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "HS80211Family.kext"_XS8, pos);
-  pos = setKextAtPos(&kextArray, "AirPortAtheros40.kext"_XS8, pos);
-
-  for (size_t kextIdx = 0 ; kextIdx < kextArray.size() ; kextIdx++ )
-  {
-    const SIDELOAD_KEXT& KextEntry = kextArray[kextIdx];
-    DBG("Bridge kext to OC : Path=%ls\n", KextEntry.FileName.wc_str());
-    mOpenCoreConfiguration.Kernel.Add.Values[kextIdx] = (__typeof_am__(*mOpenCoreConfiguration.Kernel.Add.Values))malloc(mOpenCoreConfiguration.Kernel.Add.ValueSize);
-    memset(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx], 0, mOpenCoreConfiguration.Kernel.Add.ValueSize);
-    mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->Enabled = 1;
-    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->Arch, OC_BLOB_GET(&mOpenCoreConfiguration.Kernel.Scheme.KernelArch));
-    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->Comment, "");
-    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->MaxKernel, "");
-    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->MinKernel, "");
-    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->Identifier, "");
-
-    assert( selfOem.isKextsDirFound() ); // be sure before calling getKextsPathRelToSelfDir()
-    XStringW dirPath = SWPrintf("%ls\\%ls", selfOem.getKextsDirPathRelToSelfDir().wc_str(), KextEntry.KextDirNameUnderOEMPath.wc_str());
-//    XString8 bundlePath = S8Printf("%ls\\%ls\\%ls", selfOem.getKextsPathRelToSelfDir().wc_str(), KextEntry.KextDirNameUnderOEMPath.wc_str(), KextEntry.FileName.wc_str());
-    XString8 bundlePath = S8Printf("%ls\\%ls", dirPath.wc_str(), KextEntry.FileName.wc_str());
-    if ( FileExists(&self.getCloverDir(), bundlePath) ) {
-      OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->BundlePath, bundlePath.c_str());
-    }else{
-      DBG("Cannot find kext bundlePath at '%s'\n", bundlePath.c_str());
-    }
-#if 1
-    //CFBundleExecutable
-    BOOLEAN   NoContents = FALSE;
-    XStringW  infoPlistPath = getKextPlist(dirPath, KextEntry, &NoContents); //it will be fullPath, including dir
-    TagDict*  dict = getInfoPlist(infoPlistPath);
-//    BOOLEAN inject = checkOSBundleRequired(dict);
-    BOOLEAN inject = true;
-    if (inject) {
-      if ( infoPlistPath.notEmpty()) {
-        if (NoContents) {
-          OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistPath, "Info.plist");
-        } else {
-          OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistPath, "Contents/Info.plist");
-        }
-      }else{
-        DBG("Cannot find kext info.plist at '%ls'\n", KextEntry.FileName.wc_str());
-      }
-      XString8 execpath = getKextExecPath(dirPath, KextEntry, dict, NoContents);
-      if (execpath.notEmpty()) {
-        OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->ExecutablePath, execpath.c_str());
-        DBG("assign executable as '%s'\n", execpath.c_str());
-      }
-    }
-
-#else
-    XStringW execpath = S8Printf("Contents\\MacOS\\%ls", KextEntry.FileName.subString(0, KextEntry.FileName.rindexOf(".")).wc_str());
-    XStringW fullPath = SWPrintf("%s\\%ls", OC_BLOB_GET(&mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->BundlePath), execpath.wc_str());
-    if ( FileExists(&self.getCloverDir(), fullPath) ) {
-      OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->ExecutablePath, S8Printf("Contents\\MacOS\\%ls", KextEntry.FileName.subString(0, KextEntry.FileName.rindexOf(".")).wc_str()).c_str());
-    }
-    XStringW infoPlistPath = SWPrintf("%s\\Contents\\Info.plist", OC_BLOB_GET(&mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->BundlePath));
-    if ( FileExists(&self.getCloverDir(), infoPlistPath) ) {
-      OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistPath, "Contents/Info.plist"); // TODO : is always Contents/Info.plist ?
-    }else{
-      DBG("Cannot find kext info.plist at '%ls'\n", infoPlistPath.wc_str());
-    }
-#endif
-    mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->ImageData = NULL;
-    mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->ImageDataSize = 0;
-    mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistData = NULL;
-    mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistDataSize = 0;
-
-  }
-
-//DelegateKernelPatches();
-    
-  for (size_t forceKextIdx = 0 ; forceKextIdx < KernelAndKextPatches.ForceKexts.size() ; forceKextIdx++ )
-  {
-    const XStringW& forceKext = KernelAndKextPatches.ForceKexts[forceKextIdx];
-    DBG("TODO !!!!!!!! Bridge force kext to OC : %ls\n", forceKext.wc_str());
-  }
-#endif
-
-  #ifndef USE_OC_SECTION_PlatformInfo
-    mOpenCoreConfiguration.Kernel.Quirks.CustomSmbiosGuid = gSettings.KernelAndKextPatches.KPDELLSMBIOS;
+    mOpenCoreConfiguration.Nvram.WriteFlash = true;
   #endif
-  mOpenCoreConfiguration.Uefi.Output.ProvideConsoleGop = gSettings.ProvideConsoleGop;
-  OC_STRING_ASSIGN(mOpenCoreConfiguration.Uefi.Output.Resolution, XString8(GlobalConfig.ScreenResolution).c_str());
+
+  #ifndef USE_OC_SECTION_Booter
+
+    mOpenCoreConfiguration.Booter.MmioWhitelist.Count = (UINT32)gSettings.Quirks.mmioWhiteListArray.size();
+    mOpenCoreConfiguration.Booter.MmioWhitelist.AllocCount = mOpenCoreConfiguration.Booter.MmioWhitelist.Count;
+    mOpenCoreConfiguration.Booter.MmioWhitelist.ValueSize = sizeof(__typeof_am__(**mOpenCoreConfiguration.Booter.MmioWhitelist.Values)); // sizeof(OC_KERNEL_ADD_ENTRY) == 680
+    if ( mOpenCoreConfiguration.Booter.MmioWhitelist.Count > 0 ) {
+      mOpenCoreConfiguration.Booter.MmioWhitelist.Values = (OC_BOOTER_WL_ENTRY**)AllocatePool(mOpenCoreConfiguration.Booter.MmioWhitelist.AllocCount*sizeof(*mOpenCoreConfiguration.Booter.MmioWhitelist.Values)); // sizeof(OC_KERNEL_ADD_ENTRY) == 680
+    }else{
+      mOpenCoreConfiguration.Booter.MmioWhitelist.Values = NULL;
+    }
+    for ( size_t idx = 0 ; idx < gSettings.Quirks.mmioWhiteListArray.size() ; idx++ ) {
+      const SETTINGS_DATA::QuirksClass::MMIOWhiteList& entry = gSettings.Quirks.mmioWhiteListArray[idx];
+      DBG("Bridge mmioWhiteList[%zu] to OC : comment=%s\n", idx, entry.comment.c_str());
+      mOpenCoreConfiguration.Booter.MmioWhitelist.Values[idx] = (__typeof_am__(*mOpenCoreConfiguration.Booter.MmioWhitelist.Values))AllocatePool(mOpenCoreConfiguration.Booter.MmioWhitelist.ValueSize);
+      mOpenCoreConfiguration.Booter.MmioWhitelist.Values[idx]->Address = entry.address;
+      OC_STRING_ASSIGN(mOpenCoreConfiguration.Booter.MmioWhitelist.Values[idx]->Comment, entry.comment.c_str());
+      mOpenCoreConfiguration.Booter.MmioWhitelist.Values[idx]->Enabled = entry.enabled;
+    }
+
+    // It's possible to memcpy the whole struct instead of assigning individual member. But that would be relying on internel C++ binary structure,
+    // and worse, if a field is added by OC, everything could be shifted.
+    memset(&mOpenCoreConfiguration.Booter.Quirks, 0, sizeof(mOpenCoreConfiguration.Booter.Quirks));
+    mOpenCoreConfiguration.Booter.Quirks.AvoidRuntimeDefrag = gSettings.Quirks.OcBooterQuirks.AvoidRuntimeDefrag;
+    mOpenCoreConfiguration.Booter.Quirks.DevirtualiseMmio = gSettings.Quirks.OcBooterQuirks.DevirtualiseMmio;
+    mOpenCoreConfiguration.Booter.Quirks.DisableSingleUser = gSettings.Quirks.OcBooterQuirks.DisableSingleUser;
+    mOpenCoreConfiguration.Booter.Quirks.DisableVariableWrite = gSettings.Quirks.OcBooterQuirks.DisableVariableWrite;
+    mOpenCoreConfiguration.Booter.Quirks.DiscardHibernateMap = gSettings.Quirks.OcBooterQuirks.DiscardHibernateMap;
+    mOpenCoreConfiguration.Booter.Quirks.EnableSafeModeSlide = gSettings.Quirks.OcBooterQuirks.EnableSafeModeSlide;
+    mOpenCoreConfiguration.Booter.Quirks.EnableWriteUnprotector = gSettings.Quirks.OcBooterQuirks.EnableWriteUnprotector;
+    mOpenCoreConfiguration.Booter.Quirks.ForceExitBootServices = gSettings.Quirks.OcBooterQuirks.ForceExitBootServices;
+    mOpenCoreConfiguration.Booter.Quirks.ProtectMemoryRegions = gSettings.Quirks.OcBooterQuirks.ProtectMemoryRegions;
+    mOpenCoreConfiguration.Booter.Quirks.ProtectSecureBoot = gSettings.Quirks.OcBooterQuirks.ProtectSecureBoot;
+    mOpenCoreConfiguration.Booter.Quirks.ProtectUefiServices = gSettings.Quirks.OcBooterQuirks.ProtectUefiServices;
+    mOpenCoreConfiguration.Booter.Quirks.ProvideCustomSlide = gSettings.Quirks.OcBooterQuirks.ProvideCustomSlide;
+    mOpenCoreConfiguration.Booter.Quirks.ProvideMaxSlide = gSettings.Quirks.OcBooterQuirks.ProvideMaxSlide;
+    mOpenCoreConfiguration.Booter.Quirks.RebuildAppleMemoryMap = gSettings.Quirks.OcBooterQuirks.RebuildAppleMemoryMap;
+    mOpenCoreConfiguration.Booter.Quirks.SetupVirtualMap = gSettings.Quirks.OcBooterQuirks.SetupVirtualMap;
+    mOpenCoreConfiguration.Booter.Quirks.SignalAppleOS = gSettings.Quirks.OcBooterQuirks.SignalAppleOS;
+    mOpenCoreConfiguration.Booter.Quirks.SyncRuntimePermissions = gSettings.Quirks.OcBooterQuirks.SyncRuntimePermissions;
+
+  #endif
+
+    FillOCCpuInfo(&mOpenCoreCpuInfo);
+
+  // if OC is NOT initialized with OcMain, we need the following
+  //  OcLoadBooterUefiSupport(&mOpenCoreConfiguration);
+  //  OcLoadKernelSupport(&mOpenCoreStorage, &mOpenCoreConfiguration, &mOpenCoreCpuInfo);
+  //  OcImageLoaderInit ();
+
+  #ifndef USE_OC_SECTION_Kernel
+
+    XObjArray<SIDELOAD_KEXT> kextArray;
+    if (!DoHibernateWake) {
+      AddKextsInArray(&kextArray);
+    }
 
 
-// if OC is NOT initialized with OcMain, we need the following
-//  if (OcOSInfoInstallProtocol (false) == NULL) {
-//    DEBUG ((DEBUG_ERROR, "OC: Failed to install os info protocol\n"));
-//  }
-//  if (OcAppleRtcRamInstallProtocol (false) == NULL) {
-//    DEBUG ((DEBUG_ERROR, "OC: Failed to install rtc ram protocol\n"));
-//  }
 
-////  Uncomment OcMiscBoot to run the OC bootpicker
-//  OcMiscBoot (
-//    &mOpenCoreStorage,
-//    &mOpenCoreConfiguration,
-//    NULL,
-//    OcStartImage_2,
-//    mOpenCoreConfiguration.Uefi.Quirks.RequestBootVarRouting,
-//    mLoadHandle
-//    );
+    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Scheme.KernelArch, "x86_64");
+    OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Scheme.KernelCache, gSettings.Quirks.OcKernelCache.c_str());
+    mOpenCoreConfiguration.Kernel.Scheme.FuzzyMatch = gSettings.Quirks.FuzzyMatch;
+
+    memset(&mOpenCoreConfiguration.Kernel.Quirks, 0, sizeof(mOpenCoreConfiguration.Kernel.Quirks));
+    mOpenCoreConfiguration.Kernel.Quirks.AppleCpuPmCfgLock = GlobalConfig.KPAppleIntelCPUPM;
+    mOpenCoreConfiguration.Kernel.Quirks.AppleXcpmCfgLock = GlobalConfig.KPKernelPm;
+    mOpenCoreConfiguration.Kernel.Quirks.AppleXcpmExtraMsrs = gSettings.Quirks.OcKernelQuirks.AppleXcpmExtraMsrs;
+    mOpenCoreConfiguration.Kernel.Quirks.AppleXcpmForceBoost = gSettings.Quirks.OcKernelQuirks.AppleXcpmForceBoost;
+    #ifndef USE_OC_SECTION_PlatformInfo
+      mOpenCoreConfiguration.Kernel.Quirks.CustomSmbiosGuid = gSettings.KernelAndKextPatches.KPDELLSMBIOS;
+    #endif
+    mOpenCoreConfiguration.Kernel.Quirks.DisableIoMapper = gSettings.Quirks.OcKernelQuirks.DisableIoMapper;
+    mOpenCoreConfiguration.Kernel.Quirks.DisableLinkeditJettison = gSettings.Quirks.OcKernelQuirks.DisableLinkeditJettison;
+    mOpenCoreConfiguration.Kernel.Quirks.DisableRtcChecksum = gSettings.KernelAndKextPatches.KPAppleRTC;
+    mOpenCoreConfiguration.Kernel.Quirks.DummyPowerManagement = gSettings.Quirks.OcKernelQuirks.DummyPowerManagement;
+    mOpenCoreConfiguration.Kernel.Quirks.ExternalDiskIcons = gSettings.Quirks.OcKernelQuirks.ExternalDiskIcons;
+    mOpenCoreConfiguration.Kernel.Quirks.IncreasePciBarSize = gSettings.Quirks.OcKernelQuirks.IncreasePciBarSize;
+    mOpenCoreConfiguration.Kernel.Quirks.LapicKernelPanic = gSettings.KernelAndKextPatches.KPKernelLapic;
+    mOpenCoreConfiguration.Kernel.Quirks.PanicNoKextDump = gSettings.KernelAndKextPatches.KPPanicNoKextDump;
+    mOpenCoreConfiguration.Kernel.Quirks.PowerTimeoutKernelPanic = gSettings.Quirks.OcKernelQuirks.PowerTimeoutKernelPanic;
+    mOpenCoreConfiguration.Kernel.Quirks.ThirdPartyDrives = gSettings.Quirks.OcKernelQuirks.ThirdPartyDrives;
+    mOpenCoreConfiguration.Kernel.Quirks.XhciPortLimit = gSettings.Quirks.OcKernelQuirks.XhciPortLimit;
 
 
-  XStringW FileName = SWPrintf("%ls\\%ls\\%s", self.getCloverDirFullPath().wc_str(), getDriversPath().wc_str(), "OpenRuntime.efi");
-  EFI_HANDLE DriverHandle;
-  Status = gBS->LoadImage(false, gImageHandle, FileDevicePath(self.getSelfLoadedImage().DeviceHandle, FileName), NULL, 0, &DriverHandle);
-  DBG("Load OpenRuntime.efi : Status %s\n", efiStrError(Status));
-  Status = gBS->StartImage(DriverHandle, 0, 0);
-  DBG("Start OpenRuntime.efi : Status %s\n", efiStrError(Status));
+    mOpenCoreConfiguration.Kernel.Add.Count = (UINT32)kextArray.size();
+    mOpenCoreConfiguration.Kernel.Add.AllocCount = mOpenCoreConfiguration.Kernel.Add.Count;
+    mOpenCoreConfiguration.Kernel.Add.ValueSize = sizeof(__typeof_am__(**mOpenCoreConfiguration.Kernel.Add.Values)); // sizeof(OC_KERNEL_ADD_ENTRY) == 680
+    mOpenCoreConfiguration.Kernel.Add.Values = (OC_KERNEL_ADD_ENTRY**)malloc(mOpenCoreConfiguration.Kernel.Add.AllocCount*sizeof(*mOpenCoreConfiguration.Kernel.Add.Values)); // sizeof(OC_KERNEL_ADD_ENTRY*) == sizeof(ptr)
+    memset(mOpenCoreConfiguration.Kernel.Add.Values, 0, mOpenCoreConfiguration.Kernel.Add.AllocCount*sizeof(*mOpenCoreConfiguration.Kernel.Add.Values));
 
-  OcMain(&mOpenCoreStorage, NULL);
-//  {
-//    gCurrentConfig = &gMainConfig;
-//    RedirectRuntimeServices();
-//    EFI_HANDLE Handle = NULL;
-//    Status = gBS->InstallMultipleProtocolInterfaces (
-//      &Handle,
-//      &gOcFirmwareRuntimeProtocolGuid,
-//      &mOcFirmwareRuntimeProtocol,
-//      NULL
-//      );
-//    DBG("Install gOcFirmwareRuntimeProtocolGuid : Status %s\n", efiStrError(Status));
-//  }
+    // Seems that Lilu must be first.
+    size_t pos = setKextAtPos(&kextArray, "Lilu.kext"_XS8, 0);
+    pos = setKextAtPos(&kextArray, "VirtualSMC.kext"_XS8, pos);
+//    pos = setKextAtPos(&kextArray, "FakeSMC.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "vecLib.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "IOAudioFamily.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "FakePCIID.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "FakePCIID_XHCIMux.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "AMDRyzenCPUPowerManagement﻿﻿.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "SMCAMDProcessor.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "WhateverGreen.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "AppleALC.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "IntelMausi.kext"_XS8, pos); // not needed special order?
+    pos = setKextAtPos(&kextArray, "SMCProcessor.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "SMCSuperIO.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "USBPorts.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "VoodooGPIO.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "VoodooI2CServices.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "VoodooI2C.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "VoodooI2CHID.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "VoodooSMBus.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "VoodooRMI.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "BrcmFirmwareData.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "BrcmPatchRAM2.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "BrcmPatchRAM3.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "HS80211Family.kext"_XS8, pos);
+    pos = setKextAtPos(&kextArray, "AirPortAtheros40.kext"_XS8, pos);
 
-  CHAR16* UnicodeDevicePath = NULL; (void)UnicodeDevicePath;
-  UnicodeDevicePath = ConvertDevicePathToText (DevicePath, FALSE, FALSE);
-  MsgLog("DevicePath = %ls\n", UnicodeDevicePath);
+    for (size_t kextIdx = 0 ; kextIdx < kextArray.size() ; kextIdx++ )
+    {
+      const SIDELOAD_KEXT& KextEntry = kextArray[kextIdx];
+      DBG("Bridge kext to OC : Path=%ls\n", KextEntry.FileName.wc_str());
+      mOpenCoreConfiguration.Kernel.Add.Values[kextIdx] = (__typeof_am__(*mOpenCoreConfiguration.Kernel.Add.Values))malloc(mOpenCoreConfiguration.Kernel.Add.ValueSize);
+      memset(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx], 0, mOpenCoreConfiguration.Kernel.Add.ValueSize);
+      mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->Enabled = 1;
+      OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->Arch, OC_BLOB_GET(&mOpenCoreConfiguration.Kernel.Scheme.KernelArch));
+      OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->Comment, "");
+      OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->MaxKernel, "");
+      OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->MinKernel, "");
+      OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->Identifier, "");
 
-  // point to InternalEfiLoadImage from OC
-  Status = gBS->LoadImage (
-    FALSE,
-    gImageHandle,
-    DevicePath,
-    NULL,
-    0,
-    &ImageHandle
-    );
-  if ( EFI_ERROR(Status) ) return; // TODO message ?
+      assert( selfOem.isKextsDirFound() ); // be sure before calling getKextsPathRelToSelfDir()
+      XStringW dirPath = SWPrintf("%ls\\%ls", selfOem.getKextsDirPathRelToSelfDir().wc_str(), KextEntry.KextDirNameUnderOEMPath.wc_str());
+  //    XString8 bundlePath = S8Printf("%ls\\%ls\\%ls", selfOem.getKextsPathRelToSelfDir().wc_str(), KextEntry.KextDirNameUnderOEMPath.wc_str(), KextEntry.FileName.wc_str());
+      XString8 bundlePath = S8Printf("%ls\\%ls", dirPath.wc_str(), KextEntry.FileName.wc_str());
+      if ( FileExists(&self.getCloverDir(), bundlePath) ) {
+        OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->BundlePath, bundlePath.c_str());
+      }else{
+        DBG("Cannot find kext bundlePath at '%s'\n", bundlePath.c_str());
+      }
+  #if 1
+      //CFBundleExecutable
+      BOOLEAN   NoContents = FALSE;
+      XStringW  infoPlistPath = getKextPlist(dirPath, KextEntry, &NoContents); //it will be fullPath, including dir
+      TagDict*  dict = getInfoPlist(infoPlistPath);
+  //    BOOLEAN inject = checkOSBundleRequired(dict);
+      BOOLEAN inject = true;
+      if (inject) {
+        if ( infoPlistPath.notEmpty()) {
+          if (NoContents) {
+            OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistPath, "Info.plist");
+          } else {
+            OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistPath, "Contents/Info.plist");
+          }
+        }else{
+          DBG("Cannot find kext info.plist at '%ls'\n", KextEntry.FileName.wc_str());
+        }
+        XString8 execpath = getKextExecPath(dirPath, KextEntry, dict, NoContents);
+        if (execpath.notEmpty()) {
+          OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->ExecutablePath, execpath.c_str());
+          DBG("assign executable as '%s'\n", execpath.c_str());
+        }
+      }
 
-  EFI_STATUS OptionalStatus = gBS->HandleProtocol (
-      ImageHandle,
-      &gEfiLoadedImageProtocolGuid,
-      (void **) &LoadedImage
-      );
-  if ( EFI_ERROR(OptionalStatus) ) return; // TODO message ?
-}else{
-  // Load image into memory (will be started later)
-  Status = LoadEFIImage(DevicePath, LoaderPath.basename(), NULL, &ImageHandle);
-  if (EFI_ERROR(Status)) {
-    DBG("Image is not loaded, status=%s\n", efiStrError(Status));
-    return; // no reason to continue if loading image failed
+  #else
+      XStringW execpath = S8Printf("Contents\\MacOS\\%ls", KextEntry.FileName.subString(0, KextEntry.FileName.rindexOf(".")).wc_str());
+      XStringW fullPath = SWPrintf("%s\\%ls", OC_BLOB_GET(&mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->BundlePath), execpath.wc_str());
+      if ( FileExists(&self.getCloverDir(), fullPath) ) {
+        OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->ExecutablePath, S8Printf("Contents\\MacOS\\%ls", KextEntry.FileName.subString(0, KextEntry.FileName.rindexOf(".")).wc_str()).c_str());
+      }
+      XStringW infoPlistPath = SWPrintf("%s\\Contents\\Info.plist", OC_BLOB_GET(&mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->BundlePath));
+      if ( FileExists(&self.getCloverDir(), infoPlistPath) ) {
+        OC_STRING_ASSIGN(mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistPath, "Contents/Info.plist"); // TODO : is always Contents/Info.plist ?
+      }else{
+        DBG("Cannot find kext info.plist at '%ls'\n", infoPlistPath.wc_str());
+      }
+  #endif
+      mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->ImageData = NULL;
+      mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->ImageDataSize = 0;
+      mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistData = NULL;
+      mOpenCoreConfiguration.Kernel.Add.Values[kextIdx]->PlistDataSize = 0;
+
+    }
+
+  //DelegateKernelPatches();
+
+    for (size_t forceKextIdx = 0 ; forceKextIdx < KernelAndKextPatches.ForceKextsToLoad.size() ; forceKextIdx++ )
+    {
+      const XStringW& forceKext = KernelAndKextPatches.ForceKextsToLoad[forceKextIdx];
+      DBG("TODO !!!!!!!! Bridge force kext to OC : %ls\n", forceKext.wc_str());
+    }
+  #endif
+
+    mOpenCoreConfiguration.Uefi.Output.ProvideConsoleGop = gSettings.GUI.ProvideConsoleGop;
+    OC_STRING_ASSIGN(mOpenCoreConfiguration.Uefi.Output.Resolution, XString8(gSettings.GUI.ScreenResolution).c_str());
+
+
+  // if OC is NOT initialized with OcMain, we need the following
+  //  if (OcOSInfoInstallProtocol (false) == NULL) {
+  //    DEBUG ((DEBUG_ERROR, "OC: Failed to install os info protocol\n"));
+  //  }
+  //  if (OcAppleRtcRamInstallProtocol (false) == NULL) {
+  //    DEBUG ((DEBUG_ERROR, "OC: Failed to install rtc ram protocol\n"));
+  //  }
+
+  ////  Uncomment OcMiscBoot to run the OC bootpicker
+  //  OcMiscBoot (
+  //    &mOpenCoreStorage,
+  //    &mOpenCoreConfiguration,
+  //    NULL,
+  //    OcStartImage_2,
+  //    mOpenCoreConfiguration.Uefi.Quirks.RequestBootVarRouting,
+  //    mLoadHandle
+  //    );
+
+
+    if ( OpenRuntimeEfiName.notEmpty() ) {
+      XStringW FileName = SWPrintf("%ls\\%ls\\%ls", self.getCloverDirFullPath().wc_str(), getDriversPath().wc_str(), OpenRuntimeEfiName.wc_str());
+      EFI_HANDLE DriverHandle;
+      Status = gBS->LoadImage(false, gImageHandle, FileDevicePath(self.getSelfLoadedImage().DeviceHandle, FileName), NULL, 0, &DriverHandle);
+      if ( !EFI_ERROR(Status) ) {
+        Status = gBS->StartImage(DriverHandle, 0, 0);
+        DBG("Start '%ls' : Status %s\n", OpenRuntimeEfiName.wc_str(), efiStrError(Status));
+      }else{
+        panic("Error when loading '%ls' : Status %s.\n", OpenRuntimeEfiName.wc_str(), efiStrError(Status));
+      }
+    }else{
+      DBG("No OpenRuntime driver. This is ok, OpenRuntime is not mandatory.\n");
+    }
+
+    OcMain(&mOpenCoreStorage, NULL);
+  //  {
+  //    gCurrentConfig = &gMainConfig;
+  //    RedirectRuntimeServices();
+  //    EFI_HANDLE Handle = NULL;
+  //    Status = gBS->InstallMultipleProtocolInterfaces (
+  //      &Handle,
+  //      &gOcFirmwareRuntimeProtocolGuid,
+  //      &mOcFirmwareRuntimeProtocol,
+  //      NULL
+  //      );
+  //    DBG("Install gOcFirmwareRuntimeProtocolGuid : Status %s\n", efiStrError(Status));
+  //  }
+
+    XStringW DevicePathAsString = DevicePathToXStringW(DevicePath);
+    if ( DevicePathAsString.rindexOf(".dmg") == MAX_XSIZE )
+    {
+      // point to InternalEfiLoadImage from OC
+      Status = gBS->LoadImage (
+        FALSE,
+        gImageHandle,
+        DevicePath,
+        NULL,
+        0,
+        &ImageHandle
+        );
+      if ( EFI_ERROR(Status) ) {
+        DBG("LoadImage at '%ls' failed. Status = %s\n", DevicePathAsString.wc_str(), efiStrError(Status));
+        return;
+      }
+    }else
+    {
+      // NOTE : OpenCore ignore the name of the dmg.
+      //        InternalLoadDmg calls InternalFindFirstDmgFileName to find the dmg file name.
+      //        So be careful that, if an other dmg exists in the dir, that might boot on the wrong one.
+
+      EFI_DEVICE_PATH_PROTOCOL* DevicePathCopy = DuplicateDevicePath(DevicePath);
+
+      EFI_DEVICE_PATH_PROTOCOL* PreviousNode = NULL;
+      EFI_DEVICE_PATH_PROTOCOL* Node = DevicePathCopy;
+      while (!IsDevicePathEnd(Node)) {
+        if (  Node->Type == MEDIA_DEVICE_PATH  &&  Node->SubType == MEDIA_FILEPATH_DP  ) {
+            PreviousNode = Node;
+            break;
+        }
+  //      CHAR16* s1 = ConvertDeviceNodeToText(Node, FALSE, FALSE);
+  //      MsgLog("Split DevicePath = %ls\n", s1);
+        PreviousNode = Node;
+        Node = NextDevicePathNode(Node);
+      }
+      SetDevicePathEndNode(PreviousNode);
+
+      EFI_DEVICE_PATH_PROTOCOL* LoaderPathBasenameNode = ConvertTextToDeviceNode(LoaderPath.dirname().wc_str());
+      EFI_DEVICE_PATH_PROTOCOL* DevicePathToDmgDir = AppendDevicePathNode(DevicePathCopy, LoaderPathBasenameNode);
+      DBG("DevicePathToDmgDir = %ls\n", DevicePathToXStringW(DevicePathToDmgDir).wc_str());
+
+      INTERNAL_DMG_LOAD_CONTEXT DmgLoadContext = {0,0,0};
+      DmgLoadContext.DevicePath = DevicePathToDmgDir;
+      EFI_DEVICE_PATH_PROTOCOL* BootEfiFromDmgDevicePath = InternalLoadDmg(&DmgLoadContext, OcDmgLoadingAnyImage);
+      DBG("DevicePath of dmg = %ls\n", DevicePathToXStringW(BootEfiFromDmgDevicePath).wc_str());
+
+      // point to InternalEfiLoadImage from OC
+      Status = gBS->LoadImage (
+        FALSE,
+        gImageHandle,
+        BootEfiFromDmgDevicePath,
+        NULL,
+        0,
+        &ImageHandle
+        );
+      if ( EFI_ERROR(Status) ) {
+        DBG("LoadImage at '%ls' failed. Status = %s\n", DevicePathToXStringW(BootEfiFromDmgDevicePath).wc_str(), efiStrError(Status));
+        return;
+      }
+    }
+
+    EFI_STATUS OptionalStatus = gBS->HandleProtocol (
+        ImageHandle,
+        &gEfiLoadedImageProtocolGuid,
+        (void **) &LoadedImage
+        );
+    if ( EFI_ERROR(OptionalStatus) ) return; // TODO message ?
+  }else{
+    // Load image into memory (will be started later)
+    Status = LoadEFIImage(DevicePath, LoaderPath.basename(), NULL, &ImageHandle);
+    if (EFI_ERROR(Status)) {
+      DBG("Image is not loaded, status=%s\n", efiStrError(Status));
+      return; // no reason to continue if loading image failed
+    }
   }
-}
 
   egClearScreen(&BootBgColor); //if not set then it is already MenuBackgroundPixel
 
@@ -1225,7 +1331,7 @@ DBG("Beginning OC\n");
     // Correct OSVersion if it was not found
     // This should happen only for 10.7-10.9 OSTYPE_OSX_INSTALLER
     // For these cases, take OSVersion from loaded boot.efi image in memory
-    if (/*LoaderType == OSTYPE_OSX_INSTALLER ||*/ OSVersion.isEmpty()) {
+    if (/*LoaderType == OSTYPE_OSX_INSTALLER ||*/ macOSVersion.isEmpty()) {
 
       if (!EFI_ERROR(Status)) {
         // version in boot.efi appears as "Mac OS X 10.?"
@@ -1234,8 +1340,13 @@ DBG("Beginning OC\n");
         */
   //      InstallerVersion = SearchString((CHAR8*)LoadedImage->ImageBase, LoadedImage->ImageSize, "Mac OS X ", 9);
         InstallerVersion = AsciiStrStr((CHAR8*)LoadedImage->ImageBase, "Mac OS X ");
+        int location = 9;
+        if (InstallerVersion == NULL) {
+          InstallerVersion = AsciiStrStr((CHAR8*)LoadedImage->ImageBase, "macOS ");
+          location = 7;
+        }
         if (InstallerVersion != NULL) { // string was found
-          InstallerVersion += 9; // advance to version location
+          InstallerVersion += location; // advance to version location
 
           if (strncmp(InstallerVersion, "10.7", 4) &&
               strncmp(InstallerVersion, "10.8", 4) &&
@@ -1247,12 +1358,13 @@ DBG("Beginning OC\n");
               strncmp(InstallerVersion, "10.14", 5) &&
               strncmp(InstallerVersion, "10.15", 5) &&
               strncmp(InstallerVersion, "10.16", 5) &&
-              strncmp(InstallerVersion, "11.", 3)) {
+              strncmp(InstallerVersion, "11.", 3) &&
+              strncmp(InstallerVersion, "12.", 3)) {
             InstallerVersion = NULL; // flag known version was not found
           }
           if (InstallerVersion != NULL) { // known version was found in image
-            OSVersion = InstallerVersion;
-            DBG("Corrected OSVersion: %s\n", OSVersion.asString().c_str());
+            macOSVersion = InstallerVersion;
+            DBG("Corrected OSVersion: %s\n", macOSVersion.asString().c_str());
           }
         }
       }
@@ -1260,15 +1372,15 @@ DBG("Beginning OC\n");
     }
 
     if (BuildVersion.notEmpty()) {
-      DBG(" %s (%s)\n", OSVersion.asString().c_str(), BuildVersion.c_str());
+      DBG(" %s (%s)\n", macOSVersion.asString().c_str(), BuildVersion.c_str());
     } else {
-      DBG(" %s\n", OSVersion.asString().c_str());
+      DBG(" %s\n", macOSVersion.asString().c_str());
     }
 
-    if ( OSVersion >= MacOsVersion("10.11"_XS8) ) {
+    if ( macOSVersion >= MacOsVersion("10.11"_XS8) ) {
       if (OSFLAG_ISSET(Flags, OSFLAG_NOSIP)) {
-        gSettings.CsrActiveConfig = (UINT32)0xB7F;
-        gSettings.BooterConfig = 0x28;
+        gSettings.RtVariables.CsrActiveConfig = (UINT32)0xB7F;
+        gSettings.RtVariables.BooterConfig = 0x28;
       }
 //      ReadSIPCfg();
     }
@@ -1286,7 +1398,7 @@ DBG("Beginning OC\n");
     if (  OSFLAG_ISSET(Flags, OSFLAG_NOCACHES)  &&  !LoadOptions.containsStartWithIC("Kernel=")  ) {
       XString8 KernelLocation;
 
-      if ( OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.9"_XS8) ) {
+      if ( macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.9"_XS8) ) {
         KernelLocation.S8Printf("\"Kernel=/mach_kernel\"");
       } else {
         // used for 10.10, 10.11, and new version. Jief : also for unknown version.
@@ -1302,10 +1414,11 @@ DBG("Beginning OC\n");
 
     // first patchACPI and find PCIROOT and RTC
     // but before ACPI patch we need smbios patch
-	  CheckEmptyFB();
-    PatchSmbios();
+    CheckEmptyFB();
+    SmbiosFillPatchingValues(GlobalConfig.SetTable132, GlobalConfig.EnabledCores, g_SmbiosDiscoveredSettings.RamSlotCount, gConf.SlotDeviceArray, gSettings, gCPUStructure, &g_SmbiosInjectedSettings);
+    PatchSmbios(g_SmbiosInjectedSettings);
 //    DBG("PatchACPI\n");
-    PatchACPI(Volume, OSVersion);
+    PatchACPI(Volume, macOSVersion);
 //
 //  // If KPDebug is true boot in verbose mode to see the debug messages
 //  if (KernelAndKextPatches.KPDebug) {
@@ -1326,9 +1439,9 @@ DBG("Beginning OC\n");
 // Jief : if we want to use our FixUSBOwnership, we need our OnExitBootServices
     EventsInitialize(this);
 //    DBG("FinalizeSmbios\n");
-    FinalizeSmbios();
+    FinalizeSmbios(g_SmbiosInjectedSettings);
 
-    SetCPUProperties();
+    SetCPUProperties(); //very special procedure
 
     if (OSFLAG_ISSET(Flags, OSFLAG_HIBERNATED)) {
       DoHibernateWake = PrepareHibernation(Volume);
@@ -1350,7 +1463,7 @@ DBG("Beginning OC\n");
     if (KernelAndKextPatches.KPKernelXCPM &&
         gCPUStructure.Vendor == CPU_VENDOR_INTEL && gCPUStructure.Model >= CPU_MODEL_HASWELL &&
        (AsciiStrStr(gCPUStructure.BrandString, "Celeron") || AsciiStrStr(gCPUStructure.BrandString, "Pentium")) &&
-       OSVersion >= MacOsVersion("10.8.5"_XS8)  &&  OSVersion < MacOsVersion("10.12"_XS8)  &&
+       macOSVersion >= MacOsVersion("10.8.5"_XS8)  &&  macOSVersion < MacOsVersion("10.12"_XS8)  &&
        (!LoadOptions.containsIC("-xcpm"))) {
         // add "-xcpm" argv if not present on Haswell+ Celeron/Pentium
         LoadOptions.AddID("-xcpm"_XS8);
@@ -1359,7 +1472,7 @@ DBG("Beginning OC\n");
     // add -xcpm on Ivy Bridge if set KernelXCPM and system version is 10.8.5 - 10.11.x
     if (KernelAndKextPatches.KPKernelXCPM &&
         gCPUStructure.Model == CPU_MODEL_IVY_BRIDGE &&
-        OSVersion >= MacOsVersion("10.8.5"_XS8)  &&  OSVersion < MacOsVersion("10.12"_XS8)  &&
+        macOSVersion >= MacOsVersion("10.8.5"_XS8)  &&  macOSVersion < MacOsVersion("10.12"_XS8)  &&
         (!LoadOptions.containsIC("-xcpm"))) {
       // add "-xcpm" argv if not present on Ivy Bridge
       LoadOptions.AddID("-xcpm"_XS8);
@@ -1375,7 +1488,7 @@ DBG("Beginning OC\n");
       }
     }
 
-//    DBG("Set FakeCPUID: 0x%X\n", gSettings.FakeCPUID);
+//    DBG("Set FakeCPUID: 0x%X\n", gSettings.Devices.FakeID.FakeCPUID);
 //    DBG("LoadKexts\n");
     // LoadKexts writes to DataHub, where large writes can prevent hibernate wake (happens when several kexts present in Clover's kexts dir)
 
@@ -1429,7 +1542,7 @@ DBG("Beginning OC\n");
     //PauseForKey(L"continue");
   }
 
-  if (gSettings.LastBootedVolume) {
+  if (gSettings.Boot.LastBootedVolume) {
     if ( APFSTargetUUID.notEmpty() ) {
       // Jief : we need to LoaderPath. If not, GUI can't know which target was selected.
       SetStartupDiskVolume(Volume, LoaderPath);
@@ -1438,7 +1551,7 @@ DBG("Beginning OC\n");
       //        Let's do it like it was before when not in case of APFSTargetUUID
       SetStartupDiskVolume(Volume, LoaderType == OSTYPE_OSX ? NullXStringW : LoaderPath);
     }
-  } else if (gSettings.DefaultVolume.notEmpty()) {
+  } else if (gSettings.Boot.DefaultVolume.notEmpty()) {
     // DefaultVolume specified in Config.plist or in Boot Option
     // we'll remove macOS Startup Disk vars which may be present if it is used
     // to reboot into another volume
@@ -1515,6 +1628,24 @@ DBG("Beginning OC\n");
   LoadedImage->LoadOptions = (void*)LoadOptionsAsXStringW.wc_str();
   LoadedImage->LoadOptionsSize = (UINT32)LoadOptionsAsXStringW.sizeInBytesIncludingTerminator();
 
+  DBG("Kernel quirks\n");
+  DBG("ACPCL %d AXCL %d AXEM %d AXFB %d CSG %d DIM %d DLJ %d DRC %d DPM %d EDI %d IPBS %d LKP %d PNKD %d PTKP %d TPD %d XPL %d\n",
+      mOpenCoreConfiguration.Kernel.Quirks.AppleCpuPmCfgLock,
+      mOpenCoreConfiguration.Kernel.Quirks.AppleXcpmCfgLock,
+      mOpenCoreConfiguration.Kernel.Quirks.AppleXcpmExtraMsrs,
+      mOpenCoreConfiguration.Kernel.Quirks.AppleXcpmForceBoost,
+      mOpenCoreConfiguration.Kernel.Quirks.CustomSmbiosGuid,
+      mOpenCoreConfiguration.Kernel.Quirks.DisableIoMapper,
+      mOpenCoreConfiguration.Kernel.Quirks.DisableLinkeditJettison,
+      mOpenCoreConfiguration.Kernel.Quirks.DisableRtcChecksum,
+      mOpenCoreConfiguration.Kernel.Quirks.DummyPowerManagement,
+      mOpenCoreConfiguration.Kernel.Quirks.ExternalDiskIcons,
+      mOpenCoreConfiguration.Kernel.Quirks.IncreasePciBarSize,
+      mOpenCoreConfiguration.Kernel.Quirks.LapicKernelPanic,
+      mOpenCoreConfiguration.Kernel.Quirks.PanicNoKextDump,
+      mOpenCoreConfiguration.Kernel.Quirks.PowerTimeoutKernelPanic,
+      mOpenCoreConfiguration.Kernel.Quirks.ThirdPartyDrives,
+      mOpenCoreConfiguration.Kernel.Quirks.XhciPortLimit);
   
   DBG("Closing log\n");
   if (SavePreBootLog) {
@@ -1525,16 +1656,42 @@ DBG("Beginning OC\n");
 //    }
   }
 
-  // point to OcStartImage from OC
-  Status = gBS->StartImage (ImageHandle, 0, NULL);
-  if ( EFI_ERROR(Status) ) return; // TODO message ?
+#ifdef JIEF_DEBUG
+    //Status = EFI_NOT_FOUND;
+    Status = gBS->StartImage (ImageHandle, 0, NULL); // point to OcStartImage from OC
+#else
+    Status = gBS->StartImage (ImageHandle, 0, NULL); // point to OcStartImage from OC
+#endif
+
+    if ( EFI_ERROR(Status) ) {
+      // Ideally, we would return to the menu, displaying an error message
+      // Truth is that we get a black screen before seeing the menu again.
+      // If I remember well, we get a freeze in BdsLibConnectAllEfi()
+      // I'm guessing there is a lot of patching done for booting.
+      // To be able to go back to the menu and boot another thing,
+      // we must undo all the patching...
+      // Here is a quick, not as bad as a black screen solution : a text message and a reboot !
+      DBG("StartImage failed : %s\n", efiStrError(Status));
+      SaveBooterLog(&self.getCloverDir(), PREBOOT_LOG);
+      egSetGraphicsModeEnabled(false);
+      printf("StartImage failed : %s\n", efiStrError(Status));
+      PauseForKey("Reboot needed."_XS8);
+      // Attempt warm reboot
+      gRT->ResetSystem(EfiResetWarm, EFI_SUCCESS, 0, NULL);
+      // Warm reboot may not be supported attempt cold reboot
+      gRT->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
+      // Terminate the screen and just exit
+
+      return;
+    }
+
 }else{
 //  DBG("StartEFIImage\n");
 //  StartEFIImage(DevicePath, LoadOptions,
 //                Basename(LoaderPath), Basename(LoaderPath), NULL, NULL);
 
 //  DBG("StartEFILoadedImage\n");
-  StartEFILoadedImage(ImageHandle, LoadOptions, Basename(LoaderPath.wc_str()), LoaderPath.basename(), NULL);
+  StartEFILoadedImage(ImageHandle, LoadOptions, NullXStringW, LoaderPath.basename(), NULL);
 }
   // Unlock boot screen
   if (EFI_ERROR(Status = UnlockBootScreen())) {
@@ -1562,9 +1719,9 @@ void LEGACY_ENTRY::StartLegacy()
       gEmuVariableControl->UninstallEmulation(gEmuVariableControl);
     }
 
-    if (gSettings.LastBootedVolume) {
+    if (gSettings.Boot.LastBootedVolume) {
       SetStartupDiskVolume(Volume, NullXStringW);
-    } else if (gSettings.DefaultVolume.notEmpty()) {
+    } else if (gSettings.Boot.DefaultVolume.notEmpty()) {
       // DefaultVolume specified in Config.plist:
       // we'll remove macOS Startup Disk vars which may be present if it is used
       // to reboot into another volume
@@ -1588,11 +1745,11 @@ void LEGACY_ENTRY::StartLegacy()
           Status = bootMBR(Volume);
           break;
         case BOOTING_BY_PBR:
-          if (gSettings.LegacyBoot == "LegacyBiosDefault"_XS8) {
-            Status = bootLegacyBiosDefault(gSettings.LegacyBiosDefaultEntry);
-          } else if (gSettings.LegacyBoot == "PBRtest"_XS8) {
+          if (gSettings.Boot.LegacyBoot == "LegacyBiosDefault"_XS8) {
+            Status = bootLegacyBiosDefault(gSettings.Boot.LegacyBiosDefaultEntry);
+          } else if (gSettings.Boot.LegacyBoot == "PBRtest"_XS8) {
             Status = bootPBRtest(Volume);
-          } else if (gSettings.LegacyBoot == "PBRsata"_XS8) {
+          } else if (gSettings.Boot.LegacyBoot == "PBRsata"_XS8) {
             Status = bootPBR(Volume, TRUE);
           } else {
             // default
@@ -1615,10 +1772,10 @@ void REFIT_MENU_ENTRY_LOADER_TOOL::StartTool()
 {
   DBG("Start Tool: %ls\n", LoaderPath.wc_str());
   egClearScreen(&MenuBackgroundPixel);
-	// assumes "Start <title>" as assigned below
-	BeginExternalScreen(OSFLAG_ISSET(Flags, OSFLAG_USEGRAPHICS)/*, &Entry->Title[6]*/); // Shouldn't we check that length of Title is at least 6 ?
-    StartEFIImage(DevicePath, LoadOptions, Basename(LoaderPath.wc_str()), LoaderPath.basename(), NULL, NULL);
-    FinishExternalScreen();
+  // assumes "Start <title>" as assigned below
+  BeginExternalScreen(OSFLAG_ISSET(Flags, OSFLAG_USEGRAPHICS)/*, &Entry->Title[6]*/); // Shouldn't we check that length of Title is at least 6 ?
+  StartEFIImage(DevicePath, LoadOptions, NullXStringW, LoaderPath.basename(), NULL, NULL);
+  FinishExternalScreen();
 }
 
 //
@@ -1655,6 +1812,7 @@ static void ScanDriverDir(IN CONST CHAR16 *Path, OUT EFI_HANDLE **DriversToConne
   DriversArrSize = 0;
   DriversArrNum = 0;
   DriversArr = NULL;
+  OpenRuntimeEfiName.setEmpty();
 
 //only one driver with highest priority will obtain status "Loaded"
   DirIterOpen(&self.getCloverDir(), Path, &DirIter);
@@ -1695,6 +1853,7 @@ static void ScanDriverDir(IN CONST CHAR16 *Path, OUT EFI_HANDLE **DriversToConne
       continue;
     }
     if ( LStringW(DirEntry->FileName).containsIC("OpenRuntime") ) {
+      OpenRuntimeEfiName.takeValueFrom(DirEntry->FileName);
       continue;
     }
     {
@@ -1713,8 +1872,8 @@ static void ScanDriverDir(IN CONST CHAR16 *Path, OUT EFI_HANDLE **DriversToConne
     }
 #undef BOOLEAN_AT_INDEX
 
-	  XStringW FileName = SWPrintf("%ls\\%ls\\%ls", self.getCloverDirFullPath().wc_str(), Path, DirEntry->FileName);
-    Status = StartEFIImage(FileDevicePath(self.getSelfLoadedImage().DeviceHandle, FileName), NullXString8Array, DirEntry->FileName, XStringW().takeValueFrom(DirEntry->FileName), NULL, &DriverHandle);
+    XStringW FileName = SWPrintf("%ls\\%ls\\%ls", self.getCloverDirFullPath().wc_str(), Path, DirEntry->FileName);
+    Status = StartEFIImage(FileDevicePath(self.getSelfLoadedImage().DeviceHandle, FileName), NullXString8Array, LStringW(DirEntry->FileName), XStringW().takeValueFrom(DirEntry->FileName), NULL, &DriverHandle);
     if (EFI_ERROR(Status)) {
       continue;
     }
@@ -1896,8 +2055,8 @@ void DisconnectSomeDevices(void)
 //  EFI_FILE_PROTOCOL       *RootFP = NULL;
 //  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *VolumeFS = NULL;
   PCI_TYPE00              Pci;
-  CHAR16                           *DriverName;
-  EFI_COMPONENT_NAME_PROTOCOL      *CompName;
+  CHAR16                           *DriverName = NULL;
+  EFI_COMPONENT_NAME_PROTOCOL      *CompName = NULL;
 
   if (gDriversFlags.PartitionLoaded) {
     DBG("Partition driver loaded: ");
@@ -1965,6 +2124,11 @@ void DisconnectSomeDevices(void)
 //          DBG("CompName %s\n", efiStrError(Status));
           continue;
         }
+        // 2021-05, Jief : PG7 had a crash. In some cases, CompName->GetDriverName == NULL.
+        if ( CompName->GetDriverName == NULL ) {
+          DBG("DisconnectSomeDevices: GetDriverName CompName=%lld, CompName->GetDriverName=NULL\n", uintptr_t(CompName));
+          continue;
+        }
         Status = CompName->GetDriverName(CompName, "eng", &DriverName);
         if (EFI_ERROR(Status)) {
           continue;
@@ -1973,7 +2137,7 @@ void DisconnectSomeDevices(void)
           for (Index2 = 0; Index2 < ControllerHandleCount; Index2++) {
             Status = gBS->DisconnectController(ControllerHandles[Index2],
                                                Handles[Index], NULL);
-//            DBG("Disconnect [%ls] from %X: %s\n", DriverName, ControllerHandles[Index2], efiStrError(Status));
+            //DBG("Disconnect [%ls] from %llX: %s\n", DriverName, uintptr_t(ControllerHandles[Index2]), efiStrError(Status));
           }
         }
       }
@@ -2019,11 +2183,11 @@ void DisconnectSomeDevices(void)
 void PatchVideoBios(UINT8 *Edid)
 {
 
-  if (gSettings.PatchVBiosBytesCount > 0 && gSettings.PatchVBiosBytes != NULL) {
-    VideoBiosPatchBytes(gSettings.PatchVBiosBytes, gSettings.PatchVBiosBytesCount);
+  if ( gSettings.Graphics.PatchVBiosBytes.notEmpty() ) {
+    VideoBiosPatchBytes(gSettings.Graphics.PatchVBiosBytes.getVBIOS_PATCH_BYTES(), gSettings.Graphics.PatchVBiosBytes.getVBIOS_PATCH_BYTES_count());
   }
 
-  if (gSettings.PatchVBios) {
+  if (gSettings.Graphics.PatchVBios) {
     VideoBiosPatchNativeFromEdid(Edid);
   }
 }
@@ -2058,7 +2222,7 @@ static void LoadDrivers(void)
   ScanDriverDir(L"drivers32", &DriversToConnect, &DriversToConnectNum);
 #endif
 
-  VBiosPatchNeeded = gSettings.PatchVBios || (gSettings.PatchVBiosBytesCount > 0 && gSettings.PatchVBiosBytes != NULL);
+  VBiosPatchNeeded = gSettings.Graphics.PatchVBios || gSettings.Graphics.PatchVBiosBytes.getVBIOS_PATCH_BYTES_count() > 0;
   if (VBiosPatchNeeded) {
     // check if it is already done in CloverEFI BiosVideo
     Status = gRT->GetVariable (
@@ -2074,7 +2238,7 @@ static void LoadDrivers(void)
     }
   }
 
-  if (((gSettings.CustomEDID != NULL) && gFirmwareClover) || (VBiosPatchNeeded && !gDriversFlags.VideoLoaded)) {
+  if ( (gSettings.Graphics.EDID.CustomEDID.notEmpty() && gFirmwareClover) || (VBiosPatchNeeded && !gDriversFlags.VideoLoaded)) {
     // we have video bios patch - force video driver reconnect
     DBG("Video bios patch requested or CustomEDID - forcing video reconnect\n");
     gDriversFlags.VideoLoaded = TRUE;
@@ -2083,19 +2247,19 @@ static void LoadDrivers(void)
 
   UninitRefitLib();
   if (DriversToConnectNum > 0) {
-	  DBG("%llu drivers needs connecting ...\n", DriversToConnectNum);
+    DBG("%llu drivers needs connecting ...\n", DriversToConnectNum);
     // note: our platform driver protocol
     // will use DriversToConnect - do not release it
     RegisterDriversToHighestPriority(DriversToConnect);
     if (VBiosPatchNeeded) {
-      if (gSettings.CustomEDID != NULL) {
-        Edid = gSettings.CustomEDID;
+      if (gSettings.Graphics.EDID.CustomEDID.notEmpty()) {
+        Edid = gSettings.Graphics.EDID.CustomEDID.data();
       } else {
         Edid = getCurrentEdid();
       }
       DisconnectSomeDevices();
       PatchVideoBios(Edid);
-      if (gSettings.CustomEDID == NULL) {
+      if (gSettings.Graphics.EDID.CustomEDID.isEmpty()) {
         FreePool(Edid);
       }
     } else {
@@ -2133,7 +2297,7 @@ INTN FindDefaultEntry(void)
   Index = FindStartupDiskVolume(&MainMenu);
 
   if (Index >= 0) {
-	  DBG("Boot redirected to Entry %lld. '%ls'\n", Index, MainMenu.Entries[Index].Title.s());
+    DBG("Boot redirected to Entry %lld. '%ls'\n", Index, MainMenu.Entries[Index].Title.s());
     // we got boot-device-data, no need to keep emulating anymore
     if (gEmuVariableControl != NULL) {
         gEmuVariableControl->UninstallEmulation(gEmuVariableControl);
@@ -2143,17 +2307,17 @@ INTN FindDefaultEntry(void)
 
   //
   // if not found, then try DefaultVolume from config.plist
-  // if not null or empty, search volume that matches gSettings.DefaultVolume
+  // if not null or empty, search volume that matches gSettings.Boot.DefaultVolume
   //
-  if (gSettings.DefaultVolume.notEmpty()) {
+  if (gSettings.Boot.DefaultVolume.notEmpty()) {
 
-    // if not null or empty, also search for loader that matches gSettings.DefaultLoader
-    SearchForLoader = gSettings.DefaultLoader.notEmpty();
+    // if not null or empty, also search for loader that matches gSettings.Boot.DefaultLoader
+    SearchForLoader = gSettings.Boot.DefaultLoader.notEmpty();
 /*
     if (SearchForLoader) {
-      DBG("Searching for DefaultVolume '%ls', DefaultLoader '%ls' ...\n", gSettings.DefaultVolume, gSettings.DefaultLoader);
+      DBG("Searching for DefaultVolume '%ls', DefaultLoader '%ls' ...\n", gSettings.Boot.DefaultVolume, gSettings.Boot.DefaultLoader);
     } else {
-      DBG("Searching for DefaultVolume '%ls' ...\n", gSettings.DefaultVolume);
+      DBG("Searching for DefaultVolume '%ls' ...\n", gSettings.Boot.DefaultVolume);
     }
 */
     for (Index = 0; Index < (INTN)MainMenu.Entries.size()  &&  MainMenu.Entries[Index].getLOADER_ENTRY()  &&  MainMenu.Entries[Index].getLOADER_ENTRY()->Row == 0 ; Index++) {
@@ -2164,17 +2328,17 @@ INTN FindDefaultEntry(void)
       }
 
       Volume = Entry.Volume;
-      if ( (Volume->VolName.isEmpty() || Volume->VolName != gSettings.DefaultVolume)  &&
-           !Volume->DevicePathString.contains(gSettings.DefaultVolume) ) {
+      if ( (Volume->VolName.isEmpty() || Volume->VolName != gSettings.Boot.DefaultVolume)  &&
+           !Volume->DevicePathString.contains(gSettings.Boot.DefaultVolume) ) {
         continue;
       }
 
       //                       we alreday know that Entry.isLoader
-      if (SearchForLoader && (/*Entry.Tag != TAG_LOADER ||*/ !Entry.LoaderPath.containsIC(gSettings.DefaultLoader))) {
+      if (SearchForLoader && (/*Entry.Tag != TAG_LOADER ||*/ !Entry.LoaderPath.containsIC(gSettings.Boot.DefaultLoader))) {
         continue;
       }
 
-		DBG(" - found entry %lld. '%ls', Volume '%ls', DevicePath '%ls'\n", Index, Entry.Title.s(), Volume->VolName.wc_str(), Entry.DevicePathString.wc_str());
+    DBG(" - found entry %lld. '%ls', Volume '%ls', DevicePath '%ls'\n", Index, Entry.Title.s(), Volume->VolName.wc_str(), Entry.DevicePathString.wc_str());
       // if first method failed and second succeeded - uninstall emulation
       if (gEmuVariableControl != NULL) {
         gEmuVariableControl->UninstallEmulation(gEmuVariableControl);
@@ -2203,7 +2367,7 @@ void SetVariablesFromNvram()
 
   tmpString = (__typeof__(tmpString))GetNvramVariable(L"boot-args", &gEfiAppleBootGuid, NULL, &Size);
   if (tmpString && (Size <= 0x1000) && (Size > 0)) {
-	  DBG("found boot-args in NVRAM:%s, size=%llu\n", tmpString, Size);
+    DBG("found boot-args in NVRAM:%s, size=%llu\n", tmpString, Size);
     // use and forget old one
 //    DeleteNvramVariable(L"boot-args", &gEfiAppleBootGuid);
     Size = AsciiStrLen(tmpString); // some EFI implementations include '\0' in Size, and others don't, so update Size to string length
@@ -2242,15 +2406,15 @@ void SetVariablesFromNvram()
         DBG("...ignoring arg:%s\n", arg);
         continue;
       }
-      if (!gSettings.BootArgs.contains(arg)) {
+      if (!gSettings.Boot.BootArgs.contains(arg)) {
         //this arg is not present will add
         DBG("...adding arg:%s\n", arg);
-        gSettings.BootArgs.trim();
-        gSettings.BootArgs += ' ';
+        gSettings.Boot.BootArgs.trim();
+        gSettings.Boot.BootArgs += ' ';
         for (i = 0; i < index2; i++) {
-          gSettings.BootArgs += arg[i];
+          gSettings.Boot.BootArgs += arg[i];
         }
-        gSettings.BootArgs += ' ';
+        gSettings.Boot.BootArgs += ' ';
       }
     }
     FreePool(arg);
@@ -2261,7 +2425,7 @@ void SetVariablesFromNvram()
   
   tmpString = (__typeof__(tmpString))GetNvramVariable(L"nvda_drv", &gEfiAppleBootGuid, NULL, NULL);
   if (tmpString && AsciiStrCmp(tmpString, "1") == 0) {
-    gSettings.NvidiaWeb = TRUE;
+    gSettings.SystemParameters.NvidiaWeb = TRUE;
   }
   if (tmpString) {
     FreePool(tmpString);
@@ -2269,44 +2433,263 @@ void SetVariablesFromNvram()
 
 }
 
-//BOOLEAN SetOEMPathIfExists(const EFI_FILE *Root, const XStringW& path, const XStringW& ConfName)
+void
+GetListOfConfigs()
+{
+  REFIT_DIR_ITER    DirIter;
+  EFI_FILE_INFO     *DirEntry;
+  INTN              NameLen;
+
+  ConfigsNum = 0;
+  OldChosenConfig = 0;
+
+  DirIterOpen(&selfOem.getConfigDir(), NULL, &DirIter);
+  DbgHeader("Found config plists");
+  while (DirIterNext(&DirIter, 2, L"config*.plist", &DirEntry)) {
+    if (DirEntry->FileName[0] == L'.') {
+      continue;
+    }
+      if (StriCmp(DirEntry->FileName, L"config.plist") == 0) {
+        OldChosenConfig = ConfigsNum;
+      }
+      NameLen = StrLen(DirEntry->FileName) - 6; //without ".plist"
+      ConfigsList[ConfigsNum] = (CHAR16*)AllocateCopyPool(NameLen * sizeof(CHAR16) + 2, DirEntry->FileName);
+      ConfigsList[ConfigsNum++][NameLen] = L'\0';
+      DBG("- %ls\n", DirEntry->FileName);
+    }
+  DirIterClose(&DirIter);
+}
+
+void
+GetListOfDsdts()
+{
+  REFIT_DIR_ITER    DirIter;
+  EFI_FILE_INFO     *DirEntry;
+  INTN              NameLen;
+
+  if (DsdtsNum > 0) {
+    for (UINTN i = 0; i < DsdtsNum; i++) {
+      if (DsdtsList[DsdtsNum] != NULL) {
+        FreePool(DsdtsList[DsdtsNum]);
+      }
+    }
+  }
+  DsdtsNum = 0;
+  OldChosenDsdt = 0xFFFF;
+
+  DirIterOpen(&selfOem.getConfigDir(), L"ACPI\\patched", &DirIter);
+  DbgHeader("Found DSDT tables");
+  while (DirIterNext(&DirIter, 2, L"DSDT*.aml", &DirEntry)) {
+    if (DirEntry->FileName[0] == L'.') {
+      continue;
+    }
+      if ( gSettings.ACPI.DSDT.DsdtName.isEqualIC(DirEntry->FileName) ) {
+        OldChosenDsdt = DsdtsNum;
+      }
+      NameLen = StrLen(DirEntry->FileName); //with ".aml"
+      DsdtsList[DsdtsNum] = (CHAR16*)AllocateCopyPool(NameLen * sizeof(CHAR16) + 2, DirEntry->FileName); // if changing, notice freepool above
+      DsdtsList[DsdtsNum++][NameLen] = L'\0';
+      DBG("- %ls\n", DirEntry->FileName);
+    }
+  DirIterClose(&DirIter);
+}
+
+void
+GetListOfACPI()
+{
+  REFIT_DIR_ITER    DirIter;
+  EFI_FILE_INFO     *DirEntry = NULL;
+
+//  XStringW           AcpiPath = SWPrintf("%ls\\ACPI\\patched", OEMPath.wc_str());
+//  DBG("Get list of ACPI at path %ls\n", AcpiPath.wc_str());
+  ACPIPatchedAML.setEmpty();
+  DirIterOpen(&selfOem.getConfigDir(), L"ACPI\\patched", &DirIter);
+
+  while (DirIterNext(&DirIter, 2, L"*.aml", &DirEntry)) {
+//    DBG("next entry is %ls\n", DirEntry->FileName);
+    if (DirEntry->FileName[0] == L'.') {
+      continue;
+    }
+    if (StriStr(DirEntry->FileName, L"DSDT")) {
+      continue;
+    }
+//    DBG("Found name %ls\n", DirEntry->FileName);
+      BOOLEAN ACPIDisabled = FALSE;
+      ACPI_PATCHED_AML* ACPIPatchedAMLTmp = new ACPI_PATCHED_AML;
+      ACPIPatchedAMLTmp->FileName.takeValueFrom(DirEntry->FileName);
+
+      INTN Count = gSettings.ACPI.DisabledAML.size();
+      for (INTN i = 0; i < Count; i++) {
+        if ( gSettings.ACPI.DisabledAML[i].isEqualIC(ACPIPatchedAMLTmp->FileName) ) {
+//        if ((gSettings.ACPI.DisabledAML[i] != NULL) &&
+//            (StriCmp(ACPIPatchedAMLTmp->FileName, gSettings.ACPI.DisabledAML[i]) == 0)
+//            ) {
+          ACPIDisabled = TRUE;
+          break;
+        }
+      }
+      ACPIPatchedAMLTmp->MenuItem.BValue = ACPIDisabled;
+      ACPIPatchedAML.AddReference(ACPIPatchedAMLTmp, true);
+    }
+
+  DirIterClose(&DirIter);
+}
+
+void
+GetListOfThemes ()
+{
+  EFI_STATUS     Status          = EFI_NOT_FOUND;
+  REFIT_DIR_ITER DirIter;
+  EFI_FILE_INFO  *DirEntry;
+  XStringW        ThemeTestPath;
+  EFI_FILE       *ThemeTestDir   = NULL;
+  CHAR8          *ThemePtr       = NULL;
+  UINTN          Size = 0;
+
+  DbgHeader("GetListOfThemes");
+
+  ThemeNameArray.setEmpty();
+  if ( !self.themesDirExists() ) {
+    DBG("No theme dir was discovered\n");
+    return;
+  }
+  DirIterOpen(&self.getThemesDir(), NULL, &DirIter);
+  while (DirIterNext(&DirIter, 1, L"*", &DirEntry)) {
+    if (DirEntry->FileName[0] == '.') {
+      //DBG("Skip theme: %ls\n", DirEntry->FileName);
+      continue;
+    }
+    //DBG("Found theme directory: %ls", DirEntry->FileName);
+    DBG("- [%02zu]: %ls", ThemeNameArray.size(), DirEntry->FileName);
+    Status = self.getThemesDir().Open(&self.getThemesDir(), &ThemeTestDir, DirEntry->FileName, EFI_FILE_MODE_READ, 0);
+    if (!EFI_ERROR(Status)) {
+      Status = egLoadFile(ThemeTestDir, CONFIG_THEME_FILENAME, (UINT8**)&ThemePtr, &Size);
+      if (EFI_ERROR(Status) || (ThemePtr == NULL) || (Size == 0)) {
+        Status = egLoadFile(ThemeTestDir, CONFIG_THEME_SVG, (UINT8**)&ThemePtr, &Size);
+        if (EFI_ERROR(Status)) {
+          Status = EFI_NOT_FOUND;
+          DBG(" - bad theme because %ls nor %ls can't be load", CONFIG_THEME_FILENAME, CONFIG_THEME_SVG);
+        }
+      }
+      if (!EFI_ERROR(Status)) {
+        //we found a theme
+        if ((StriCmp(DirEntry->FileName, L"embedded") == 0) ||
+            (StriCmp(DirEntry->FileName, L"random") == 0)) {
+          ThemePtr = NULL;
+        } else {
+          ThemeNameArray.Add(DirEntry->FileName);
+        }
+      }
+    }
+    DBG("\n");
+    if (ThemePtr) {
+      FreePool(ThemePtr);
+    }
+  }
+  DirIterClose(&DirIter);
+}
+
+////
+//// analyze self.getSelfLoadedImage().LoadOptions to extract Default Volume and Default Loader
+//// input and output data are global
+////
+//void
+//GetBootFromOption(void)
 //{
-//	BOOLEAN res = FileExists(Root, path);
-//	if ( res ) {
-//	  CHAR16 ConfigPath[1024];
-//		snwprintf(ConfigPath, sizeof(ConfigPath), "%ls\\%ls.plist", path.wc_str(), ConfName.wc_str());
-//	  BOOLEAN res2 = FileExists(Root, ConfigPath);
-//	  if ( res2 ) {
-//	  	OEMPath = path;
-//	  	DBG("CheckOEMPathExists: set OEMPath: %ls\n", OEMPath.wc_str());
-//	  	return 1;
-//	  }else{
-//	  	DBG("CheckOEMPathExists tried %ls. '%ls.plist' not exists in dir\n", path.wc_str(), ConfName.wc_str());
-//	  }
-//	}else{
-//		DBG("CheckOEMPathExists tried %ls. Dir not exists\n", path.wc_str());
-//	}
-//	return 0;
-//}
+//  UINT8  *Data = (UINT8*)self.getSelfLoadedImage().LoadOptions;
+//  UINTN  Len = self.getSelfLoadedImage().LoadOptionsSize;
+//  UINTN  NameSize, Name2Size;
 //
-//void SetOEMPath(const XStringW& ConfName)
+//  Data += 4; //skip signature as we already here
+//  NameSize = *(UINT16*)Data;
+//
+//  Data += 2; // pointer to Volume name
+//  settingsData.Boot.DefaultVolume.strncpy((__typeof__(settingsData.Boot.DefaultVolume.wc_str()))Data, NameSize);
+//
+//  Data += NameSize;
+//  Name2Size = Len - NameSize;
+//  if (Name2Size != 0) {
+//    settingsData.Boot.DefaultLoader.strncpy((__typeof__(settingsData.Boot.DefaultVolume.wc_str()))Data, NameSize);
+//  }
+//
+//  DBG("Clover started with option to boot %ls from %ls\n",
+//      settingsData.Boot.DefaultLoader.notEmpty() ? settingsData.Boot.DefaultLoader.wc_str() : L"legacy",
+//      settingsData.Boot.DefaultVolume.wc_str());
+//}
+
+//void
+//ParseLoadOptions (
+//                  OUT  XStringW* ConfNamePtr,
+//                  OUT  TagDict** Dict
+//                  )
+//{
+//  CHAR8 *End;
+//  CHAR8 *Start;
+//  UINTN TailSize;
+//  UINTN i;
+//  CONST CHAR8 *PlistStrings[]  =
 //  {
-//    OEMPath.takeValueFrom("EFI\\CLOVER");
-//    if ( ConfName.isEmpty() ) {
-//      DBG("set OEMPath (ConfName == NULL): %ls\n", OEMPath.wc_str());
-//    } else if ( nLanCards > 0   &&  SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s--%02X-%02X-%02X-%02X-%02X-%02X", gSettings.OEMProduct.c_str(), gLanMac[0][0], gLanMac[0][1], gLanMac[0][2], gLanMac[0][3], gLanMac[0][4], gLanMac[0][5]), ConfName)) {
-//    } else if ( nLanCards > 1   &&  SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s--%02X-%02X-%02X-%02X-%02X-%02X", gSettings.OEMProduct.c_str(), gLanMac[1][0], gLanMac[1][1], gLanMac[1][2], gLanMac[1][3], gLanMac[1][4], gLanMac[1][5]), ConfName)) {
-//    } else if ( nLanCards > 2   &&  SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s--%02X-%02X-%02X-%02X-%02X-%02X", gSettings.OEMProduct.c_str(), gLanMac[2][0], gLanMac[2][1], gLanMac[2][2], gLanMac[2][3], gLanMac[2][4], gLanMac[2][5]), ConfName)) {
-//    } else if ( nLanCards > 3   &&  SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s--%02X-%02X-%02X-%02X-%02X-%02X", gSettings.OEMProduct.c_str(), gLanMac[3][0], gLanMac[3][1], gLanMac[3][2], gLanMac[3][3], gLanMac[3][4], gLanMac[3][5]), ConfName)) {
-//    } else if (!gFirmwareClover && SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s\\UEFI", gSettings.OEMBoard.c_str()), ConfName)) {
-//    } else if (SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s", gSettings.OEMProduct.c_str()), ConfName)) {
-//    } else if (SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s-%d", gSettings.OEMProduct.c_str(), (INT32)(DivU64x32(gCPUStructure.CPUFrequency, Mega))), ConfName)) {
-//    } else if (SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s", gSettings.OEMBoard.c_str()), ConfName)) {
-//    } else if (SetOEMPathIfExists(&self.getSelfRootDir(), SWPrintf("EFI\\CLOVER\\OEM\\%s-%d", gSettings.OEMBoard.c_str(), (INT32)(DivU64x32(gCPUStructure.CPUFrequency, Mega))), ConfName)  ) {
-//    } else {
-//      DBG("set OEMPath by default: %ls\n", OEMPath.wc_str());
+//    "<?xml",
+//    "<!DOCTYPE plist",
+//    "<plist",
+//    "<dict>",
+//    "\0"
+//  };
+//
+//  UINTN PlistStringsLen;
+//  *Dict                  = NULL;
+//
+//  XStringW& ConfName = *ConfNamePtr;
+//
+//  Start = (CHAR8*)self.getSelfLoadedImage().LoadOptions;
+//  End   = (CHAR8*)((CHAR8*)self.getSelfLoadedImage().LoadOptions + self.getSelfLoadedImage().LoadOptionsSize);
+//  while ((Start < End) && ((*Start == ' ') || (*Start == '\\') || (*Start == '/')))
+//  {
+//    ++Start;
+//  }
+//
+//  TailSize = End - Start;
+//  //DBG("TailSize = %d\n", TailSize);
+//
+//  if ((TailSize) <= 0) {
+//    return;
+//  }
+//
+//  for (i = 0; PlistStrings[i][0] != '\0'; i++) {
+//    PlistStringsLen = AsciiStrLen(PlistStrings[i]);
+//    //DBG("PlistStrings[%d] = %s\n", i, PlistStrings[i]);
+//    if (PlistStringsLen < TailSize) {
+//      if (AsciiStriNCmp(PlistStrings[i], Start, PlistStringsLen)) {
+//        DBG(" - found plist string = %s, parse XML in LoadOptions\n", PlistStrings[i]);
+//        if (ParseXML(Start, Dict, TailSize) != EFI_SUCCESS) {
+//          *Dict = NULL;
+//          DBG("  - [!] xml in load options is bad\n");
+//          return;
+//        }
+//        return;
+//      }
 //    }
 //  }
+//
+//  while ((End > Start) && ((*End == ' ') || (*End == '\\') || (*End == '/'))) {
+//    --End;
+//  }
+//
+//  TailSize = End - Start;
+//  //  DBG("TailSize2 = %d\n", TailSize);
+//
+//  if (TailSize > 6) {
+//    if (AsciiStriNCmp(".plist", End - 6, 6)) {
+//      End      -= 6;
+//      TailSize -= 6;
+//      //      DBG("TailSize3 = %d\n", TailSize);
+//    }
+//  } else if (TailSize <= 0) {
+//    return;
+//  }
+//
+//  ConfName.strncpy(Start, TailSize + 1);
+//}
 
 
 //
@@ -2327,12 +2710,12 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
   INTN              DefaultIndex;
   UINTN             MenuExit;
   UINTN             i;
-	//UINT64            TscDiv;
-	//UINT64            TscRemainder = 0;
+  //UINT64            TscDiv;
+  //UINT64            TscRemainder = 0;
 //  LOADER_ENTRY      *LoaderEntry;
-  XStringW          ConfName;
-  TagDict*          smbiosTags = NULL;
-  BOOLEAN           UniteConfigs = FALSE;
+//  XStringW          ConfName;
+//  TagDict*          smbiosTags = NULL;
+//  BOOLEAN           UniteConfigs = FALSE;
   EFI_TIME          Now;
   BOOLEAN           HaveDefaultVolume;
   REFIT_MENU_SCREEN BootScreen;
@@ -2346,7 +2729,7 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
 
   // get TSC freq and init MemLog if needed
   gCPUStructure.TSCCalibr = GetMemLogTscTicksPerSecond(); //ticks for 1second
-  //GlobalConfig.TextOnly = TRUE;
+  //gSettings.GUI.TextOnly = TRUE;
 
   // bootstrap
   gST       = SystemTable;
@@ -2355,11 +2738,14 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
   gRT       = SystemTable->RuntimeServices;
   /*Status = */EfiGetSystemConfigurationTable (&gEfiDxeServicesTableGuid, (void **) &gDS);
   
+  InitBooterLog();
+
   ConsoleInHandle = SystemTable->ConsoleInHandle;
 
+//#define DEBUG_ERALY_CRASH
 #ifdef DEBUG_ERALY_CRASH
-  SystemTable->ConOut->OutputString(SystemTable->ConOut, L"Start");
-  PauseForKey(L"1) press any key\n");
+  SystemTable->ConOut->OutputString(SystemTable->ConOut, L"Step1");
+  PauseForKey("press any key\n"_XS8);
 #endif
 
 #ifdef DEBUG_ON_SERIAL_PORT
@@ -2370,21 +2756,42 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
     EFI_LOADED_IMAGE* LoadedImage;
     Status = gBS->HandleProtocol(gImageHandle, &gEfiLoadedImageProtocolGuid, (void **) &LoadedImage);
 
+#ifdef DEBUG_ERALY_CRASH
+  SystemTable->ConOut->OutputString(SystemTable->ConOut, L"Step2");
+  PauseForKey("press any key\n"_XS8);
+#endif
+
 //    if ( !EFI_ERROR(Status) ) {
-//      XString8 msg = S8Printf("Clover : Image base = 0x%llX\n", (uintptr_t)LoadedImage->ImageBase); // do not change, it's used by grep to feed the debugger
+//      XString8 msg = S8Printf("CloverX64 : Image base = 0x%llX\n", (uintptr_t)LoadedImage->ImageBase); // do not change, it's used by grep to feed the debugger
 //      SerialPortWrite((UINT8*)msg.c_str(), msg.length());
 //    }
-    if ( !EFI_ERROR(Status) ) DBG("CloverX64 : Image base = 0x%llX\n", (uintptr_t)LoadedImage->ImageBase); // do not change, it's used by grep to feed the debugger
-
+    if ( !EFI_ERROR(Status) ) {
+      DBG("CloverX64 : Image base = 0x%llX\n", (uintptr_t)LoadedImage->ImageBase); // do not change, it's used by grep to feed the debugger
+      DBG("Clover ImageHandle = %llx\n", (uintptr_t)ImageHandle);
+#ifdef DEBUG_ERALY_CRASH
+  SystemTable->ConOut->OutputString(SystemTable->ConOut, L"Step3");
+  PauseForKey("press any key\n"_XS8);
+#endif
+    }
 #ifdef JIEF_DEBUG
-    gBS->Stall(1500000); // to give time to gdb to connect
-//  gBS->Stall(0500000); // to give time to gdb to connect
+    gBS->Stall(2500000); // to give time to gdb to connect
 //  PauseForKey(L"press\n");
 #endif
   }
 
-  construct_globals_objects(gImageHandle); // do this after self.getSelfLoadedImage() is initialized
+#ifdef DEBUG_ERALY_CRASH
+  SystemTable->ConOut->OutputString(SystemTable->ConOut, L"Step4");
+  PauseForKey("press any key\n"_XS8);
+#endif
 
+#ifdef CLOVER_BUILD
+  construct_globals_objects(gImageHandle); // do this after self.getSelfLoadedImage() is initialized
+#endif
+
+#ifdef DEBUG_ERALY_CRASH
+  SystemTable->ConOut->OutputString(SystemTable->ConOut, L"Step5");
+  PauseForKey("press any key\n"_XS8);
+#endif
 
 #ifdef JIEF_DEBUG
 //  all_tests();
@@ -2393,34 +2800,37 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
 
   gRT->GetTime(&Now, NULL);
 
-  // firmware detection
+  Status = InitRefitLib(gImageHandle); // From here, debug.log starts to be saved because InitRefitLib call self.initialize()
+  if (EFI_ERROR(Status))
+    return Status;
+
+#ifdef DEBUG_ERALY_CRASH
+  SystemTable->ConOut->OutputString(SystemTable->ConOut, L"Step6");
+  PauseForKey("press any key\n"_XS8);
+#endif
+
+// firmware detection
   gFirmwareClover = StrCmp(gST->FirmwareVendor, L"CLOVER") == 0;
   if (!gFirmwareRevision) {
 //    gFirmwareRevision = P__oolPrint(L"%d", gST->FirmwareRevision);
   }
+  DataHubInstall (ImageHandle, SystemTable);
   InitializeConsoleSim();
-  InitBooterLog();
-  ZeroMem((void*)&gGraphics[0], sizeof(GFX_PROPERTIES) * 4);
-  ZeroMem((void*)&gAudios[0], sizeof(HDA_PROPERTIES) * 4);
 
-  DBG("\n");
+  DbgHeader("Starting Clover");
   if (Now.TimeZone < -1440 || Now.TimeZone > 1440) {
     MsgLog("Now is %02d.%02d.%d,  %02d:%02d:%02d (GMT)\n",
            Now.Day, Now.Month, Now.Year, Now.Hour, Now.Minute, Now.Second);
   } else {
     MsgLog("Now is %02d.%02d.%d,  %02d:%02d:%02d (GMT+%d)\n",
-      Now.Day, Now.Month, Now.Year, Now.Hour, Now.Minute, Now.Second, GlobalConfig.Timezone);
+      Now.Day, Now.Month, Now.Year, Now.Hour, Now.Minute, Now.Second, gSettings.GUI.Timezone);
   }
   //MsgLog("Starting Clover rev %ls on %ls EFI\n", gFirmwareRevision, gST->FirmwareVendor);
-	MsgLog("Starting %s on %ls EFI\n", gRevisionStr, gST->FirmwareVendor);
+  MsgLog("Starting %s on %ls EFI\n", gRevisionStr, gST->FirmwareVendor);
   MsgLog("Build id: %s\n", gBuildId.c_str());
-	if ( gBuildInfo ) DBG("Build with: [%s]\n", gBuildInfo);
+  if ( gBuildInfo ) DBG("Build with: [%s]\n", gBuildInfo);
 
 
-
-  Status = InitRefitLib(gImageHandle);
-  if (EFI_ERROR(Status))
-    return Status;
 
   //dumping SETTING structure
   // if you change something in Platform.h, please uncomment and test that all offsets
@@ -2466,68 +2876,17 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
   }
   DBG("SimpleTextEx Status=%s\n", efiStrError(Status));
 
-//debugStartImageWithOC(); // ok BS_I
+  gConf.InitialisePlatform();
+// DBG("5: GlobalConfig.C3Latency=%x\n", GlobalConfig.C3Latency);
 
-  GetDefaultSettings(); // do this before PrepatchSmbios() because PrepatchSmbios() change gSettings.SmUUID.
-                        // TODO : there is a mixup between SmUUID read from the platform and the SmUUID set by the user. They should be read in 2 different vars.
-  PrepatchSmbios();
+#ifdef JIEF_DEBUG
+  DumpNvram();
+#endif
 
-  //replace / with _
-  gSettings.OEMProduct.replaceAll(U'/', U'_');
-  gSettings.OEMBoard.replaceAll(U'/', U'_');
-  DBG("Running on: '%s' with board '%s'\n", gSettings.OEMProduct.c_str(), gSettings.OEMBoard.c_str());
+  /*
+   * saving debug.log works from here
+   */
 
-  GetCPUProperties();
-  GetDevices(); // Do this BEFORE SetOEMPath();
-
-  // LoadOptions Parsing
-  DBG("Clover load options size = %d bytes\n", self.getSelfLoadedImage().LoadOptionsSize);
-  if ((self.getSelfLoadedImage().LoadOptions != NULL) &&
-      (self.getSelfLoadedImage().LoadOptionsSize != 0)){
-    if (*(UINT32*)self.getSelfLoadedImage().LoadOptions == CLOVER_SIGN) {
-      GetBootFromOption();
-    } else {
-      ParseLoadOptions(&ConfName, &gConfigDict[1]);
-      if (ConfName.isEmpty()) {
-        gConfigDict[1] = NULL;
-      } else {
-        selfOem.initialize(ConfName, gFirmwareClover, gSettings.OEMBoard, gSettings.OEMProduct, (INT32)(DivU64x32(gCPUStructure.CPUFrequency, Mega)), nLanCards, gLanMac);
-        Status = LoadUserSettings(ConfName, &gConfigDict[1]);
-        DBG("%ls\\%ls.plist %ls loaded with name from LoadOptions: %s\n", selfOem.getConfigDirFullPath().wc_str(), ConfName.wc_str(), EFI_ERROR(Status) ? L" not" : L"", efiStrError(Status));
-        if (EFI_ERROR(Status)) {
-          gConfigDict[1] = NULL;
-          selfOem.unInitialize();
-        }
-      }
-    }
-  }
-  if (gConfigDict[1]) {
-    const TagStruct* UniteTag = gConfigDict[1]->propertyForKey("Unite");
-    if(UniteTag) {
-      UniteConfigs = UniteTag->isTrueOrYy();
-      DBG("UniteConfigs = %ls", UniteConfigs ? L"TRUE\n": L"FALSE\n" );
-    }
-  }
-  if (!gConfigDict[1] || UniteConfigs) {
-    selfOem.initialize("config"_XS8, gFirmwareClover, gSettings.OEMBoard, gSettings.OEMProduct, (INT32)(DivU64x32(gCPUStructure.CPUFrequency, Mega)), nLanCards, gLanMac);
-//    selfOem.unInitialize();
-//    selfOem.initialize("config"_XS8, gFirmwareClover, gSettings.OEMBoard, gSettings.OEMProduct, (INT32)(DivU64x32(gCPUStructure.CPUFrequency, Mega)), nLanCards, gLanMac);
-    Status = LoadUserSettings(L"config"_XSW, &gConfigDict[0]);
-    DBG("%ls\\config.plist %ls loaded: %s\n", selfOem.getConfigDirFullPath().wc_str(), EFI_ERROR(Status) ? L" not" : L"", efiStrError(Status));
-  }
-	snwprintf(gSettings.ConfigName, 64, "%ls%ls%ls",
-                                   gConfigDict[0] ? L"config": L"",
-                                   (gConfigDict[0] && gConfigDict[1]) ? L" + ": L"",
-                                   !gConfigDict[1] ? L"": (ConfName.notEmpty() ? ConfName.wc_str() : L"Load Options"));
-  //gSettings.MainConfigName.takeValueFrom(gSettings.ConfigName);
-
-  gSettings.PointerEnabled = TRUE;
-  gSettings.PointerSpeed = 2;
-  gSettings.DoubleClickTime = 500; //TODO - make it constant as nobody change it
-
-#ifdef ENABLE_SECURE_BOOT
-  InitializeSecureBoot();
-#endif // ENABLE_SECURE_BOOT
 
   {
 //    UINT32                    machineSignature    = 0;
@@ -2596,28 +2955,40 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
      */
   }
 #endif
-  if (!GlobalConfig.FastBoot) {
+  if (!GlobalConfig.isFastBoot()) {
     GetListOfThemes();
     GetListOfConfigs();
   }
-
+//  DBG("0: GlobalConfig.C3Latency=%x\n", gSettings.ACPI.SSDT._C3Latency);
+//  DBG("0: gSettings.CPU.SavingMode=%x\n", gSettings.CPU.SavingMode);
 //  ThemeX.FillByEmbedded(); //init XTheme before EarlyUserSettings
-
-  for (i=0; i<2; i++) {
-    if (gConfigDict[i]) {
-      GetEarlyUserSettings(gConfigDict[i]);
+  {
+    void       *Value = NULL;
+    UINTN       Size = 0;
+    //read aptiofixflag from nvram for special boot
+    Status = GetVariable2(L"aptiofixflag", &gEfiAppleBootGuid, &Value, &Size);
+    if (!EFI_ERROR(Status)) {
+      GlobalConfig.SpecialBootMode = TRUE;
+      FreePool(Value);
+      DBG("Fast option enabled\n");
     }
   }
+
+//  for (i=0; i<2; i++) {
+//    if (gConfigDict[i]) {
+//      GetEarlyUserSettings(gConfigDict[i], gSettings);
+//    }
+//  }
 
 #ifdef ENABLE_SECURE_BOOT
   // Install secure boot shim
   if (EFI_ERROR(Status = InstallSecureBoot())) {
-    PauseForKey(L"Secure boot failure!\n");
+    PauseForKey("Secure boot failure!\n"_XS8);
     return Status;
   }
 #endif // ENABLE_SECURE_BOOT
 
-  MainMenu.TimeoutSeconds = GlobalConfig.Timeout >= 0 ? GlobalConfig.Timeout : 0;
+  MainMenu.TimeoutSeconds = gSettings.Boot.Timeout >= 0 ? gSettings.Boot.Timeout : 0;
   //DBG("LoadDrivers() start\n");
   LoadDrivers();
   //DBG("LoadDrivers() end\n");
@@ -2637,13 +3008,9 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
     gEmuVariableControl->InstallEmulation(gEmuVariableControl);
   }
 
-#ifdef DEBUG_ERALY_CRASH
-  PauseForKey(L"2) press any key\n");
-#endif
-
   DbgHeader("InitScreen");
-	
-  if (!GlobalConfig.FastBoot) {
+
+  if (!GlobalConfig.isFastBoot()) {
     // init screen and dump video modes to log
     if (gDriversFlags.VideoLoaded) {
       InitScreen(FALSE);
@@ -2655,21 +3022,21 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
   } else {
     InitScreen(FALSE);
   }
-	
+
   //DBG("ReinitRefitLib\n");
   //Now we have to reinit handles
   Status = ReinitRefitLib();
   if (EFI_ERROR(Status)){
     DebugLog(2, " %s", efiStrError(Status));
-    PauseForKey(L"Error reinit refit\n");
+    PauseForKey("Error reinit refit."_XS8);
 #ifdef ENABLE_SECURE_BOOT
     UninstallSecureBoot();
 #endif // ENABLE_SECURE_BOOT
     return Status;
   }
-	
+
   //  DBG("DBG: messages\n");
-  if (!GlobalConfig.NoEarlyProgress && !GlobalConfig.FastBoot  && GlobalConfig.Timeout>0) {
+  if (!gSettings.Boot.NoEarlyProgress && !GlobalConfig.isFastBoot()  && gSettings.Boot.Timeout>0) {
     XStringW Message = SWPrintf("   Welcome to Clover %ls   ", gFirmwareRevision);
     BootScreen.DrawTextXY(Message, (UGAWidth >> 1), UGAHeight >> 1, X_IS_CENTER);
     BootScreen.DrawTextXY(L"... testing hardware ..."_XSW, (UGAWidth >> 1), (UGAHeight >> 1) + 20, X_IS_CENTER);
@@ -2679,11 +3046,6 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
 
   GuiEventsInitialize();
 
-  if (!gSettings.EnabledCores) {
-    gSettings.EnabledCores = gCPUStructure.Cores;
-  }
-
-  GetMacAddress();
   //DBG("ScanSPD() start\n");
   ScanSPD();
   //DBG("ScanSPD() end\n");
@@ -2692,109 +3054,52 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
 //  GetDefaultSettings();
   GetAcpiTablesList();
 
-	DBG("Calibrated TSC Frequency = %llu = %lluMHz\n", gCPUStructure.TSCCalibr, DivU64x32(gCPUStructure.TSCCalibr, Mega));
-  if (gCPUStructure.TSCCalibr > 200000000ULL) {  //200MHz
-    gCPUStructure.TSCFrequency = gCPUStructure.TSCCalibr;
-  }
 
-  gCPUStructure.CPUFrequency = gCPUStructure.TSCFrequency;
-  gCPUStructure.FSBFrequency = DivU64x32(MultU64x32(gCPUStructure.CPUFrequency, 10),
-                                         (gCPUStructure.MaxRatio == 0) ? 1 : gCPUStructure.MaxRatio);
-  gCPUStructure.MaxSpeed = (UINT32)DivU64x32(gCPUStructure.TSCFrequency + (Mega >> 1), Mega);
-
-  switch (gCPUStructure.Model) {
-    case CPU_MODEL_PENTIUM_M:
-    case CPU_MODEL_ATOM://  Atom
-    case CPU_MODEL_DOTHAN:// Pentium M, Dothan, 90nm
-    case CPU_MODEL_YONAH:// Core Duo/Solo, Pentium M DC
-    case CPU_MODEL_MEROM:// Core Xeon, Core 2 Duo, 65nm, Mobile
-    //case CPU_MODEL_CONROE:// Core Xeon, Core 2 Duo, 65nm, Desktop like Merom but not mobile
-    case CPU_MODEL_CELERON:
-    case CPU_MODEL_PENRYN:// Core 2 Duo/Extreme, Xeon, 45nm , Mobile
-    case CPU_MODEL_NEHALEM:// Core i7 LGA1366, Xeon 5500, "Bloomfield", "Gainstown", 45nm
-    case CPU_MODEL_FIELDS:// Core i7, i5 LGA1156, "Clarksfield", "Lynnfield", "Jasper", 45nm
-    case CPU_MODEL_DALES:// Core i7, i5, Nehalem
-    case CPU_MODEL_CLARKDALE:// Core i7, i5, i3 LGA1156, "Westmere", "Clarkdale", , 32nm
-    case CPU_MODEL_WESTMERE:// Core i7 LGA1366, Six-core, "Westmere", "Gulftown", 32nm
-    case CPU_MODEL_NEHALEM_EX:// Core i7, Nehalem-Ex Xeon, "Beckton"
-    case CPU_MODEL_WESTMERE_EX:// Core i7, Nehalem-Ex Xeon, "Eagleton"
-      gCPUStructure.ExternalClock = (UINT32)DivU64x32(gCPUStructure.FSBFrequency + kilo - 1, kilo);
-      //DBG(" Read TSC ExternalClock: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.ExternalClock, kilo)));
-      break;
-    default:
-      //DBG(" Read TSC ExternalClock: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.FSBFrequency, Mega)));
-	  
-      // for sandy bridge or newer
-      // to match ExternalClock 25 MHz like real mac, divide FSBFrequency by 4
-      gCPUStructure.ExternalClock = ((UINT32)DivU64x32(gCPUStructure.FSBFrequency + kilo - 1, kilo) + 3) / 4;
-      //DBG(" Corrected TSC ExternalClock: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.ExternalClock, kilo)));
-      break;
-  }
-
-  if (!GlobalConfig.NoEarlyProgress && !GlobalConfig.FastBoot && GlobalConfig.Timeout>0) {
+  if (!gSettings.Boot.NoEarlyProgress && !GlobalConfig.isFastBoot() && gSettings.Boot.Timeout>0) {
     XStringW Message = SWPrintf("... user settings ...");
     BootScreen.EraseTextXY();
     BootScreen.DrawTextXY(Message, (UGAWidth >> 1), (UGAHeight >> 1) + 20, X_IS_CENTER);
   }
 
-  //Second step. Load config.plist into gSettings
-  for (i=0; i<2; i++) {
-    if (gConfigDict[i]) {
-      Status = GetUserSettings(gConfigDict[i]);
-      if (EFI_ERROR(Status)) {
-        DBG("Error in Second part of settings %llu: %s\n", i, efiStrError(Status));
-      }
-    }
-  }
+//  //Second step. Load config.plist into gSettings
+//  for (i=0; i<2; i++) {
+//    if (gConfigDict[i]) {
+//      Status = GetUserSettings(gConfigDict[i], gSettings);
+//      afterGetUserSettings(gSettings);
+//      if (EFI_ERROR(Status)) {
+//        DBG("Error in Second part of settings %llu: %s\n", i, efiStrError(Status));
+//      }
+//    }
+//  }
   
-
-  if (gSettings.QEMU) {
-//    UINT64 Msrflex = 0ULL;
-
-    if (!gSettings.UserChange) {
-      gSettings.BusSpeed = 200000;
-    }
-    gCPUStructure.MaxRatio = (UINT32)DivU64x32(gCPUStructure.TSCCalibr, gSettings.BusSpeed * kilo);
-    DBG("Set MaxRatio for QEMU: %d\n", gCPUStructure.MaxRatio);
-    gCPUStructure.MaxRatio *= 10;
-    gCPUStructure.MinRatio = 60;
-/*    AsmWriteMsr64(MSR_FLEX_RATIO, ((6ULL << 40) + //(1ULL << 16) +
-                                   (gCPUStructure.MaxRatio << 8)));
-    DBG("check if flex is RW\n");
-    Msrflex = AsmReadMsr64(MSR_FLEX_RATIO); //0 == not Rw :(
-    DBG("MSR_FLEX_RATIO = %lx\n", Msrflex);
- */
-    gCPUStructure.FSBFrequency = DivU64x32(MultU64x32(gCPUStructure.CPUFrequency, 10),
-                                           (gCPUStructure.MaxRatio == 0) ? 1 : gCPUStructure.MaxRatio);
-    gCPUStructure.ExternalClock = (UINT32)DivU64x32(gCPUStructure.FSBFrequency + kilo - 1, kilo);
-  }
+    afterGetUserSettings(gSettings);
 
 //  dropDSM = 0xFFFF; //by default we drop all OEM _DSM. They have no sense for us.
 //  if (defDSM) {
 //    dropDSM = gSettings.DropOEM_DSM;   //if set by user
 //  }
   // Load any extra SMBIOS information
-  if (!EFI_ERROR(LoadUserSettings(L"smbios"_XSW, &smbiosTags)) && (smbiosTags != NULL)) {
-    const TagDict* dictPointer = smbiosTags->dictPropertyForKey("SMBIOS");
-    if (dictPointer) {
-      ParseSMBIOSSettings(dictPointer);
-    } else {
-      DBG("Invalid smbios.plist, not overriding config.plist!\n");
-    }
-  }
+//  if (!EFI_ERROR(LoadUserSettings(L"smbios"_XSW, &smbiosTags)) && (smbiosTags != NULL)) {
+//    const TagDict* dictPointer = smbiosTags->dictPropertyForKey("SMBIOS");
+//    if (dictPointer) {
+//      ParseSMBIOSSettings(gSettings, dictPointer);
+//    } else {
+//      DBG("Invalid smbios.plist, not overriding config.plist!\n");
+//    }
+//  }
 /*
   if (gFirmwareClover || gDriversFlags.EmuVariableLoaded) {
-    if (GlobalConfig.StrictHibernate) {
+    if (gSettings.Boot.StrictHibernate) {
       DBG(" Don't use StrictHibernate with emulated NVRAM!\n");
     }
-    GlobalConfig.StrictHibernate = FALSE;    
+    gSettings.Boot.StrictHibernate = FALSE;    
   }
 */
-  HaveDefaultVolume = gSettings.DefaultVolume.notEmpty();
+  HaveDefaultVolume = gSettings.Boot.DefaultVolume.notEmpty();
   if (!gFirmwareClover &&
       !gDriversFlags.EmuVariableLoaded &&
       !HaveDefaultVolume &&
-      GlobalConfig.Timeout == 0 && !ReadAllKeyStrokes()) {
+      gSettings.Boot.Timeout == 0 && !ReadAllKeyStrokes()) {
 // UEFI boot: get gEfiBootDeviceGuid from NVRAM.
 // if present, ScanVolumes() will skip scanning other volumes
 // in the first run.
@@ -2802,7 +3107,7 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
      GetEfiBootDeviceFromNvram();
   }
 
-  if (!GlobalConfig.NoEarlyProgress && !GlobalConfig.FastBoot && GlobalConfig.Timeout>0) {
+  if (!gSettings.Boot.NoEarlyProgress && !GlobalConfig.isFastBoot() && gSettings.Boot.Timeout>0) {
     XStringW Message = SWPrintf("...  scan entries  ...");
     BootScreen.EraseTextXY();
     BootScreen.DrawTextXY(Message, (UGAWidth >> 1), (UGAHeight >> 1) + 20, X_IS_CENTER);
@@ -2810,14 +3115,15 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
 
   AfterTool = FALSE;
   gGuiIsReady = TRUE;
-  gBootChanged = TRUE;
-  gThemeChanged = TRUE;
+  GlobalConfig.gBootChanged = TRUE;
+  GlobalConfig.gThemeChanged = TRUE;
+
   do {
-    if (gBootChanged && gThemeChanged) { // config changed
+    if (GlobalConfig.gBootChanged && GlobalConfig.gThemeChanged) { // config changed
       GetListOfDsdts(); //only after GetUserSettings
       GetListOfACPI(); //ssdt and other tables
     }
-    gBootChanged = FALSE;
+    GlobalConfig.gBootChanged = FALSE;
     MainMenu.Entries.setEmpty();
     OptionMenu.Entries.setEmpty();
     InitKextList();
@@ -2835,18 +3141,19 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
     for (i = 0; i < AudioList.size(); i++) {
       if (AudioList[i].Name.notEmpty()) {
         // Never change this log, otherwise clients will stop interprete the output.
-	  	  MsgLog("Found Audio Device %ls (%s) at index %llu\n", AudioList[i].Name.wc_str(), AudioOutputNames[AudioList[i].Device], i);
+        MsgLog("Found Audio Device %ls (%s) at index %llu\n", AudioList[i].Name.wc_str(), AudioOutputNames[AudioList[i].Device], i);
       }
     }
     
-    if (!GlobalConfig.FastBoot) {
+    if (!GlobalConfig.isFastBoot()) {
 //      CHAR16 *TmpArgs;
       if (gThemeNeedInit) {
-        InitTheme(TRUE);
+        UINTN      Size         = 0;
+        InitTheme((CHAR8*)GetNvramVariable(L"Clover.Theme", &gEfiAppleBootGuid, NULL, &Size));
         gThemeNeedInit = FALSE;
-      } else if (gThemeChanged) {
+      } else if (GlobalConfig.gThemeChanged) {
         DBG("change theme\n");
-        InitTheme(FALSE);
+        InitTheme(NULL);
         //OptionMenu.FreeMenu(); // it is already freed at loop beginning
         AboutMenu.Entries.setEmpty();
         HelpMenu.Entries.setEmpty();
@@ -2858,20 +3165,20 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
         DBG("Chosen theme %ls\n", ThemeX.Theme.wc_str());
       }
 
-//      DBG("initial boot-args=%s\n", gSettings.BootArgs);
+//      DBG("initial boot-args=%s\n", gSettings.Boot.BootArgs);
       //now it is a time to set RtVariables
       SetVariablesFromNvram();
       
-    XString8Array TmpArgs = Split<XString8Array>(gSettings.BootArgs, " ");
-      DBG("after NVRAM boot-args=%s\n", gSettings.BootArgs.c_str());
-      gSettings.OptionsBits = EncodeOptions(TmpArgs);
-//      DBG("initial OptionsBits %X\n", gSettings.OptionsBits);
+    XString8Array TmpArgs = Split<XString8Array>(gSettings.Boot.BootArgs, " ");
+      DBG("after NVRAM boot-args=%s\n", gSettings.Boot.BootArgs.c_str());
+      GlobalConfig.OptionsBits = EncodeOptions(TmpArgs);
+//      DBG("initial OptionsBits %X\n", GlobalConfig.OptionsBits);
       FillInputs(TRUE);
 
       // scan for loaders and tools, add then to the menu
-      if (GlobalConfig.LegacyFirst){
+      if (gSettings.GUI.Scan.LegacyFirst){
         AddCustomLegacy();
-        if (!GlobalConfig.NoLegacy) {
+        if (!gSettings.GUI.Scan.NoLegacy) {
           ScanLegacy();
         }
       }
@@ -2880,16 +3187,16 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
     
     // Add custom entries
     AddCustomEntries();
-    if (gSettings.DisableEntryScan) {
+    if (gSettings.GUI.Scan.DisableEntryScan) {
       DBG("Entry scan disabled\n");
     } else {
       ScanLoader();
     }
 
-    if (!GlobalConfig.FastBoot) {
-      if (!GlobalConfig.LegacyFirst) {
+    if (!GlobalConfig.isFastBoot()) {
+      if (!gSettings.GUI.Scan.LegacyFirst) {
         AddCustomLegacy();
-        if (!GlobalConfig.NoLegacy) {
+        if (!gSettings.GUI.Scan.NoLegacy) {
           ScanLegacy();
         }
       }
@@ -2897,7 +3204,7 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
       // fixed other menu entries
       if (!(ThemeX.HideUIFlags & HIDEUI_FLAG_TOOLS)) {
         AddCustomTool();
-        if (!gSettings.DisableToolScan) {
+        if (!gSettings.GUI.Scan.DisableToolScan) {
           ScanTool();
 #ifdef ENABLE_SECURE_BOOT
           // Check for secure boot setup mode
@@ -2909,30 +3216,30 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
       MenuEntryOptions.Image = ThemeX.GetIcon(BUILTIN_ICON_FUNC_OPTIONS);
 //      DBG("Options: IconID=%lld name=%s empty=%s\n", MenuEntryOptions.Image.Id, MenuEntryOptions.Image.Name.c_str(),
 //          MenuEntryOptions.Image.isEmpty()?"пусто":"нет");
-      if (gSettings.DisableCloverHotkeys)
+      if (gSettings.Boot.DisableCloverHotkeys)
         MenuEntryOptions.ShortcutLetter = 0x00;
       MainMenu.AddMenuEntry(&MenuEntryOptions, false);
       
       MenuEntryAbout.Image = ThemeX.GetIcon((INTN)BUILTIN_ICON_FUNC_ABOUT);
 //      DBG("About: IconID=%lld name=%s empty=%s\n", MenuEntryAbout.Image.Id, MenuEntryAbout.Image.Name.c_str(),
 //          MenuEntryAbout.Image.isEmpty()?"пусто":"нет");
-      if (gSettings.DisableCloverHotkeys)
+      if (gSettings.Boot.DisableCloverHotkeys)
         MenuEntryAbout.ShortcutLetter = 0x00;
       MainMenu.AddMenuEntry(&MenuEntryAbout, false);
 
       if (!(ThemeX.HideUIFlags & HIDEUI_FLAG_FUNCS) || MainMenu.Entries.size() == 0) {
-        if (gSettings.DisableCloverHotkeys)
+        if (gSettings.Boot.DisableCloverHotkeys)
           MenuEntryReset.ShortcutLetter = 0x00;
         MenuEntryReset.Image = ThemeX.GetIcon(BUILTIN_ICON_FUNC_RESET);
         MainMenu.AddMenuEntry(&MenuEntryReset, false);
-        if (gSettings.DisableCloverHotkeys)
+        if (gSettings.Boot.DisableCloverHotkeys)
           MenuEntryShutdown.ShortcutLetter = 0x00;
         MenuEntryShutdown.Image = ThemeX.GetIcon(BUILTIN_ICON_FUNC_EXIT);
         MainMenu.AddMenuEntry(&MenuEntryShutdown, false);
       }
 
 // font already changed and this message very quirky, clear line here
-//     if (!GlobalConfig.NoEarlyProgress && !GlobalConfig.FastBoot && GlobalConfig.Timeout>0) {
+//     if (!gSettings.Boot.NoEarlyProgress && !GlobalConfig.isFastBoot() && gSettings.Boot.Timeout>0) {
 //        XStringW Message = L"                          "_XSW;
 //        BootScreen.EraseTextXY();
 //        DrawTextXY(Message, (UGAWidth >> 1), (UGAHeight >> 1) + 20, X_IS_CENTER);
@@ -2945,7 +3252,7 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
 #endif
 
     DefaultIndex = FindDefaultEntry();
-//	  DBG("DefaultIndex=%lld and MainMenu.Entries.size()=%llu\n", DefaultIndex, MainMenu.Entries.size());
+//    DBG("DefaultIndex=%lld and MainMenu.Entries.size()=%llu\n", DefaultIndex, MainMenu.Entries.size());
     if ((DefaultIndex >= 0) && (DefaultIndex < (INTN)MainMenu.Entries.size())) {
       DefaultEntry = &MainMenu.Entries[DefaultIndex];
     } else {
@@ -2953,9 +3260,9 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
     }
 
     MainLoopRunning = TRUE;
-    //    MainMenu.TimeoutSeconds = GlobalConfig.Timeout >= 0 ? GlobalConfig.Timeout : 0;
-    if (DefaultEntry && (GlobalConfig.FastBoot ||
-                         (gSettings.SkipHibernateTimeout &&
+    //    MainMenu.TimeoutSeconds = gSettings.Boot.Timeout >= 0 ? gSettings.Boot.Timeout : 0;
+    if (DefaultEntry && (GlobalConfig.isFastBoot() ||
+                         (gSettings.Boot.SkipHibernateTimeout &&
                            DefaultEntry->getLOADER_ENTRY()
                            && OSFLAG_ISSET(DefaultEntry->getLOADER_ENTRY()->Flags, OSFLAG_HIBERNATED)
                          )
@@ -2967,7 +3274,7 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
       } else if (DefaultEntry->getLEGACY_ENTRY()){
         DefaultEntry->StartLegacy();
       }
-      GlobalConfig.FastBoot = FALSE; //Hmm... will never be here
+      gSettings.Boot.FastBoot = FALSE; //Hmm... will never be here
     }
 //    BOOLEAN MainAnime = MainMenu.GetAnime();
 //    DBG("MainAnime=%d\n", MainAnime);
@@ -2975,20 +3282,20 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
     gEvent = 0; //clear to cancel loop
     while (MainLoopRunning) {
  //     CHAR8 *LastChosenOS = NULL;
-      if (GlobalConfig.Timeout == 0 && DefaultEntry != NULL && !ReadAllKeyStrokes()) {
+      if (gSettings.Boot.Timeout == 0 && DefaultEntry != NULL && !ReadAllKeyStrokes()) {
         // go strait to DefaultVolume loading
         MenuExit = MENU_EXIT_TIMEOUT;
       } else {
         MainMenu.GetAnime();
-        if (gThemeChanged) {
-          gThemeChanged = FALSE;
+        if (GlobalConfig.gThemeChanged) {
+          GlobalConfig.gThemeChanged = FALSE;
           ThemeX.ClearScreen();
         }
         MenuExit = MainMenu.RunMainMenu(DefaultIndex, &ChosenEntry);
       }
-//		DBG("exit from MainMenu %llu\n", MenuExit); //MENU_EXIT_ENTER=(1) MENU_EXIT_DETAILS=3
+//    DBG("exit from MainMenu %llu\n", MenuExit); //MENU_EXIT_ENTER=(1) MENU_EXIT_DETAILS=3
       // disable default boot - have sense only in the first run
-      GlobalConfig.Timeout = -1;
+      gSettings.Boot.Timeout = -1;
       if ((DefaultEntry != NULL) && (MenuExit == MENU_EXIT_TIMEOUT)) {
         if (DefaultEntry->getLOADER_ENTRY()) {
           DefaultEntry->StartLoader();
@@ -3000,9 +3307,9 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
       }
 
       if (MenuExit == MENU_EXIT_OPTIONS){
-        gBootChanged = FALSE;
+        GlobalConfig.gBootChanged = FALSE;
         OptionsMenu(&OptionEntry);
-        if (gBootChanged) {
+        if (GlobalConfig.gBootChanged) {
           AfterTool = TRUE;
           MainLoopRunning = FALSE;
           break;
@@ -3079,11 +3386,11 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
         AfterTool = TRUE;
       }
       if ( ChosenEntry->getREFIT_MENU_ITEM_OPTIONS() ) {    // Options like KernelFlags, DSDTname etc.
-        gBootChanged = FALSE;
+        GlobalConfig.gBootChanged = FALSE;
         OptionsMenu(&OptionEntry);
-        if (gBootChanged)
+        if (GlobalConfig.gBootChanged)
           AfterTool = TRUE;
-        if (gBootChanged || gThemeChanged) // If theme has changed reinit the desktop
+        if (GlobalConfig.gBootChanged || GlobalConfig.gThemeChanged) // If theme has changed reinit the desktop
           MainLoopRunning = FALSE;
       }
       if ( ChosenEntry->getREFIT_MENU_ITEM_ABOUT() ) {    // About rEFIt
@@ -3131,16 +3438,17 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
       }
 
   #ifdef ENABLE_SECURE_BOOT
-      if ( ChosenEntry->getREFIT_MENU_ENTRY_SECURE_BOOT() ) { // Try to enable secure boot
-            EnableSecureBoot();
-            MainLoopRunning = FALSE;
-            AfterTool = TRUE;
-      }
-
-      if ( ChosenEntry->getREFIT_MENU_ENTRY_SECURE_BOOT_CONFIG() ) { // Configure secure boot
-            MainLoopRunning = !ConfigureSecureBoot();
-            AfterTool = TRUE;
-      }
+panic("not done yet");
+//      if ( ChosenEntry->getREFIT_MENU_ENTRY_SECURE_BOOT() ) { // Try to enable secure boot
+//            EnableSecureBoot();
+//            MainLoopRunning = FALSE;
+//            AfterTool = TRUE;
+//      }
+//
+//      if ( ChosenEntry->getREFIT_MENU_ENTRY_SECURE_BOOT_CONFIG() ) { // Configure secure boot
+//            MainLoopRunning = !ConfigureSecureBoot();
+//            AfterTool = TRUE;
+//      }
   #endif // ENABLE_SECURE_BOOT
 
       if ( ChosenEntry->getREFIT_MENU_ENTRY_CLOVER() ) {     // Clover options
@@ -3212,7 +3520,7 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
                                     (UINT16*)&BootNum
                                     );
               if (!EFI_ERROR(Status)) {
-				  DBG("Entry %lld assigned option %04llX\n", EntryIndex, BootNum);
+          DBG("Entry %lld assigned option %04llX\n", EntryIndex, BootNum);
                 Entry->BootNum = BootNum;
               }
               FreePool(OptionalData);
@@ -3274,7 +3582,9 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
 
   UninitializeConsoleSim ();
 
+#ifdef CLOVER_BUILD
   destruct_globals_objects(NULL);
+#endif
 
   return EFI_SUCCESS;
 }

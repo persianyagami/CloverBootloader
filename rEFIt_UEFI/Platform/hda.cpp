@@ -140,10 +140,10 @@ BOOLEAN EFIAPI IsHDMIAudio(EFI_HANDLE PciDevHandle)
   }
 
   // iterate over all GFX devices and check for sibling
-  for (Index = 0; Index < NGFX; Index++) {
-    if (gGraphics[Index].Segment == Segment
-        && gGraphics[Index].Bus == Bus
-        && gGraphics[Index].Device == Device) {
+  for (Index = 0; Index < gConf.GfxPropertiesArray.size(); Index++) {
+    if (gConf.GfxPropertiesArray[Index].Segment == Segment
+        && gConf.GfxPropertiesArray[Index].Bus == Bus
+        && gConf.GfxPropertiesArray[Index].Device == Device) {
       return TRUE;
     }
   }
@@ -163,7 +163,7 @@ BOOLEAN setup_hda_devprop(EFI_PCI_IO_PROTOCOL *PciIo, pci_dt_t *hda_dev, const M
     device_inject_string = devprop_create_string();
   }
   if (IsHDMIAudio(hda_dev->DeviceHandle)) {
-    if (!gSettings.HDMIInjection) {
+    if (!gSettings.Devices.HDMIInjection) {
       return FALSE;
     }
 
@@ -175,21 +175,18 @@ BOOLEAN setup_hda_devprop(EFI_PCI_IO_PROTOCOL *PciIo, pci_dt_t *hda_dev, const M
       return FALSE;
     }
 
-    if (gSettings.NrAddProperties != 0xFFFE) {
-      for (i = 0; i < gSettings.NrAddProperties; i++) {
-        if (gSettings.AddProperties[i].Device != DEV_HDMI) {
+    if (gSettings.Devices.AddPropertyArray.size() != 0xFFFE) { // Looks like NrAddProperties == 0xFFFE is not used anymore
+      for (i = 0; i < gSettings.Devices.AddPropertyArray.size(); i++) {
+        if (gSettings.Devices.AddPropertyArray[i].Device != DEV_HDMI) {
           continue;
         }
         Injected = TRUE;
 
-        if (!gSettings.AddProperties[i].MenuItem.BValue) {
-          //DBG("  disabled property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+        if (!gSettings.Devices.AddPropertyArray[i].MenuItem.BValue) {
+          //DBG("  disabled property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
         } else {
-          devprop_add_value(device,
-                            gSettings.AddProperties[i].Key,
-                            (UINT8*)gSettings.AddProperties[i].Value,
-                            gSettings.AddProperties[i].ValueLen);
-          //DBG("  added property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+          devprop_add_value(device, gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].Value);
+          //DBG("  added property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
         }
       }
     }
@@ -197,7 +194,7 @@ BOOLEAN setup_hda_devprop(EFI_PCI_IO_PROTOCOL *PciIo, pci_dt_t *hda_dev, const M
       DBG("Additional HDMI properties injected, continue\n");
       //return TRUE;
     } else {
-      if (gSettings.UseIntelHDMI) {
+      if (gSettings.Devices.UseIntelHDMI) {
         DBG(" HDMI Audio, used with HDA setting hda-gfx=onboard-2\n");
         devprop_add_value(device, "hda-gfx", (UINT8*)"onboard-2", 10);
       } else {
@@ -206,7 +203,7 @@ BOOLEAN setup_hda_devprop(EFI_PCI_IO_PROTOCOL *PciIo, pci_dt_t *hda_dev, const M
       }
     }
   } else {
-    if (!gSettings.HDAInjection) {
+    if (!gSettings.Devices.Audio.HDAInjection) {
       return FALSE;
     }
     if (hda_dev && !hda_dev->used) {
@@ -217,41 +214,38 @@ BOOLEAN setup_hda_devprop(EFI_PCI_IO_PROTOCOL *PciIo, pci_dt_t *hda_dev, const M
       return FALSE;
     }
     // HDA - determine layout-id
-    if (gSettings.HDALayoutId > 0) {
+    if (gSettings.Devices.Audio.HDALayoutId > 0) {
       // layoutId is specified - use it
-      layoutId = (UINT32)gSettings.HDALayoutId;
+      layoutId = (UINT32)gSettings.Devices.Audio.HDALayoutId;
       DBG(" setting specified layout-id=%d (0x%X)\n", layoutId, layoutId);
     } else {
       layoutId = 12;
     }
-    if (gSettings.NrAddProperties != 0xFFFE) {
-      for (i = 0; i < gSettings.NrAddProperties; i++) {
-        if (gSettings.AddProperties[i].Device != DEV_HDA) {
+    if (gSettings.Devices.AddPropertyArray.size() != 0xFFFE) { // Looks like NrAddProperties == 0xFFFE is not used anymore
+      for (i = 0; i < gSettings.Devices.AddPropertyArray.size(); i++) {
+        if (gSettings.Devices.AddPropertyArray[i].Device != DEV_HDA) {
           continue;
         }
         Injected = TRUE;
 
-        if (!gSettings.AddProperties[i].MenuItem.BValue) {
-          //DBG("  disabled property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+        if (!gSettings.Devices.AddPropertyArray[i].MenuItem.BValue) {
+          //DBG("  disabled property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
         } else {
-          devprop_add_value(device,
-                            gSettings.AddProperties[i].Key,
-                            (UINT8*)gSettings.AddProperties[i].Value,
-                            gSettings.AddProperties[i].ValueLen);
-          //DBG("  added property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+          devprop_add_value(device, gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].Value);
+          //DBG("  added property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
         }
       }
     }
     if (!Injected) {
-      if ( (OSVersion.notEmpty()  &&  OSVersion < MacOsVersion("10.8"_XS8)) || gSettings.HDALayoutId > 0 ) {
+      if ( (OSVersion.notEmpty()  &&  OSVersion < MacOsVersion("10.8"_XS8)) || gSettings.Devices.Audio.HDALayoutId > 0 ) {
         devprop_add_value(device, "layout-id", (UINT8 *)&layoutId, 4);
       }
       layoutId = 0; // reuse variable
-      if (gSettings.UseIntelHDMI) {
+      if (gSettings.Devices.UseIntelHDMI) {
         devprop_add_value(device, "hda-gfx", (UINT8 *)"onboard-1", 10);
       }
       codecId = 1; // reuse variable again
-      if (gSettings.AFGLowPowerState) {
+      if (gSettings.Devices.Audio.AFGLowPowerState) {
         devprop_add_value(device, "AFGLowPowerState", (UINT8 *)&codecId, 4);
       }
 
@@ -261,4 +255,86 @@ BOOLEAN setup_hda_devprop(EFI_PCI_IO_PROTOCOL *PciIo, pci_dt_t *hda_dev, const M
   }
   return TRUE;
 }
+
+
+
+
+void ResetHDA()
+{
+  EFI_STATUS          Status;
+  UINTN               HandleCount  = 0;
+  EFI_HANDLE          *HandleArray = NULL;
+  EFI_PCI_IO_PROTOCOL *PciIo;
+  PCI_TYPE00          Pci;
+  UINTN               Index;
+  UINTN               Segment      = 0;
+  UINTN               Bus          = 0;
+  UINTN               Device       = 0;
+  UINTN               Function     = 0;
+
+  XStringW GopDevicePathStr;
+
+
+  // Get GOP handle, in order to check to which GPU the monitor is currently connected
+  Status = gBS->LocateHandleBuffer(ByProtocol, &gEfiGraphicsOutputProtocolGuid, NULL, &HandleCount, &HandleArray);
+  if (!EFI_ERROR(Status)) {
+    GopDevicePathStr = DevicePathToXStringW(DevicePathFromHandle(HandleArray[0]));
+    DBG("GOP found at: %ls\n", GopDevicePathStr.wc_str());
+  }
+
+  // Scan PCI handles
+  Status = gBS->LocateHandleBuffer (
+                                    ByProtocol,
+                                    &gEfiPciIoProtocolGuid,
+                                    NULL,
+                                    &HandleCount,
+                                    &HandleArray
+                                    );
+
+  if (!EFI_ERROR(Status)) {
+    for (Index = 0; Index < HandleCount; ++Index) {
+      Status = gBS->HandleProtocol(HandleArray[Index], &gEfiPciIoProtocolGuid, (void **)&PciIo);
+      if (!EFI_ERROR(Status)) {
+        // Read PCI BUS
+        PciIo->GetLocation (PciIo, &Segment, &Bus, &Device, &Function);
+        Status = PciIo->Pci.Read (
+                                  PciIo,
+                                  EfiPciIoWidthUint32,
+                                  0,
+                                  sizeof (Pci) / sizeof (UINT32),
+                                  &Pci
+                                  );
+
+//        DBG("PCI (%02llX|%02llX:%02llX.%02llX) : %04hX %04hX class=%02hhX%02hhX%02hhX\n",
+//             Segment,
+//             Bus,
+//             Device,
+//             Function,
+//             Pci.Hdr.VendorId,
+//             Pci.Hdr.DeviceId,
+//             Pci.Hdr.ClassCode[2],
+//             Pci.Hdr.ClassCode[1],
+//             Pci.Hdr.ClassCode[0]
+//             );
+
+        if ( Pci.Hdr.ClassCode[2] == PCI_CLASS_MEDIA &&
+                  ( Pci.Hdr.ClassCode[1] == PCI_CLASS_MEDIA_HDA || Pci.Hdr.ClassCode[1] == PCI_CLASS_MEDIA_AUDIO )
+                )
+        {
+          //Slice method from VoodooHDA
+          //PCI_HDA_TCSEL_OFFSET = 0x44
+          UINT8 Value = 0;
+          Status = PciIo->Pci.Read(PciIo, EfiPciIoWidthUint8, 0x44, 1, &Value);
+
+          if ( !EFI_ERROR(Status) ) {
+            Value &= 0xf8;
+            PciIo->Pci.Write(PciIo, EfiPciIoWidthUint8, 0x44, 1, &Value);
+          }
+          //ResetControllerHDA();
+        }
+      }
+    }
+  }
+}
+
 

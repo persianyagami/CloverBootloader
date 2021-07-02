@@ -12,52 +12,24 @@
 /* Machine Default Data */
 
 
-UINT32  gFwFeatures;
-UINT32  gFwFeaturesMask;
-UINT64  gPlatformFeature;
+#ifndef DEBUG_PLATFORMDATA
+#ifndef DEBUG_ALL
+#define DEBUG_PLATFORMDATA 1
+#else
+#define DEBUG_PLATFORMDATA DEBUG_ALL
+#endif
+#endif
+
+#if DEBUG_PLATFORMDATA==0
+#define DBG(...)
+#else
+#define DBG(...) DebugLog(DEBUG_PLATFORMDATA, __VA_ARGS__)
+#endif
 
 // All SMBIOS data were updated by Sherlocks, PMheart.
 // FredWst supported SmcExtract.
 
 // Refactored to single data structure by RehabMan
-
-class PLATFORMDATA
-{
-public:
-  const LString8 productName;
-  const LString8 firmwareVersion;
-  const LString8 efiversion;
-  const LString8 boardID;
-  const LString8 productFamily;
-  const LString8 systemVersion;
-  const LString8 serialNumber;
-  const LString8 chassisAsset;
-  UINT8 smcRevision[6];
-  const LString8 smcBranch;
-  const LString8 smcPlatform;
-  UINT32 smcConfig;
-  
-  //PLATFORMDATA() : productName(), firmwareVersion(), efiversion(), boardID(), productFamily(), systemVersion(), serialNumber(), chassisAsset(), smcRevision{0,0,0,0,0,0}, smcBranch(), smcPlatform(), smcConfig() { }
-  PLATFORMDATA(const LString8& _productName, const LString8& _firmwareVersion, const LString8& _efiversion, const LString8& _boardID, const LString8& _productFamily,
-               const LString8& _systemVersion, const LString8& _serialNumber, const LString8& _chassisAsset,
-               UINT8 _smcRevision0, UINT8 _smcRevision1, UINT8 _smcRevision2, UINT8 _smcRevision3, UINT8 _smcRevision4, UINT8 _smcRevision5,
-               const LString8& _smcBranch, const LString8& _smcPlatform, UINT32 _smcConfig)
-            :  productName(_productName), firmwareVersion(_firmwareVersion), efiversion(_efiversion), boardID(_boardID), productFamily(_productFamily),
-               systemVersion(_systemVersion), serialNumber(_serialNumber), chassisAsset(_chassisAsset), smcRevision{0},
-               smcBranch(_smcBranch), smcPlatform(_smcPlatform), smcConfig(_smcConfig)
-            {
-              smcRevision[0] = _smcRevision0;
-              smcRevision[1] = _smcRevision1;
-              smcRevision[2] = _smcRevision2;
-              smcRevision[3] = _smcRevision3;
-              smcRevision[4] = _smcRevision4;
-              smcRevision[5] = _smcRevision5;
-            }
-
-  // Not sure if default are valid. Delete them. If needed, proper ones can be created
-  PLATFORMDATA(const PLATFORMDATA&) = delete;
-  PLATFORMDATA& operator=(const PLATFORMDATA&) = delete;
-} ;
 
 //--------------------------
 /* AppleGraphicsDevicePolicy.kext in 10.14.6 contains follow board-id to choose from graphics config
@@ -293,7 +265,7 @@ PLATFORMDATA ApplePlatformData[] =
     "MacBook Pro"_XS8, "1.0"_XS8, "C02ZPHACPG8W"_XS8, "MacBook-Aluminum"_XS8,
     0, 0, 0, 0, 0, 0, ""_XS8, "j152f"_XS8, 0 },
   //MacBookPro16,2 / MacBook Pro (13-inch, 2020, Four Thunderbolt 3 ports)
-  { "MacBookPro16,2"_XS8, "MBP162.88Z.F000.B00.2005132210"_XS8, "1037.120.87.0.0"_XS8, "Mac-5F9802EFE386AA28"_XS8, // Intel Core i7-1068NG7 @ 2.30 GHz
+  { "MacBookPro16,2"_XS8, "MBP162.88Z.F000.B00.2005132210"_XS8, "1037.120.87.0.0"_XS8, "Mac-5F9802EFE386AA28"_XS8, // Intel Core i7-1068NG7 @ 2.30 GHz type=0x060b
     "MacBook Pro"_XS8, "1.0"_XS8, "C02CLHACML7H"_XS8, "MacBook-Aluminum"_XS8,
     0, 0, 0, 0, 0, 0, ""_XS8, "j214k"_XS8, 0 },
   //MacBookPro16,3 / MacBook Pro (13-inch, 2020, Two Thunderbolt 3 ports)
@@ -349,7 +321,7 @@ PLATFORMDATA ApplePlatformData[] =
     "MacBook Air"_XS8, "1.0"_XS8, "C02PVHACGFWL"_XS8, "Air-Enclosure"_XS8,
     0x02, 0x26, 0x0f, 0, 0, 0x02, "j110"_XS8, "j110"_XS8, 0x7b007 },
   //MacBookAir7,2 / MacBook Air (13-inch, Early 2015)
-  { "MacBookAir7,2"_XS8, "MBA71.88Z.F000.B00.2004161539"_XS8, "194.0.0.0.0"_XS8, "Mac-937CB26E2E02BB01"_XS8, // Intel Core i7-5650U @ 2.20 GHz
+  { "MacBookAir7,2"_XS8, "MBA71.88Z.F000.B00.2004161539"_XS8, "426.0.0.0.0"_XS8, "Mac-937CB26E2E02BB01"_XS8, // Intel Core i7-5650U @ 2.20 GHz, i5-5250U CPU @ 1.60GHz
     "MacBook Air"_XS8, "1.0"_XS8, "C02Q1HACG940"_XS8, "Air-Enclosure"_XS8,
     0x02, 0x27, 0x0f, 0, 0, 0x02, "j113"_XS8, "j113"_XS8, 0xf0a008 },
   //MacBookAir8,1 / MacBook Air (Retina, 13-inch, 2018)
@@ -363,7 +335,7 @@ PLATFORMDATA ApplePlatformData[] =
   //MacBookAir9,1 / MacBook Air (Retina, 13-inch, 2020)
   { "MacBookAir9,1"_XS8, "MBA91.88Z.F000.B00.2005132117"_XS8, "1037.120.87.0.0"_XS8, "Mac-0CFF9C7C2B63DF8D"_XS8, // Intel Core i5-1030NG7 @ 1.10 GHz
     "MacBook Air"_XS8, "1.0"_XS8, "FVFCCHACMNHP"_XS8, "Air-Enclosure"_XS8,
-    0, 0, 0, 0, 0, 0, ""_XS8, "j230K"_XS8, 0 },
+    0, 0, 0, 0, 0, 0, ""_XS8, "j230k"_XS8, 0 },
   //Macmini1,1 / Mac mini (Early 2006)
   { "Macmini1,1"_XS8, "MM11.88Z.0055.B08.0610121326"_XS8, ""_XS8, "Mac-F4208EC8"_XS8, // Intel Core 2 Duo T2300 @ 1.67 GHz
     "Mac mini"_XS8, "1.0"_XS8, "W8702N1JU35"_XS8, "Mini-Aluminum"_XS8,
@@ -582,17 +554,548 @@ PLATFORMDATA ApplePlatformData[] =
   { "Xserve3,1"_XS8, "XS31.88Z.0081.B06.0908061300"_XS8, ""_XS8, "Mac-F223BEC8"_XS8, // Intel Xeon E5520 @ 2.26 GHz
     "Xserve"_XS8, "1.0"_XS8, "CK933YJ16HS"_XS8, "Xserve"_XS8,
     0x01, 0x43, 0x0f, 0, 0, 0x04, "NA"_XS8, "NA"_XS8, 0x79001 }, // need rBR RPlt EPCI
+  //MaxMachineType : default to iMac132
+  { "iMac13,2"_XS8, "IM131.88Z.F000.B00.2004121616"_XS8, "291.0.0.0.0"_XS8, "Mac-FC02E91DDD3FA6A4"_XS8, // Intel Core i5-3470 @ 3.20 GHz
+    "iMac"_XS8, "1.0"_XS8, "C02JB041DNCW"_XS8, "iMac-Aluminum"_XS8,
+    0x02, 0x11, 0x0f, 0, 0, 0x16, "d8"_XS8, "d8"_XS8, 0x79006 },
 };
 
-void SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
+// Firmware info for 10.13+
+// by Sherlocks
+uint32_t GetFwFeatures(MACHINE_TYPES Model)
 {
-  const CHAR8  *i;
+  // Firmware info for 10.13+
+  // by Sherlocks
+  // FirmwareFeatures
+  switch ( Model )
+    {
+    // Verified list from Firmware
+    case MacBookPro91:
+    case MacBookPro92:
+      return 0xC00DE137;
+      break;
+    case MacBookAir41:
+    case MacBookAir42:
+    case MacMini51:
+    case MacMini52:
+    case MacMini53:
+      return 0xD00DE137;
+      break;
+    case MacBookPro101:
+    case MacBookPro102:
+    case MacBookAir51:
+    case MacBookAir52:
+    case MacMini61:
+    case MacMini62:
+    case iMac131:
+    case iMac132:
+    case iMac133:
+      return 0xE00DE137;
+      break;
+    case MacMini81:
+      return 0xFD8FF466;
+      break;
+    case MacBookAir61:
+    case MacBookAir62:
+    case iMac141:
+    case iMac142:
+    case iMac143:
+      return 0xE00FE137;
+      break;
+    case MacBookPro111:
+    case MacBookPro112:
+    case MacBookPro113:
+    case MacBookPro114:
+    case MacBookPro115:
+      return 0xE80FE137;
+      break;
+    case iMac144:
+      return 0xF00FE177;
+      break;
+    case iMac151:
+      return 0xF80FE177;
+      break;
+    case MacBookPro131:
+    case MacBookPro132:
+    case MacBookPro141:
+    case MacBookPro142:
+    case iMac171:
+    case iMac181:
+    case iMac182:
+    case iMac183:
+      return 0xFC0FE176;
+      break;
+    case MacBook91:
+    case MacBook101:
+    case MacBookPro133:
+    case MacBookPro143:
+      return 0xFC0FE17E;
+      break;
+    case iMacPro11:
+      return 0xFD8FF53F;
+      break;
+    case MacBookAir91:
+      return 0xFD8FF42E;
+      break;
+    case iMac191:
+    case iMac192:
+    case iMac201:
+    case iMac202:
+      return 0xFD8FF576;
+      break;
+    case MacBookPro162:
+    case MacBookPro163:
+    case MacBookPro164:
+      return 0xFDAFF066;
+      break;
+      // Verified list from Users
+    case MacBookAir31:
+    case MacBookAir32:
+    case MacMini41:
+      return 0xD00DE137;
+      break;
+    case MacBookAir71:
+    case MacBookAir72:
+      return 0xE00FE137;
+      break;
+    case iMac101:
+    case iMac111:
+    case iMac112:
+    case iMac113:
+    case iMac121:
+    case iMac122:
+    case MacMini71:
+      return 0xE00DE137;
+      break;
+    case MacPro51:
+      return 0xE80FE137;
+      break;
+    case MacPro61:
+      return 0xE80FE176;
+      break;
+    case MacPro71:
+      return 0xFD8FF53F;
+      break;
+    case MacBookPro61:
+    case MacBookPro62:
+    case MacBookPro71:
+    case MacBookPro81:
+    case MacBookPro82:
+    case MacBookPro83:
+      return 0xC00DE137;
+      break;
+    case MacBookPro121:
+    case MacBookPro151:
+    case MacBookPro152:
+    case MacBookPro153:
+    case MacBookPro154:
+    case MacBookPro161:
+    case MacBookAir81:
+    case MacBookAir82:
+    case iMac161:
+    case iMac162:
+      return 0xFC0FE137;
+      break;
+    case MacBook61:
+    case MacBook71:
+    case MacBook81:
+      return 0xFC0FE13F;
+      break;
+    default:
+      return 0xE907F537; //unknown - use oem SMBIOS value to be default
+      break;
+    }
+}
 
-  gSettings.VendorName = BiosVendor;
-  gSettings.RomVersion = ApplePlatformData[Model].firmwareVersion;
+bool GetMobile(MACHINE_TYPES Model)
+{
+  // Mobile: the battery tab in Energy Saver
+  switch ( Model )
+    {
+    case MacBook11:
+    case MacBook21:
+    case MacBook31:
+    case MacBook41:
+    case MacBook51:
+    case MacBook52:
+    case MacBook61:
+    case MacBook71:
+    case MacBook81:
+    case MacBook91:
+    case MacBook101:
+    case MacBookPro11:
+    case MacBookPro12:
+    case MacBookPro21:
+    case MacBookPro22:
+    case MacBookPro31:
+    case MacBookPro41:
+    case MacBookPro51:
+    case MacBookPro52:
+    case MacBookPro53:
+    case MacBookPro54:
+    case MacBookPro55:
+    case MacBookPro61:
+    case MacBookPro62:
+    case MacBookPro71:
+    case MacBookPro81:
+    case MacBookPro82:
+    case MacBookPro83:
+    case MacBookPro91:
+    case MacBookPro92:
+    case MacBookPro101:
+    case MacBookPro102:
+    case MacBookPro111:
+    case MacBookPro112:
+    case MacBookPro113:
+    case MacBookPro114:
+    case MacBookPro115:
+    case MacBookPro121:
+    case MacBookPro131:
+    case MacBookPro132:
+    case MacBookPro133:
+    case MacBookPro141:
+    case MacBookPro142:
+    case MacBookPro143:
+    case MacBookPro151:
+    case MacBookPro152:
+    case MacBookPro153:
+    case MacBookPro154:
+    case MacBookPro161:
+    case MacBookPro162:
+    case MacBookPro163:
+    case MacBookPro164:
+    case MacBookAir11:
+    case MacBookAir21:
+    case MacBookAir31:
+    case MacBookAir32:
+    case MacBookAir41:
+    case MacBookAir42:
+    case MacBookAir51:
+    case MacBookAir52:
+    case MacBookAir61:
+    case MacBookAir62:
+    case MacBookAir71:
+    case MacBookAir72:
+    case MacBookAir81:
+    case MacBookAir82:
+    case MacBookAir91:
+      return TRUE;
+    case MacMini11:
+    case MacMini21:
+    case MacMini31:
+    case MacMini41:
+    case MacMini51:
+    case MacMini52:
+    case MacMini53:
+    case MacMini61:
+    case MacMini62:
+    case MacMini71:
+    case MacMini81:
+      return FALSE;
+    case iMac41:
+    case iMac42:
+    case iMac51:
+    case iMac52:
+    case iMac61:
+    case iMac71:
+    case iMac81:
+    case iMac91:
+    case iMac101:
+    case iMac111:
+    case iMac112:
+    case iMac113:
+    case iMac121:
+    case iMac122:
+    case iMac131:
+    case iMac132:
+    case iMac133:
+    case iMac141:
+    case iMac142:
+    case iMac143:
+    case iMac144:
+    case iMac151:
+    case iMac161:
+    case iMac162:
+    case iMac171:
+    case iMac181:
+    case iMac182:
+    case iMac183:
+    case iMac191:
+    case iMac192:
+    case iMac201:
+    case iMac202:
+    case iMacPro11:
+      return FALSE;
+    case MacPro11:
+    case MacPro21:
+    case MacPro31:
+    case MacPro41:
+    case MacPro51:
+    case MacPro61:
+    case MacPro71:
+      return FALSE;
+    case Xserve11:
+    case Xserve21:
+    case Xserve31:
+      return FALSE;
+    case MaxMachineType: // currently a copy of iMac132
+      return FALSE;
+    default: // bug, unknown Apple model
+      log_technical_bug("%s : cannot find model %d\n", __PRETTY_FUNCTION__, Model);
+      return false;
+    }
+}
 
-  // AppleReleaseDate
-  switch (Model) {
+  // PlatformFeature
+  // the memory tab in About This Mac
+  // by TheRacerMaster
+UINT64 GetPlatformFeature(MACHINE_TYPES Model)
+{
+  switch ( Model )
+    {
+    // Verified list from ioreg
+    case iMac171:
+    case iMac181:
+    case iMac182:
+    case iMac183:
+    case MacPro71:
+      return 0x00;
+      break;
+    case MacMini61:
+    case MacMini62:
+    case iMac131:
+    case iMac132:
+    case iMac133:
+    case iMac141:
+    case iMac142:
+    case iMac143:
+    case iMac144:
+    case iMac151:
+      return 0x01;
+      break;
+    case MacBookPro111:
+    case MacBookPro112:
+    case MacBookPro113:
+    case MacBookPro114:
+    case MacBookPro115:
+    case MacBookPro121:
+    case MacBookAir71:
+    case MacBookAir72:
+      return 0x02;
+      break;
+    case MacMini71:
+    case iMac161:
+    case iMac162:
+      return 0x03;
+      break;
+    case MacPro61:
+      return 0x04;
+      break;
+    case MacBook81:
+    case MacBook91:
+    case MacBook101:
+    case MacBookPro131:
+    case MacBookPro132:
+    case MacBookPro133:
+    case MacBookPro141:
+    case MacBookPro142:
+    case MacBookPro143:
+      return 0x1A;
+      break;
+    case iMacPro11:
+    case MacMini81:
+    case iMac191:
+    case iMac192:
+    case iMac201:
+    case iMac202:
+      return 0x20;
+      break;
+    case MacBookPro151:
+    case MacBookPro152:
+    case MacBookPro153:
+    case MacBookPro154:
+    case MacBookPro161:
+    case MacBookPro162:
+    case MacBookPro163:
+    case MacBookPro164:
+      return 0x32;
+      break;
+    case MacBookAir81:
+    case MacBookAir82:
+    case MacBookAir91:
+      return 0x3A;
+      break;
+      // It is nonsense, ASCII code сharacter "2" = 0x32 != 0x02. Don't use ioreg, so that not to be confused. Use dmidecode dump.
+      // Verified list from Users
+      // case MacBookPro153:
+      // case MacBookPro154:
+      // case MacBookPro161:
+      //   gSettings.Smbios.gPlatformFeature        = 0x02;
+      //   break;
+    default:
+      return 0xFFFF; // disabled
+      break;
+    }
+}
+
+void getRBr(MACHINE_TYPES Model, UINT32 CPUModel, bool isMobile, char RBr[8])
+{
+  memset(RBr, 0, 8);
+  if (ApplePlatformData[Model].smcBranch[0] != 'N') {
+//    snprintf(RBr, 8, "%s", ApplePlatformData[Model].smcBranch.c_str());
+    memcpy(RBr, ApplePlatformData[Model].smcBranch.c_str(), MIN(8, ApplePlatformData[Model].smcBranch.sizeInBytesIncludingTerminator()));
+  } else {
+    switch (CPUModel) {
+    case CPU_MODEL_PENTIUM_M:
+    case CPU_MODEL_CELERON:
+      snprintf(RBr, 8, "%s", "m70");
+      break;
+      
+    case CPU_MODEL_YONAH:
+      snprintf(RBr, 8, "%s", "k22");
+      break;
+      
+    case CPU_MODEL_MEROM: //TODO check for mobile
+      snprintf(RBr, 8, "%s", "m75");
+      break;
+      
+    case CPU_MODEL_PENRYN:
+      if (isMobile) {
+        snprintf(RBr, 8, "%s", "m82");
+      } else {
+        snprintf(RBr, 8, "%s", "k36");
+      }
+      break;
+      
+    case CPU_MODEL_SANDY_BRIDGE:
+      if (isMobile) {
+        snprintf(RBr, 8, "%s", "k90i");
+      } else {
+        snprintf(RBr, 8, "%s", "k60");
+      }
+      break;
+      
+    case CPU_MODEL_IVY_BRIDGE:
+      snprintf(RBr, 8, "%s", "j30");
+      break;
+      
+    case CPU_MODEL_IVY_BRIDGE_E5:
+      snprintf(RBr, 8, "%s", "j90");
+      break;
+      
+    case CPU_MODEL_HASWELL_ULT:
+      snprintf(RBr, 8, "%s", "j44");
+      break;
+      
+    case CPU_MODEL_HASWELL_U5: //Mobile - Broadwell
+      snprintf(RBr, 8, "%s", "j52");
+      break;
+      
+    case CPU_MODEL_SKYLAKE_D:
+//      snprintf(RBr, 8, "%s", "j95j95am");
+      memcpy(RBr, "j95j95am", 8);
+      break;
+      
+    case CPU_MODEL_SKYLAKE_U:
+      snprintf(RBr, 8, "%s", "2016mb");
+      break;
+      
+    case CPU_MODEL_KABYLAKE1: //Mobile
+      snprintf(RBr, 8, "%s", "2017mbp");
+      break;
+      
+    case CPU_MODEL_KABYLAKE2: //Desktop
+//      snprintf(RBr, 8, "%s", "j133_4_5");
+      memcpy(RBr, "j133_4_5", 8);
+      break;
+      
+    default:
+      snprintf(RBr, 8, "%s", "t9");
+      break;
+    }
+  }
+}
+
+void getRPlt(MACHINE_TYPES Model, UINT32 CPUModel, bool isMobile, char RPlt[8])
+{
+  memset(RPlt, 0, 8);
+  if (ApplePlatformData[Model].smcPlatform[0] != 'N') {
+    snprintf(RPlt, 8, "%s", ApplePlatformData[Model].smcPlatform.c_str());
+//    memcpy(RPlt, ApplePlatformData[Model].smcPlatform.c_str(), 8);
+  } else {
+    switch (CPUModel) {
+    case CPU_MODEL_PENTIUM_M:
+    case CPU_MODEL_CELERON:
+      snprintf(RPlt, 8, "m70");
+      break;
+      
+    case CPU_MODEL_YONAH:
+      snprintf(RPlt, 8, "k22");
+      break;
+      
+    case CPU_MODEL_MEROM: //TODO check for mobile
+      snprintf(RPlt, 8, "m75");
+      break;
+      
+    case CPU_MODEL_PENRYN:
+      if (isMobile) {
+        snprintf(RPlt, 8, "m82");
+      } else {
+        snprintf(RPlt, 8, "k36");
+      }
+      break;
+      
+    case CPU_MODEL_SANDY_BRIDGE:
+      if (isMobile) {
+        snprintf(RPlt, 8, "k90i");
+      } else {
+        snprintf(RPlt, 8, "k60");
+      }
+      break;
+      
+    case CPU_MODEL_IVY_BRIDGE:
+      snprintf(RPlt, 8, "j30");
+      break;
+      
+    case CPU_MODEL_IVY_BRIDGE_E5:
+      snprintf(RPlt, 8, "j90");
+      break;
+      
+    case CPU_MODEL_HASWELL_ULT:
+      snprintf(RPlt, 8, "j44");
+      break;
+      
+    case CPU_MODEL_HASWELL_U5: //Mobile - Broadwell
+      snprintf(RPlt, 8, "j52");
+      break;
+      
+    case CPU_MODEL_SKYLAKE_D:
+      snprintf(RPlt, 8, "j95");
+      break;
+      
+    case CPU_MODEL_SKYLAKE_U:
+      snprintf(RPlt, 8, "j79");
+      break;
+      
+    case CPU_MODEL_KABYLAKE1: //Mobile
+      snprintf(RPlt, 8, "j130a");
+      break;
+      
+    case CPU_MODEL_KABYLAKE2: //Desktop
+      snprintf(RPlt, 8, "j135");
+      break;
+      
+    default:
+      snprintf(RPlt, 8, "t9");
+      break;
+    }
+  }
+}
+
+bool isReleaseDateWithYear20(MACHINE_TYPES Model)
+{
+  switch ( Model )
+  {
     case MacBook11:
     case MacBook21:
     case MacBook31:
@@ -647,391 +1150,77 @@ void SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case MacPro51:
     case Xserve11:
     case Xserve21:
-    case Xserve31:
-      i = ApplePlatformData[Model].firmwareVersion.c_str();
-      i += AsciiStrLen(i);
-
-      while (*i != '.') {
-        i--;
-      }
-      gSettings.ReleaseDate.S8Printf("%c%c/%c%c/%c%c", i[3], i[4], i[5], i[6], i[1], i[2]);
-      break;
-
-    default:
-      i = ApplePlatformData[Model].firmwareVersion.c_str();
-      i += AsciiStrLen(i);
-
-      while (*i != '.') {
-        i--;
-      }
-      gSettings.ReleaseDate.S8Printf("%c%c/%c%c/20%c%c", i[3], i[4], i[5], i[6], i[1], i[2]);
-      break;
+    case Xserve31: {
+      return false;
+    }
+    default: {
+      return true;
+    }
   }
+}
 
-  gSettings.EfiVersion.takeValueFrom(ApplePlatformData[Model].efiversion);
-  gSettings.EfiVersion.trim();
-  gSettings.ManufactureName = BiosVendor;
-  if (Redefine) {
-    gSettings.ProductName = ApplePlatformData[Model].productName;
+// AppleReleaseDate
+XString8 GetReleaseDate(MACHINE_TYPES Model)
+{
+  XString8 returnValue;
+
+  const char* i = ApplePlatformData[Model].firmwareVersion.c_str();
+  i += strlen(i);
+  while ( *i != '.' ) i--;
+  if ( isReleaseDateWithYear20(Model) ) {
+    returnValue.S8Printf("%c%c/%c%c/20%c%c", i[3], i[4], i[5], i[6], i[1], i[2]);
+  }else{
+    returnValue.S8Printf("%c%c/%c%c/%c%c", i[3], i[4], i[5], i[6], i[1], i[2]);
   }
-  gSettings.VersionNr = ApplePlatformData[Model].systemVersion;
-  gSettings.SerialNr = ApplePlatformData[Model].serialNumber;
-  gSettings.FamilyName = ApplePlatformData[Model].productFamily;
-  gSettings.BoardManufactureName = BiosVendor;
-  gSettings.BoardSerialNumber = AppleBoardSN;
-  gSettings.BoardNumber = ApplePlatformData[Model].boardID;
-  gSettings.BoardVersion = ApplePlatformData[Model].productName;
-  gSettings.LocationInChassis = AppleBoardLocation;
-  gSettings.ChassisManufacturer = BiosVendor;
-  gSettings.ChassisAssetTag = ApplePlatformData[Model].chassisAsset;
+  return returnValue;
+}
 
-  // Firmware info for 10.13+
-  // by Sherlocks
-  // FirmwareFeatures
-  switch (Model) {
-    // Verified list from Firmware
-    case MacBookPro91:
-    case MacBookPro92:
-      gFwFeatures             = 0xC00DE137;
-      break;
-    case MacBookAir41:
-    case MacBookAir42:
-    case MacMini51:
-    case MacMini52:
-    case MacMini53:
-      gFwFeatures             = 0xD00DE137;
-      break;
-    case MacBookPro101:
-    case MacBookPro102:
-    case MacBookAir51:
-    case MacBookAir52:
-    case MacMini61:
-    case MacMini62:
-    case iMac131:
-    case iMac132:
-    case iMac133:
-      gFwFeatures             = 0xE00DE137;
-      break;
-    case MacMini81:
-      gFwFeatures             = 0xFD8FF466;
-      break;
-    case MacBookAir61:
-    case MacBookAir62:
-    case iMac141:
-    case iMac142:
-    case iMac143:
-      gFwFeatures             = 0xE00FE137;
-      break;
-    case MacBookPro111:
-    case MacBookPro112:
-    case MacBookPro113:
-    case MacBookPro114:
-    case MacBookPro115:
-      gFwFeatures             = 0xE80FE137;
-      break;
-    case iMac144:
-      gFwFeatures             = 0xF00FE177;
-      break;
-    case iMac151:
-      gFwFeatures             = 0xF80FE177;
-      break;
-    case MacBookPro131:
-    case MacBookPro132:
-    case MacBookPro141:
-    case MacBookPro142:
-    case iMac171:
-    case iMac181:
-    case iMac182:
-    case iMac183:
-      gFwFeatures             = 0xFC0FE176;
-      break;
-    case MacBook91:
-    case MacBook101:
-    case MacBookPro133:
-    case MacBookPro143:
-      gFwFeatures             = 0xFC0FE17E;
-      break;
-    case iMacPro11:
-      gFwFeatures             = 0xFD8FF53F;
-      break;
-    case MacBookAir91:
-      gFwFeatures             = 0xFD8FF42E;
-      break;
-    case iMac191:
-    case iMac192:
-    case iMac201:
-    case iMac202:
-      gFwFeatures             = 0xFD8FF576;
-      break;
-    case MacBookPro162:
-    case MacBookPro163:
-    case MacBookPro164:
-      gFwFeatures             = 0xFDAFF066;
-      break;
+void SetDMISettingsForModel(MACHINE_TYPES Model, SETTINGS_DATA* settingsData, REFIT_CONFIG* liveConfig)
+{
+  liveConfig->BiosVersionUsed = ApplePlatformData[Model].firmwareVersion;
+  liveConfig->ReleaseDateUsed = GetReleaseDate(Model); // AppleReleaseDate
+  liveConfig->EfiVersionUsed.takeValueFrom(ApplePlatformData[Model].efiversion);
 
-    // Verified list from Users
-    case MacBookAir31:
-    case MacBookAir32:
-    case MacMini41:
-      gFwFeatures             = 0xD00DE137;
-      break;
-    case MacBookAir71:
-    case MacBookAir72:
-      gFwFeatures             = 0xE00FE137;
-      break;
-    case iMac101:
-    case iMac111:
-    case iMac112:
-    case iMac113:
-    case iMac121:
-    case iMac122:
-    case MacMini71:
-      gFwFeatures             = 0xE00DE137;
-      break;
-    case MacPro51:
-      gFwFeatures             = 0xE80FE137;
-      break;
-    case MacPro61:
-      gFwFeatures             = 0xE80FE176;
-      break;
-    case MacPro71:
-      gFwFeatures             = 0xFD8FF53F;
-      break;
-    case MacBookPro61:
-    case MacBookPro62:
-    case MacBookPro71:
-    case MacBookPro81:
-    case MacBookPro82:
-    case MacBookPro83:
-      gFwFeatures             = 0xC00DE137;
-      break;
-    case MacBookPro121:
-    case MacBookPro151:
-    case MacBookPro152:
-    case MacBookPro153:
-    case MacBookPro154:
-    case MacBookPro161:
-    case MacBookAir81:
-    case MacBookAir82:
-    case iMac161:
-    case iMac162:
-      gFwFeatures             = 0xFC0FE137;
-      break;
-    case MacBook61:
-    case MacBook71:
-    case MacBook81:
-      gFwFeatures             = 0xFC0FE13F;
-      break;
-
-    default:
-      gFwFeatures             = 0xE907F537; //unknown - use oem SMBIOS value to be default
-      break;
-  }
-
-  // FirmwareFeaturesMask
-  switch (Model) {
-    // Verified list from Firmware
-    case MacBookPro91:
-    case MacBookPro92:
-    case MacBookPro101:
-    case MacBookPro102:
-    case MacBookPro111:
-    case MacBookPro112:
-    case MacBookPro113:
-    case MacBookPro114:
-    case MacBookPro115:
-    case MacBookAir41:
-    case MacBookAir42:
-    case MacBookAir51:
-    case MacBookAir52:
-    case MacBookAir61:
-    case MacBookAir62:
-    case MacMini51:
-    case MacMini52:
-    case MacMini53:
-    case MacMini61:
-    case MacMini62:
-    case iMac131:
-    case iMac132:
-    case iMac133:
-    case iMac141:
-    case iMac142:
-    case iMac143:
-      gFwFeaturesMask         = 0xFF1FFF3F;
-      break;
-          
-    case MacBook91:
-    case MacBook101:
-    case MacBookPro131:
-    case MacBookPro132:
-    case MacBookPro133:
-    case MacBookPro141:
-    case MacBookPro142:
-    case MacBookPro143:
-    case iMac144:
-    case iMac151:
-    case iMac171:
-    case iMac181:
-    case iMac182:
-    case iMac183:
-    case MacPro61:
-      gFwFeaturesMask         = 0xFF1FFF7F;
-      break;
-    case iMacPro11:
-    case MacBookAir91:
-      gFwFeaturesMask         = 0xFF9FFF3F;
-      break;
-    case iMac191:
-    case iMac192:
-    case iMac201:
-    case iMac202:
-    case MacMini81:
-      gFwFeaturesMask         = 0xFFDFFF7F;
-      break;
-    case MacBookPro162:
-    case MacBookPro163:
-    case MacBookPro164:
-      gFwFeaturesMask         = 0xFFFFFF7F;
-      break;
-
-    // Verified list from Users
-    case MacBook61:
-    case MacBook71:
-    case MacBook81:
-    case MacBookPro61:
-    case MacBookPro62:
-    case MacBookPro71:
-    case MacBookPro81:
-    case MacBookPro82:
-    case MacBookPro83:
-    case MacBookPro121:
-    case MacBookPro151:
-    case MacBookPro152:
-    case MacBookPro153:
-    case MacBookPro154:
-    case MacBookPro161:
-    case MacBookAir31:
-    case MacBookAir32:
-    case MacBookAir71:
-    case MacBookAir72:
-    case MacBookAir81:
-    case MacBookAir82:
-    case MacMini41:
-    case MacMini71:
-    case iMac101:
-    case iMac111:
-    case iMac112:
-    case iMac113:
-    case iMac121:
-    case iMac122:
-    case iMac161:
-    case iMac162:
-    case MacPro51:
-      gFwFeaturesMask         = 0xFF1FFF3F;
-      break;
-
-    case MacPro71:
-      gFwFeaturesMask         = 0xFF9FFF3F;
-      break;
-
-    default:
-      gFwFeaturesMask         = 0xFFFFFFFF; //unknown - use oem SMBIOS value to be default
-      break;
-  }
-  
-  // PlatformFeature
-  // the memory tab in About This Mac
-  // by TheRacerMaster
-  switch (Model) {
-    // Verified list from ioreg
-    case iMac171:
-    case iMac181:
-    case iMac182:
-    case iMac183:
-    case MacPro71:
-      gPlatformFeature        = 0x00;
-      break;
-    case MacMini61:
-    case MacMini62:
-    case iMac131:
-    case iMac132:
-    case iMac133:
-    case iMac141:
-    case iMac142:
-    case iMac143:
-    case iMac144:
-    case iMac151:
-      gPlatformFeature        = 0x01;
-      break;
-    case MacBookPro111:
-    case MacBookPro112:
-    case MacBookPro113:
-    case MacBookPro114:
-    case MacBookPro115:
-    case MacBookPro121:
-      gPlatformFeature        = 0x02;
-      break;
-    case MacMini71:
-    case iMac161:
-    case iMac162:
-      gPlatformFeature        = 0x03;
-      break;
-    case MacPro61:
-      gPlatformFeature        = 0x04;
-      break;
-    case MacBook81:
-    case MacBook91:
-    case MacBook101:
-    case MacBookPro131:
-    case MacBookPro132:
-    case MacBookPro133:
-    case MacBookPro141:
-    case MacBookPro142:
-    case MacBookPro143:
-      gPlatformFeature        = 0x1A;
-      break;
-    case iMacPro11:
-    case MacMini81:
-    case iMac191:
-    case iMac192:
-    case iMac201:
-    case iMac202:
-      gPlatformFeature        = 0x20;
-      break;
-    case MacBookPro151:
-    case MacBookPro152:
-    case MacBookPro153:
-    case MacBookPro154:
-    case MacBookPro161:
-    case MacBookPro162:
-    case MacBookPro163:
-    case MacBookPro164:
-      gPlatformFeature        = 0x32;
-      break;
-    case MacBookAir81:
-    case MacBookAir82:
-    case MacBookAir91:
-      gPlatformFeature        = 0x3A;
-      break;
-          
-   // It is nonsense, ASCII code сharacter "2" = 0x32 != 0x02. Don't use ioreg, so that not to be confused. Use dmidecode dump.
-   // Verified list from Users
-   // case MacBookPro153:
-   // case MacBookPro154:
-   // case MacBookPro161:
-   //   gPlatformFeature        = 0x02;
-   //   break;
-
-    default:
-      gPlatformFeature        = 0xFFFF; // disabled
-      break;
-  }
-
+  settingsData->Smbios.BiosVendor = AppleBiosVendor;
+  settingsData->Smbios.ManufactureName = settingsData->Smbios.BiosVendor;
+  settingsData->Smbios.ProductName = ApplePlatformData[Model].productName;
+  settingsData->Smbios.SystemVersion = ApplePlatformData[Model].systemVersion;
+  settingsData->Smbios.SerialNr = ApplePlatformData[Model].serialNumber;
+  settingsData->Smbios.FamilyName = ApplePlatformData[Model].productFamily;
+  settingsData->Smbios.BoardManufactureName = settingsData->Smbios.BiosVendor;
+  settingsData->Smbios.BoardSerialNumber = AppleBoardSN;
+  settingsData->Smbios.BoardNumber = ApplePlatformData[Model].boardID;
+  settingsData->Smbios.BoardVersion = ApplePlatformData[Model].productName;
+  settingsData->Smbios.LocationInChassis = AppleBoardLocation;
+  settingsData->Smbios.ChassisManufacturer = settingsData->Smbios.BiosVendor;
+  settingsData->Smbios.ChassisAssetTag = ApplePlatformData[Model].chassisAsset;
+  settingsData->Smbios.FirmwareFeatures = GetFwFeatures(Model);
+  settingsData->Smbios.FirmwareFeaturesMask = GetFwFeaturesMaskFromModel(Model);
+  settingsData->Smbios.gPlatformFeature = GetPlatformFeature(Model);
   if ((Model > MacPro31) && (Model < MacPro71)) {
-    gSettings.BoardType = BaseBoardTypeProcessorMemoryModule; //0xB;
+    settingsData->Smbios.BoardType = BaseBoardTypeProcessorMemoryModule; //0xB;
   } else {
-    gSettings.BoardType = BaseBoardTypeMotherBoard; //0xA;
+    settingsData->Smbios.BoardType = BaseBoardTypeMotherBoard; //0xA;
   }
+  settingsData->Smbios.ChassisType = GetChassisTypeFromModel(Model);
+  settingsData->Smbios.Mobile = GetMobile(Model); // Mobile: the battery tab in Energy Saver
+}
+
+MACHINE_TYPES GetModelFromString(const XString8& ProductName)
+{
+  MACHINE_TYPES i;
+
+  for (i = (MACHINE_TYPES)(0); i < MaxMachineType; i = (MACHINE_TYPES)(i + 1)) {
+    if ( ProductName == ApplePlatformData[i].productName ) {
+      return i;
+    }
+  }
+  // return ending enum as "not found"
+  return MaxMachineType;
+}
+
+uint8_t GetChassisTypeFromModel(MACHINE_TYPES Model)
+{
 
   // MiscChassisType
   // Mobile: the battery tab in Energy Saver
@@ -1067,16 +1256,7 @@ void SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case MacBookPro114:
     case MacBookPro115:
     case MacMini71:
-      gSettings.ChassisType = MiscChassisTypeNotebook; //0x0A;
-      switch (Model) {
-        case MacMini71:
-          gSettings.Mobile      = FALSE;
-          break;
-        default:
-          gSettings.Mobile      = TRUE;
-          break;
-      }
-      break;
+      return MiscChassisTypeNotebook; //0x0A;
 
     case MacBook81:
     case MacBook91:
@@ -1113,27 +1293,7 @@ void SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case iMac201:
     case iMac202:
     case iMacPro11:
-      gSettings.ChassisType = MiscChassisTypeLapTop; //0x09;
-      switch (Model) {
-        case MacMini81:
-        case iMac161:
-        case iMac162:
-        case iMac171:
-        case iMac181:
-        case iMac182:
-        case iMac183:
-        case iMac191:
-        case iMac192:
-        case iMac201:
-        case iMac202:
-        case iMacPro11:
-          gSettings.Mobile      = FALSE;
-          break;
-        default:
-          gSettings.Mobile      = TRUE;
-          break;
-      }
-      break;
+      return MiscChassisTypeLapTop; //0x09;
 
     case MacBookPro11:
     case MacBookPro12:
@@ -1149,9 +1309,7 @@ void SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case MacBookPro61:
     case MacBookPro62:
     case MacBookPro71:
-      gSettings.ChassisType = MiscChassisTypePortable; //0x08;
-      gSettings.Mobile      = TRUE;
-      break;
+      return MiscChassisTypePortable; //0x08;
 
     case iMac41:
     case iMac42:
@@ -1175,15 +1333,11 @@ void SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case iMac143:
     case iMac144:
     case iMac151:
-      gSettings.ChassisType = MiscChassisTypeAllInOne; //0x0D;
-      gSettings.Mobile      = FALSE;
-      break;
+      return MiscChassisTypeAllInOne; //0x0D;
 
     case MacMini11:
     case MacMini21:
-      gSettings.ChassisType = MiscChassisTypeLowProfileDesktop; //0x04;
-      gSettings.Mobile      = FALSE;
-      break;
+      return MiscChassisTypeLowProfileDesktop; //0x04;
 
     case MacMini31:
     case MacMini41:
@@ -1192,290 +1346,345 @@ void SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case MacMini53:
     case MacMini61:
     case MacMini62:
-      gSettings.ChassisType = MiscChassisTypeLunchBox; //0x10;
-      gSettings.Mobile      = FALSE;
+      return MiscChassisTypeLunchBox; //0x10;
       break;
 
     case MacPro41:
     case MacPro51:
     case MacPro71:
-      gSettings.ChassisType = MiscChassisTypeTower; //0x07;
-      gSettings.Mobile      = FALSE;
-      break;
+      return MiscChassisTypeTower; //0x07;
 
     case MacPro11:
     case MacPro21:
     case MacPro31:
     case MacPro61:
-      gSettings.ChassisType = MiscChassisTypeUnknown; //0x02; this is a joke but think different!
-      gSettings.Mobile      = FALSE;
-      break;
+      return MiscChassisTypeUnknown; //0x02; this is a joke but think different!
           
     case Xserve11:
     case Xserve21:
     case Xserve31:
-      gSettings.ChassisType = MiscChassisTypeRackMountChassis; //0x17;
-      gSettings.Mobile      = FALSE;
-      break;
+      return MiscChassisTypeRackMountChassis; //0x17;
 
     default: //unknown - use oem SMBIOS value to be default
-      gSettings.Mobile      = gMobile;
-      gSettings.ChassisType = 0; //let SMBIOS value to be
       /*if (gMobile) {
-        gSettings.ChassisType = 10; //notebook
+        return 10; //notebook
       } else {
-        gSettings.ChassisType = MiscChassisTypeDeskTop; //0x03;
+        return MiscChassisTypeDeskTop; //0x03;
       }*/
+      return 0;
       break;
   }
-
-  //RBr helper
-  if (ApplePlatformData[Model].smcBranch[0] != 'N') {
-    AsciiStrCpyS(gSettings.RBr, 8, ApplePlatformData[Model].smcBranch.c_str());
-  } else {
-    switch (gCPUStructure.Model) {
-      case CPU_MODEL_PENTIUM_M:
-      case CPU_MODEL_CELERON:
-        AsciiStrCpyS (gSettings.RBr, 8, "m70");
-        break;
-                
-      case CPU_MODEL_YONAH:
-        AsciiStrCpyS (gSettings.RBr, 8, "k22");
-        break;
-                
-      case CPU_MODEL_MEROM: //TODO check for mobile
-        AsciiStrCpyS (gSettings.RBr, 8, "m75");
-        break;
-                
-      case CPU_MODEL_PENRYN:
-        if (gSettings.Mobile) {
-          AsciiStrCpyS (gSettings.RBr, 8, "m82");
-        } else {
-          AsciiStrCpyS (gSettings.RBr, 8, "k36");
-        }
-        break;
-                
-      case CPU_MODEL_SANDY_BRIDGE:
-        if (gSettings.Mobile) {
-          AsciiStrCpyS (gSettings.RBr, 8, "k90i");
-        } else {
-          AsciiStrCpyS (gSettings.RBr, 8, "k60");
-        }
-        break;
-                
-      case CPU_MODEL_IVY_BRIDGE:
-        AsciiStrCpyS (gSettings.RBr, 8, "j30");
-        break;
-                
-      case CPU_MODEL_IVY_BRIDGE_E5:
-        AsciiStrCpyS (gSettings.RBr, 8, "j90");
-        break;
-                
-      case CPU_MODEL_HASWELL_ULT:
-        AsciiStrCpyS (gSettings.RBr, 8, "j44");
-        break;
-                
-      case CPU_MODEL_HASWELL_U5: //Mobile - Broadwell
-        AsciiStrCpyS (gSettings.RBr, 8, "j52");
-        break;
-                
-      case CPU_MODEL_SKYLAKE_D:
-        AsciiStrCpyS (gSettings.RBr, 8, "j95j95am");
-        break;
-                
-      case CPU_MODEL_SKYLAKE_U:
-        AsciiStrCpyS (gSettings.RBr, 8, "2016mb");
-        break;
-                
-      case CPU_MODEL_KABYLAKE1: //Mobile
-        AsciiStrCpyS (gSettings.RBr, 8, "2017mbp");
-        break;
-                
-      case CPU_MODEL_KABYLAKE2: //Desktop
-        AsciiStrCpyS (gSettings.RBr, 8, "j133_4_5");
-        break;
-                
-      default:
-        AsciiStrCpyS (gSettings.RBr, 8, "t9");
-        break;
-    }
-  }
-
-  //RPlt helper
-  if (ApplePlatformData[Model].smcPlatform[0] != 'N') {
-    AsciiStrCpyS(gSettings.RPlt, 8, ApplePlatformData[Model].smcPlatform.c_str());
-  } else {
-    switch (gCPUStructure.Model) {
-      case CPU_MODEL_PENTIUM_M:
-      case CPU_MODEL_CELERON:
-        AsciiStrCpyS (gSettings.RPlt, 8, "m70");
-        break;
-
-      case CPU_MODEL_YONAH:
-        AsciiStrCpyS (gSettings.RPlt, 8, "k22");
-        break;
-
-      case CPU_MODEL_MEROM: //TODO check for mobile
-        AsciiStrCpyS (gSettings.RPlt, 8, "m75");
-        break;
-
-      case CPU_MODEL_PENRYN:
-        if (gSettings.Mobile) {
-          AsciiStrCpyS (gSettings.RPlt, 8, "m82");
-        } else {
-          AsciiStrCpyS (gSettings.RPlt, 8, "k36");
-        }
-        break;
-
-      case CPU_MODEL_SANDY_BRIDGE:
-        if (gSettings.Mobile) {
-          AsciiStrCpyS (gSettings.RPlt, 8, "k90i");
-        } else {
-          AsciiStrCpyS (gSettings.RPlt, 8, "k60");
-        }
-        break;
-
-      case CPU_MODEL_IVY_BRIDGE:
-        AsciiStrCpyS (gSettings.RPlt, 8, "j30");
-        break;
-
-      case CPU_MODEL_IVY_BRIDGE_E5:
-        AsciiStrCpyS (gSettings.RPlt, 8, "j90");
-        break;
-
-      case CPU_MODEL_HASWELL_ULT:
-        AsciiStrCpyS (gSettings.RPlt, 8, "j44");
-        break;
-
-      case CPU_MODEL_HASWELL_U5: //Mobile - Broadwell
-        AsciiStrCpyS (gSettings.RPlt, 8, "j52");
-        break;
-
-      case CPU_MODEL_SKYLAKE_D:
-        AsciiStrCpyS (gSettings.RPlt, 8, "j95");
-        break;
-
-      case CPU_MODEL_SKYLAKE_U:
-        AsciiStrCpyS (gSettings.RPlt, 8, "j79");
-        break;
-
-      case CPU_MODEL_KABYLAKE1: //Mobile
-        AsciiStrCpyS (gSettings.RPlt, 8, "j130a");
-        break;
-
-      case CPU_MODEL_KABYLAKE2: //Desktop
-        AsciiStrCpyS (gSettings.RPlt, 8, "j135");
-        break;
-
-      default:
-        AsciiStrCpyS (gSettings.RPlt, 8, "t9");
-        break;
-    }
-  }
-  CopyMem(gSettings.REV,  ApplePlatformData[Model].smcRevision, 6);
-  CopyMem(gSettings.EPCI, &ApplePlatformData[Model].smcConfig,  4);
 }
 
-MACHINE_TYPES GetModelFromString(const XString8& ProductName)
+
+
+
+//gFwFeaturesMask
+
+
+uint32_t GetFwFeaturesMaskFromModel(MACHINE_TYPES Model)
 {
-  MACHINE_TYPES i;
 
-  for (i = (MACHINE_TYPES)(0); i < MaxMachineType; i = (MACHINE_TYPES)(i + 1)) {
-    if ( ProductName == ApplePlatformData[i].productName ) {
-      return i;
-    }
+  // FirmwareFeaturesMask
+  switch (Model) {
+    // Verified list from Firmware
+    case MacBookPro91:
+    case MacBookPro92:
+    case MacBookPro101:
+    case MacBookPro102:
+    case MacBookPro111:
+    case MacBookPro112:
+    case MacBookPro113:
+    case MacBookPro114:
+    case MacBookPro115:
+    case MacBookAir41:
+    case MacBookAir42:
+    case MacBookAir51:
+    case MacBookAir52:
+    case MacBookAir61:
+    case MacBookAir62:
+    case MacMini51:
+    case MacMini52:
+    case MacMini53:
+    case MacMini61:
+    case MacMini62:
+    case iMac131:
+    case iMac132:
+    case iMac133:
+    case iMac141:
+    case iMac142:
+    case iMac143:
+      return 0xFF1FFF3F;
+      break;
+          
+    case MacBook91:
+    case MacBook101:
+    case MacBookPro131:
+    case MacBookPro132:
+    case MacBookPro133:
+    case MacBookPro141:
+    case MacBookPro142:
+    case MacBookPro143:
+    case iMac144:
+    case iMac151:
+    case iMac171:
+    case iMac181:
+    case iMac182:
+    case iMac183:
+    case MacPro61:
+      return 0xFF1FFF7F;
+      break;
+    case iMacPro11:
+    case MacBookAir91:
+      return 0xFF9FFF3F;
+      break;
+    case iMac191:
+    case iMac192:
+    case iMac201:
+    case iMac202:
+    case MacMini81:
+      return 0xFFDFFF7F;
+      break;
+    case MacBookPro162:
+    case MacBookPro163:
+    case MacBookPro164:
+      return 0xFFFFFF7F;
+      break;
+
+    // Verified list from Users
+    case MacBook61:
+    case MacBook71:
+    case MacBook81:
+    case MacBookPro61:
+    case MacBookPro62:
+    case MacBookPro71:
+    case MacBookPro81:
+    case MacBookPro82:
+    case MacBookPro83:
+    case MacBookPro121:
+    case MacBookPro151:
+    case MacBookPro152:
+    case MacBookPro153:
+    case MacBookPro154:
+    case MacBookPro161:
+    case MacBookAir31:
+    case MacBookAir32:
+    case MacBookAir71:
+    case MacBookAir72:
+    case MacBookAir81:
+    case MacBookAir82:
+    case MacMini41:
+    case MacMini71:
+    case iMac101:
+    case iMac111:
+    case iMac112:
+    case iMac113:
+    case iMac121:
+    case iMac122:
+    case iMac161:
+    case iMac162:
+    case MacPro51:
+      return 0xFF1FFF3F;
+      break;
+
+    case MacPro71:
+      return 0xFF9FFF3F;
+      break;
+
+    default:
+      return 0xFFFFFFFF; //unknown - use oem SMBIOS value to be default
+      break;
   }
-  // return ending enum as "not found"
-  return MaxMachineType;
 }
 
-void GetDefaultSettings()
+/*
+ * parameters MUST contains at least a dot, followed by at lest 6 chars
+ */
+int compareBiosVersion(const XString8& version1, const XString8& version2)
 {
-  MACHINE_TYPES  Model;
-  //UINT64         msr = 0;
+  const CHAR8* v1p = version1.c_str();
+  const CHAR8* v2p = version2.c_str();
 
-  DbgHeader("GetDefaultSettings");
-
-  //gLanguage         = english;
-  Model             = GetDefaultModel ();
-  gSettings.CpuType	= GetAdvancedCpuType ();
-
-  SetDMISettingsForModel (Model, TRUE);
-
-  //default values will be overritten by config.plist
-  //use explicitly settings TRUE or FALSE (Yes or No)
-
-  gSettings.InjectIntel          = (gGraphics[0].Vendor == Intel) || (gGraphics[1].Vendor == Intel);
-
-  gSettings.InjectATI            = (((gGraphics[0].Vendor == Ati) && ((gGraphics[0].DeviceID & 0xF000) != 0x6000)) ||
-                                    ((gGraphics[1].Vendor == Ati) && ((gGraphics[1].DeviceID & 0xF000) != 0x6000)));
-
-  gSettings.InjectNVidia         = (((gGraphics[0].Vendor == Nvidia) && (gGraphics[0].Family < 0xE0)) ||
-                                    ((gGraphics[1].Vendor == Nvidia) && (gGraphics[1].Family < 0xE0)));
-
-  gSettings.GraphicsInjector     = gSettings.InjectATI || gSettings.InjectNVidia;
-  CopyMem(gSettings.NVCAP, default_NVCAP, 20); 
-  CopyMem(gSettings.Dcfg, default_dcfg_0, 4);
-  CopyMem(&gSettings.Dcfg[4], default_dcfg_1, 4);
-  //gSettings.CustomEDID           = NULL; //no sense to assign 0 as the structure is zeroed
-  gSettings.DualLink             = 0xA; // A(auto): DualLink auto-detection
-  gSettings.HDAInjection         = FALSE;
-  //gSettings.HDALayoutId          = 0;
-  gSettings.USBInjection         = TRUE; // enabled by default to have the same behavior as before
-  gSettings.DsdtName = L"DSDT.aml"_XSW;
-  gSettings.BacklightLevel       = 0xFFFF; //0x0503; -- the value from MBA52
-  gSettings.BacklightLevelConfig = FALSE;
-  gSettings.TrustSMBIOS          = TRUE;
-
-  gSettings.SmUUID = nullGuid;
-  gSettings.DefaultBackgroundColor = 0x80000000; //the value to delete the variable
-  gSettings.RtROM.setEmpty();
-  gSettings.CsrActiveConfig      = 0xFFFF;
-  gSettings.BooterConfig         = 0;
-//  MemSet(gSettings.BooterCfgStr, 64, 0);
-//  AsciiStrCpyS(gSettings.BooterCfgStr, 64, "log=0");
-  CHAR8 *OldCfgStr = (__typeof__(OldCfgStr))GetNvramVariable(L"bootercfg", &gEfiAppleBootGuid, NULL, NULL);
-  if (OldCfgStr) {
-    gSettings.BooterCfgStr.takeValueFrom(OldCfgStr);
-    FreePool(OldCfgStr);
+  v1p += strlen(v1p);
+  while (*v1p != '.') {
+    v1p--;
   }
-  gSettings.DisableCloverHotkeys = FALSE;
-  gSettings.UIScale              = 1;
-  
-  ResumeFromCoreStorage          = FALSE;
 
-  if (gCPUStructure.Model >= CPU_MODEL_IVY_BRIDGE) {
-    gSettings.GeneratePStates    = TRUE;
-    gSettings.GenerateCStates    = TRUE;
-    // backward compatibility, APFS, APLF, PluginType follow PStates
-    gSettings.GenerateAPSN = gSettings.GeneratePStates;
-    gSettings.GenerateAPLF = gSettings.GeneratePStates;
-    gSettings.GeneratePluginType = gSettings.GeneratePStates;
-    //  gSettings.EnableISS          = FALSE;
-    //  gSettings.EnableC2           = TRUE;
-    gSettings.EnableC6           = TRUE;
-    gSettings.PluginType         = 1;
+  v2p += strlen(v2p);
+  while (*v2p != '.') {
+    v2p--;
+  }
+  if ( strlen(v1p) < 7 ) {
+    log_technical_bug("strlen(v1p) < 7");
+    return false;
+  }
+  if ( strlen(v2p) < 7 ) {
+    log_technical_bug("strlen(v2p) < 7");
+    return false;
+  }
 
-    if (gCPUStructure.Model == CPU_MODEL_IVY_BRIDGE) {
-      gSettings.MinMultiplier    = 7;
+  if (((v1p[1] > '0') && (v2p[1] == '0')) || ((v1p[1] >= v2p[1]) && (v1p[2] > v2p[2]))) {
+    return 1;
+  } else if ((v1p[1] == v2p[1]) && (v1p[2] == v2p[2])) {
+    if (((v1p[3] > '0') && (v2p[3] == '0')) || ((v1p[3] >= v2p[3]) && (v1p[4] > v2p[4]))) {
+      return 1;
+    } else if ((v1p[3] == v2p[3]) && (v1p[4] == v2p[4])) {
+      if (((v1p[5] > '0') && (v2p[5] == '0')) || ((v1p[5] > '1') && (v2p[5] == '1')) ||
+          ((v1p[5] > '2') && (v2p[5] == '2')) || ((v1p[5] >= v2p[5]) && (v1p[6] > v2p[6]))) {
+        return 1;
+      } else if ((v1p[5] == v2p[5]) && (v1p[6] == v2p[6])) {
+        // equal
+        return 0;
+      } else {
+        return -1;
+      }
+    } else {
+      return -1;
     }
-    //  gSettings.DoubleFirstState   = FALSE;
-    //gSettings.DropSSDT           = TRUE;    //why drop all???
-    gSettings.C3Latency          = 0x00FA;
+  } else {
+    return -1;
   }
-  
-//CPU
-  //gSettings.EnableISS            = FALSE; //((gCPUStructure.CPUID[CPUID_1][ECX] & (1<<7)) != 0);
-  gSettings.Turbo                = gCPUStructure.Turbo;
-  gSettings.SavingMode           = 0xFF;  //means not set
-  //MsgLog ("Turbo default value: %s\n", gCPUStructure.Turbo ? "Yes" : "No");
-  //msr                            = AsmReadMsr64(MSR_IA32_MISC_ENABLE);
-  //force enable EIST
-  //msr                            |= (1<<16);
-  //AsmWriteMsr64 (MSR_IA32_MISC_ENABLE, msr);
-  //gSettings.Turbo                = ((msr & (1ULL<<38)) == 0);
-  //gSettings.EnableISS            = ((msr & (1ULL<<16)) != 0);
-
-  //Fill ACPI table list
-  //  GetAcpiTablesList ();
 }
+
+bool is2ndBiosVersionGreaterThan1st(const XString8& version1, const XString8& version2)
+{
+  return compareBiosVersion(version1, version2) <= 0;
+}
+bool isBiosVersionEquel(const XString8& version1, const XString8& version2)
+{
+  return compareBiosVersion(version1, version2) == 0;
+}
+
+
+int compareReleaseDate(const XString8& date1, const XString8& date2)
+{
+  const CHAR8* i = date1.c_str();
+  const CHAR8* j = date2.c_str();
+
+  if ( (strlen(i) == 8) && (strlen(j) == 8) )
+  {
+    if ( ((i[6] > '0') && (j[6] == '0')) || ((i[6] >= j[6]) && (i[7] > j[7])) )
+    {
+      return 1;
+    } else if ( (i[6] == j[6]) && (i[7] == j[7]) )
+    {
+      if ( ((i[0] > '0') && (j[0] == '0')) || ((i[0] >= j[0]) && (i[1] > j[1])) )
+      {
+        return 1;
+      } else if ( (i[0] == j[0]) && (i[1] == j[1]) )
+      {
+        if ( ((i[3] > '0') && (j[3] == '0')) || ((i[3] > '1') && (j[3] == '1')) || ((i[3] > '2') && (j[3] == '2')) || ((i[3] >= j[3]) && (i[4] > j[4])) )
+        {
+          return 1;
+        } else if ( (i[3] == j[3]) && (i[4] == j[4]) )
+        {
+          return 0;
+        } else
+        {
+          return -1;
+        }
+      } else
+      {
+        return -1;
+      }
+    } else
+    {
+      return -1;
+    }
+  } else if ( (strlen(i) == 8) && (strlen(j) == 10) )
+  {
+    if ( ((i[6] > '0') && (j[8] == '0')) || ((i[6] >= j[8]) && (i[7] > j[9])) )
+    {
+      return 1;
+    } else if ( (i[6] == j[8]) && (i[7] == j[9]) )
+    {
+      if ( ((i[0] > '0') && (j[0] == '0')) || ((i[0] >= j[0]) && (i[1] > j[1])) )
+      {
+        return 1;
+      } else if ( (i[0] == j[0]) && (i[1] == j[1]) )
+      {
+        if ( ((i[3] > '0') && (j[3] == '0')) || ((i[3] > '1') && (j[3] == '1')) || ((i[3] > '2') && (j[3] == '2')) || ((i[3] >= j[3]) && (i[4] > j[4])) )
+        {
+          return 1;
+        } else if ( (i[3] == j[3]) && (i[4] == j[4]) )
+        {
+          return 0;
+        } else
+        {
+          return -1;
+        }
+      } else
+      {
+        return -1;
+      }
+    } else
+    {
+      return -1;
+    }
+  } else if ( (strlen(i) == 10) && (strlen(j) == 10) )
+  {
+    if ( ((i[8] > '0') && (j[8] == '0')) || ((i[8] >= j[8]) && (i[9] > j[9])) )
+    {
+      return 1;
+    } else if ( (i[8] == j[8]) && (i[9] == j[9]) )
+    {
+      if ( ((i[0] > '0') && (j[0] == '0')) || ((i[0] >= j[0]) && (i[1] > j[1])) )
+      {
+        return 1;
+      } else if ( (i[0] == j[0]) && (i[1] == j[1]) )
+      {
+        if ( ((i[3] > '0') && (j[3] == '0')) || ((i[3] > '1') && (j[3] == '1')) || ((i[3] > '2') && (j[3] == '2')) || ((i[3] >= j[3]) && (i[4] > j[4])) )
+        {
+          return 1;
+        } else if ( (i[3] == j[3]) && (i[4] == j[4]) )
+        {
+          return 0;
+        } else
+        {
+          return -1;
+        }
+      } else
+      {
+        return -1;
+      }
+    } else
+    {
+      return -1;
+    }
+  } else if ( (strlen(i) == 10) && (strlen(j) == 8) )
+  {
+    if ( ((i[8] > '0') && (j[6] == '0')) || ((i[8] >= j[6]) && (i[9] > j[7])) )
+    {
+      return 1;
+    } else if ( (i[8] == j[6]) && (i[9] == j[7]) )
+    {
+      if ( ((i[0] > '0') && (j[0] == '0')) || ((i[0] >= j[0]) && (i[1] > j[1])) )
+      {
+        return 1;
+      } else if ( (i[0] == j[0]) && (i[1] == j[1]) )
+      {
+        if ( ((i[3] > '0') && (j[3] == '0')) || ((i[3] > '1') && (j[3] == '1')) || ((i[3] > '2') && (j[3] == '2')) || ((i[3] >= j[3]) && (i[4] > j[4])) )
+        {
+          return 1;
+        } else if ( (i[3] == j[3]) && (i[4] == j[4]) )
+        {
+          return 0;
+        } else
+        {
+          return -1;
+        }
+      } else
+      {
+        return -1;
+      }
+    } else
+    {
+      return -1;
+    }
+  } else
+  {
+    return -2;
+  }
+}
+
+

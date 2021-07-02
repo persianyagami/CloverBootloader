@@ -18,10 +18,8 @@
  *   Header Files                                                               *
  *******************************************************************************/
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
-#include <Protocol/OSInfo.h>
-#include <Protocol/AppleGraphConfig.h>
-#include <Protocol/KeyboardInfo.h>
-#include <Protocol/OcQuirksProtocol4Clover.h>
+#include <Efi.h>
+//#include <Protocol/OcQuirksProtocol4Clover.h>
 #include "Injectors.h"
 #include "../Platform/Settings.h"
 
@@ -47,7 +45,6 @@ CHAR8* gDeviceProperties = NULL;
 
 UINT32 cPropSize = 0;
 UINT8* cProperties = NULL;
-XString8 cDeviceProperties;
 CHAR8* BootOSName = NULL;
 
 UINT16 KeyboardVendor = 0x05ac; //Apple inc.
@@ -156,7 +153,7 @@ GetDeviceProps(IN     APPLE_GETVAR_PROTOCOL   *This,
                IN OUT UINT32                  *BufferSize)
 { 
 
-  if(!gSettings.StringInjector && (mProperties != NULL) && (mPropSize > 1)) {
+  if(!gSettings.Devices.StringInjector && (mProperties != NULL) && (mPropSize > 1)) {
     if (*BufferSize < mPropSize) {
       *BufferSize = mPropSize;
       return EFI_BUFFER_TOO_SMALL;
@@ -284,6 +281,7 @@ EFI_OS_INFO_PROTOCOL mEfiOSInfo = {
   EFI_OS_INFO_PROTOCOL_REVISION,
   OSInfoOSNameImpl,
   OSInfoOSVendorImpl,
+  NULL,
   NULL
 };
 

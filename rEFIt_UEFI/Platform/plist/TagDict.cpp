@@ -59,7 +59,7 @@ TagDict* TagDict::getEmptyTag()
 //DBG("tagcachehit=%lld\n", tagcachehit);
     return tag;
   }
-  tag = new TagDict();
+  tag = new TagDict;
 //newtagcount += 1;
 //DBG("newtagcount=%lld\n", newtagcount);
   return tag;
@@ -114,7 +114,11 @@ bool TagDict::debugIsEqual(const TagStruct& other, const XString8& label) const
 
 INTN TagDict::dictKeyCount() const
 {
+#ifdef DEBUG
   if ( !isDict() ) panic("TagStruct::dictKeyCount() : !isDict() ");
+#else
+  if ( !isDict() ) return 0;
+#endif
   INTN count = 0;
   for (size_t tagIdx = 0 ; tagIdx + 1 < _dictContent.size() ; tagIdx++ ) { // tagIdx + 1 because a key as a last element cannot have value and is ignored. Can't do size()-1, because it's unsigned.
     if ( _dictContent[tagIdx].isKey()  &&   !_dictContent[tagIdx+1].isKey() ) { // if this key is followed by another key, it'll be ignored
@@ -152,7 +156,7 @@ const TagStruct* TagDict::propertyForKey(const CHAR8* key) const
   const XObjArray<TagStruct>& tagList = _dictContent;
   for (size_t tagIdx = 0 ; tagIdx < tagList.size() ; tagIdx++ )
   {
-    if ( tagList[tagIdx].isKey()  &&  tagList[tagIdx].getKey()->keyStringValue().equalIC(key) ) {
+    if ( tagList[tagIdx].isKey()  &&  tagList[tagIdx].getKey()->keyStringValue().isEqualIC(key) ) {
       if ( tagIdx+1 >= tagList.size() ) return NULL;
       if ( tagList[tagIdx+1].isKey() ) return NULL;
       return &tagList[tagIdx+1];
@@ -167,7 +171,9 @@ const TagDict* TagDict::dictPropertyForKey(const CHAR8* key) const
   const TagStruct* tag = propertyForKey(key);
   if ( tag == NULL ) return NULL;
   if ( !tag->isDict() ) {
-    panic("MALFORMED PLIST : Property value for key %s must be a dict\n", key);
+//    panic("MALFORMED PLIST : Property value for key %s must be a dict\n", key);
+    // no, we will test if this is dict or something else
+    return NULL;
   }
   return tag->getDict();
 }
@@ -177,7 +183,9 @@ const TagArray* TagDict::arrayPropertyForKey(const CHAR8* key) const
   const TagStruct* tag = propertyForKey(key);
   if ( tag == NULL ) return NULL;
   if ( !tag->isArray() ) {
-    panic("MALFORMED PLIST : Property value for key %s must be an array\n", key);
+//    panic("MALFORMED PLIST : Property value for key %s must be an array\n", key);
+    // no, we will test if this is array or something else
+    return NULL;
   }
   return tag->getArray();
 }

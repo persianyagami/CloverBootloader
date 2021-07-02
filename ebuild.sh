@@ -26,7 +26,7 @@ if [[ "$SYSNAME" == Linux ]]; then
 else
   declare -r NUMBER_OF_CPUS=$(sysctl -n hw.logicalcpu)
 fi
-declare -a EDK2_BUILD_OPTIONS=
+declare -a EDK2_BUILD_OPTIONS=--cmd-len=50000
 print_option_help_wc=
 have_fmt=
 PLATFORMFILE=
@@ -276,7 +276,7 @@ usage() {
     print_option_help "-fr, --force-rebuild" "force rebuild all targets"
     print_option_help "-nb, --no-bootfiles" "don't generate boot files"
     echo
-    echo "Report bugs to https://sourceforge.net/p/cloverefiboot/discussion/1726372/"
+    echo "Report bugs to     https://github.com/CloverHackyColor/CloverBootloader/issues"
 }
 
 # Manage option argument
@@ -299,14 +299,12 @@ checkCmdlineArguments() {
         shift
         case "$option" in
             -clang  | --clang)   TOOLCHAIN=XCLANG ; CLANG=1 ;;
-            -llvm   | --llvm)    TOOLCHAIN=LLVM  ; CLANG=1 ;;
             -xcode5  | --xcode5 )  TOOLCHAIN=XCODE5 ; CLANG=1 ;;
             -xcode8  | --xcode8 )  TOOLCHAIN=XCODE8 ; CLANG=1 ;;
             -GCC49  | --GCC49)   TOOLCHAIN=GCC49   ;;
             -gcc49  | --gcc49)   TOOLCHAIN=GCC49   ;;
             -GCC53  | --GCC53)   TOOLCHAIN=GCC53   ;;
             -gcc53  | --gcc53)   TOOLCHAIN=GCC53   ;;
-            -unixgcc | --gcc)    TOOLCHAIN=UNIXGCC ;;
             -xcode  | --xcode )  TOOLCHAIN=XCODE32 ;;
             -x64 | --x64)
                 printf "\`%s' is deprecated because Clover is 64 bit only. This message will be removed soon\n" "$option" 1>&2
@@ -488,6 +486,7 @@ MainBuildScript() {
         fi
 
         # to force recreation of the Conf folder. You can sill use a custom CONF_PATH if you don't want recreation.
+        echo recreate Conf folder
         rm -rf "$CLOVERROOT"/Conf
         mkdir "$CLOVERROOT"/Conf
 
@@ -822,7 +821,7 @@ MainPostBuildScript() {
 #    fi
 
 
-    binArray=( FSInject DataHubDxe SMCHelper AudioDxe )
+    binArray=( FSInject SMCHelper AudioDxe )
     for efi in "${binArray[@]}"
     do
       copyBin "$BUILD_DIR_ARCH"/$efi.efi "$CLOVER_PKG_DIR"/EFI/CLOVER/drivers/$DRIVERS_UEFI/$efi.efi
@@ -889,7 +888,7 @@ MainPostBuildScript() {
     # Applications
     echo "Copy Applications:"
     copyBin "$BUILD_DIR_ARCH"/bdmesg.efi "$CLOVER_PKG_DIR"/EFI/CLOVER/tools/
-
+    copyBin "$BUILD_DIR_ARCH"/ControlMsrE2.efi "$CLOVER_PKG_DIR"/EFI/CLOVER/tools/
 
     if [[ "${EDK2SHELL:-}" == "MinimumShell" ]]; then
       copyBin "${WORKSPACE}"/ShellBinPkg/MinUefiShell/X64/Shell.efi "$CLOVER_PKG_DIR"/EFI/CLOVER/tools/Shell64U.efi

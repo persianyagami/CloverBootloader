@@ -42,7 +42,6 @@
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 #include "../refit/lib.h"
 #include "menu_items/menu_items.h"
-//#include "../entry_scan/common.h"
 #include "../Platform/Settings.h"
 
 CONST XString8 ArgOptional[NUM_OPT] = {
@@ -98,13 +97,13 @@ void DecodeOptions(REFIT_MENU_ITEM_BOOTNUM *Entry)
     return;
   }
   for (Index = 0; Index < INX_NVWEBON; Index++) { //not including INX_NVWEBON
-    if (gSettings.OptionsBits & (1 << Index)) {
+    if (GlobalConfig.OptionsBits & (1 << Index)) {
       Entry->LoadOptions.AddID(ArgOptional[Index]);
     }
   }
   //remove unchecked options
   for (Index = 0; Index < INX_NVWEBON; Index++) { //not including INX_NVWEBON
-    if ((gSettings.OptionsBits & (1 << Index)) == 0) {
+    if ((GlobalConfig.OptionsBits & (1 << Index)) == 0) {
       Entry->LoadOptions.remove(ArgOptional[Index]);
     }
   }
@@ -112,18 +111,18 @@ void DecodeOptions(REFIT_MENU_ITEM_BOOTNUM *Entry)
   if (Entry->getLOADER_ENTRY()) {
     LOADER_ENTRY* loaderEntry = Entry->getLOADER_ENTRY();
     // Only for non-legacy entries, as LEGACY_ENTRY doesn't have OSVersion
-    if (gSettings.OptionsBits & OPT_NVWEBON) {
-      if ( loaderEntry->OSVersion >= MacOsVersion("10.12"_XS8) ) {
-        gSettings.NvidiaWeb = TRUE;
+    if (GlobalConfig.OptionsBits & OPT_NVWEBON) {
+      if ( loaderEntry->macOSVersion >= MacOsVersion("10.12"_XS8) ) {
+        gSettings.SystemParameters.NvidiaWeb = TRUE;
       } else {
         //Entry->LoadOptions = loaderEntry->LoadOptions;
 //        Entry->LoadOptions = Split<XString8Array>(loaderEntry->LoadOptions.ConcatAll(" "_XS8).wc_str(), " ");
         Entry->LoadOptions.AddID(ArgOptional[INX_NVWEBON]);
       }
     }
-    if ((gSettings.OptionsBits & OPT_NVWEBON) == 0) {
-      if ( loaderEntry->OSVersion >= MacOsVersion("10.12"_XS8)) {
-        gSettings.NvidiaWeb = FALSE;
+    if ((GlobalConfig.OptionsBits & OPT_NVWEBON) == 0) {
+      if ( loaderEntry->macOSVersion >= MacOsVersion("10.12"_XS8)) {
+        gSettings.SystemParameters.NvidiaWeb = FALSE;
       } else {
         //Entry->LoadOptions = loaderEntry->LoadOptions;
 //        Entry->LoadOptions = Split<XString8Array>(loaderEntry->LoadOptions.ConcatAll(" "_XS8).wc_str(), " ");

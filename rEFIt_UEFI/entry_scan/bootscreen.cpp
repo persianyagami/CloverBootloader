@@ -32,11 +32,13 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 #include "entry_scan.h"
 #include "../refit/screen.h"
 #include "../libeg/XImage.h"
 #include "../libeg/XTheme.h"
 #include "../Platform/Settings.h"
+#include "../include/OSFlags.h"
 
 extern "C" {
 #include <Protocol/GraphicsOutput.h>
@@ -717,23 +719,6 @@ STATIC UINT8 whiteAppleLogo[] = {
    0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82, 0x82,
 };
 
-static CONST CHAR8 *CustomBootModeStr[] = {
-   "CUSTOM_BOOT_DISABLED",
-   "CUSTOM_BOOT_USER_DISABLED",
-   "CUSTOM_BOOT_NONE",
-   "CUSTOM_BOOT_APPLE",
-   "CUSTOM_BOOT_ALT_APPLE",
-   "CUSTOM_BOOT_THEME",
-   "CUSTOM_BOOT_USER",
-};
-CONST CHAR8 *CustomBootModeToStr(IN UINT8 Mode)
-{
-  if (Mode >= (sizeof(CustomBootModeStr) / sizeof(CustomBootModeStr[0]))) {
-    return CustomBootModeStr[0];
-  }
-  return CustomBootModeStr[Mode];
-}
-
 EFI_STATUS InitBootScreen(IN LOADER_ENTRY *Entry)
 {
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL thePixel = Entry->BootBgColor;
@@ -748,9 +733,9 @@ EFI_STATUS InitBootScreen(IN LOADER_ENTRY *Entry)
   if (customBoot == CUSTOM_BOOT_USER) {
     logo = Entry->CustomLogo;
   } else if (customBoot == CUSTOM_BOOT_DISABLED) {
-    customBoot = gSettings.CustomBoot;
+    customBoot = GlobalConfig.CustomLogoType;
     if (customBoot == CUSTOM_BOOT_USER) {
-      logo = *gSettings.CustomLogo;
+      logo = *GlobalConfig.CustomLogo;
     }
   }
   switch (customBoot) {
@@ -799,4 +784,23 @@ EFI_STATUS InitBootScreen(IN LOADER_ENTRY *Entry)
     logo.Draw((UGAWidth - logo.GetWidth()) / 2, (UGAHeight - logo.GetHeight()) / 2);
   }
   return EFI_SUCCESS;
+}
+
+
+static CONST CHAR8 *CustomBootModeStr[] = {
+   "CUSTOM_BOOT_DISABLED",
+   "CUSTOM_BOOT_USER_DISABLED",
+   "CUSTOM_BOOT_NONE",
+   "CUSTOM_BOOT_APPLE",
+   "CUSTOM_BOOT_ALT_APPLE",
+   "CUSTOM_BOOT_THEME",
+   "CUSTOM_BOOT_USER",
+};
+
+CONST CHAR8 *CustomBootModeToStr(IN UINT8 Mode)
+{
+  if (Mode >= (sizeof(CustomBootModeStr) / sizeof(CustomBootModeStr[0]))) {
+    return CustomBootModeStr[0];
+  }
+  return CustomBootModeStr[Mode];
 }

@@ -22,7 +22,7 @@
   DSC_SPECIFICATION              = 0x00010006
   OUTPUT_DIRECTORY               = Build/Clover
   SUPPORTED_ARCHITECTURES        = X64|IA32
-  BUILD_TARGETS                  = RELEASE|DEBUG
+  BUILD_TARGETS                  = RELEASE|DEBUG|DEBUGMACOS|RELEASEMACOS
   SKUID_IDENTIFIER               = DEFAULT
 !ifndef SKIP_FLASH
   FLASH_DEFINITION               = Clover.fdf
@@ -135,7 +135,6 @@
   PlatformHookLib|MdeModulePkg/Library/BasePlatformHookLibNull/BasePlatformHookLibNull.inf
 
   #SerialPortLib|PcAtChipsetPkg/Library/SerialIoLib/SerialIoLib.inf
-  #SerialPortLib|MdePkg/Library/BaseSerialPortLibNull/BaseSerialPortLibNull.inf
   MtrrLib|CloverEFI/UefiCpuPkg/Library/MtrrLib/MtrrLib.inf
   IoApicLib|PcAtChipsetPkg/Library/BaseIoApicLib/BaseIoApicLib.inf
   LocalApicLib|CloverEFI/UefiCpuPkg/Library/BaseXApicLib/BaseXApicLib.inf
@@ -168,6 +167,7 @@
   # Our libs
   #
   MemLogLib|Library/MemLogLibDefault/MemLogLibDefault.inf
+
   VideoBiosPatchLib|Library/VideoBiosPatchLib/VideoBiosPatchLib.inf
   WaveLib|Library/WaveLib/WaveLib.inf
   HdaDevicesLib|Library/HdaDevicesLib/HdaDevicesLib.inf
@@ -495,7 +495,7 @@
   }
 
 
-	#DuetPkg/BootSector/BootSector.inf
+  #DuetPkg/BootSector/BootSector.inf
 
   #DuetPkg/DxeIpl/DxeIpl.inf {
   CloverEFI/OsxDxeIpl/DxeIpl.inf {
@@ -508,8 +508,8 @@
       #ReportStatusCodeLib|MdeModulePkg/Library/DxeReportStatusCodeLib/DxeReportStatusCodeLib.inf
       ReportStatusCodeLib|MdePkg/Library/BaseReportStatusCodeLibNull/BaseReportStatusCodeLibNull.inf
   }
- #MdeModulePkg/Core/Dxe/DxeMain.inf {
- CloverEFI/OsxDxeCore/DxeMain.inf {
+  #MdeModulePkg/Core/Dxe/DxeMain.inf {
+  CloverEFI/OsxDxeCore/DxeMain.inf {
     #
     # Enable debug output for DxeCore module, this is a sample for how to enable debug output
     # for a module. If need turn on debug output for other module, please copy following overriden
@@ -524,12 +524,10 @@
     <LibraryClasses>
       BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
       MemoryAllocationLib|MdeModulePkg/Library/DxeCoreMemoryAllocationLib/DxeCoreMemoryAllocationLib.inf
-     # DebugLib|IntelFrameworkModulePkg/Library/PeiDxeDebugLibReportStatusCode/PeiDxeDebugLibReportStatusCode.inf
-     # ReportStatusCodeLib|DuetPkg/Library/DxeCoreReportStatusCodeLibFromHob/DxeCoreReportStatusCodeLibFromHob.inf
-     DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
- 	 ReportStatusCodeLib|MdePkg/Library/BaseReportStatusCodeLibNull/BaseReportStatusCodeLibNull.inf
- 	 PeCoffLib|Library/VBoxPeCoffLib/VBoxPeCoffLib.inf
-
+      # DebugLib|IntelFrameworkModulePkg/Library/PeiDxeDebugLibReportStatusCode/PeiDxeDebugLibReportStatusCode.inf
+      # ReportStatusCodeLib|DuetPkg/Library/DxeCoreReportStatusCodeLibFromHob/DxeCoreReportStatusCodeLibFromHob.inf
+      DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
+      ReportStatusCodeLib|MdePkg/Library/BaseReportStatusCodeLibNull/BaseReportStatusCodeLibNull.inf
   }
 
   MdeModulePkg/Universal/PCD/Dxe/Pcd.inf
@@ -629,7 +627,7 @@
   #DataHub
   #VBoxAppleSim/VBoxAppleSim.inf
   #IntelFrameworkModulePkg/Universal/DataHubDxe/DataHubDxe.inf
-  Protocols/DataHubDxe/DataHubDxe.inf
+  #Protocols/DataHubDxe/DataHubDxe.inf
   #Protocols/DataHubStdErrDxe/DataHubStdErrDxe.inf
 
   # foreign file system support
@@ -769,14 +767,6 @@
       SerialPortLib|MdeModulePkg/Library/BaseSerialPortLib16550/BaseSerialPortLib16550.inf
   }
 
-!else
-
-  Protocols/DumpUefiCalls/DumpUefiCalls.inf {
-  	<LibraryClasses>
-  		PeCoffLib|Library/VBoxPeCoffLib/VBoxPeCoffLib.inf
-  }
-
-
 !endif
 
   # Drivers for Aptio loading - should go to Clover's /EFI/drivers/UEFI dir
@@ -804,6 +794,7 @@
   #Sample/Application/Sample.inf
   #gptsync/gptsync.inf
   bdmesg_efi/bdmesg.inf
+  OpenCorePkg/Application/ControlMsrE2/ControlMsrE2.inf
   
 !ifndef NO_CLOVER_SHELL
   ShellPkg/Library/UefiShellNetwork1CommandsLib/UefiShellNetwork1CommandsLib.inf
@@ -812,12 +803,12 @@
   
   ShellPkg/Application/Shell/Shell.inf {
     <PcdsFixedAtBuild>
-	  gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0xFF
-	  gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
-	  gEfiMdePkgTokenSpaceGuid.PcdUefiLibMaxPrintBufferSize|16000
-	!ifdef $(NO_SHELL_PROFILES)
-	  gEfiShellPkgTokenSpaceGuid.PcdShellProfileMask|0x00
-	!endif #$(NO_SHELL_PROFILES)
+    gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0xFF
+    gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+    gEfiMdePkgTokenSpaceGuid.PcdUefiLibMaxPrintBufferSize|16000
+  !ifdef $(NO_SHELL_PROFILES)
+    gEfiShellPkgTokenSpaceGuid.PcdShellProfileMask|0x00
+  !endif #$(NO_SHELL_PROFILES)
 
     <LibraryClasses>
       PcdLib|MdePkg/Library/DxePcdLib/DxePcdLib.inf
@@ -842,26 +833,15 @@
   }
 !endif
 
+rEFIt_UEFI/refit.inf {
+  #
+  # Enable debug output.
+  #
+  <PcdsFixedAtBuild>
+    gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x07
+    gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000042
+}
 
-!ifdef DEBUG_ON_SERIAL_PORT
-	rEFIt_UEFI/refit.inf {
-	#
-     # Enable debug output.
-     #
-	<PcdsFixedAtBuild>
-		gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x07
-		gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0xFFFFFFFF
-	<LibraryClasses>
-		SerialPortLib|MdeModulePkg/Library/BaseSerialPortLib16550/BaseSerialPortLib16550.inf
-		DebugLib|MdePkg/Library/BaseDebugLibSerialPort/BaseDebugLibSerialPort.inf
-	  DebugPrintErrorLevelLib|MdePkg/Library/BaseDebugPrintErrorLevelLib/BaseDebugPrintErrorLevelLib.inf
-	}
-!else
-	rEFIt_UEFI/refit.inf {
-    <LibraryClasses>
-      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
-  }
-!endif
 
 [Components.X64]
 
@@ -887,7 +867,7 @@
 #      DebugPrintErrorLevelLib|MdePkg/Library/BaseDebugPrintErrorLevelLib/BaseDebugPrintErrorLevelLib.inf
 #  }
 # !else
-#	MemoryFix/OsxAptioFixDrv/OsxAptioFixDrv.inf
+# MemoryFix/OsxAptioFixDrv/OsxAptioFixDrv.inf
 # !endif
 
 ###################################################################################################
@@ -967,16 +947,18 @@ DEFINE EXIT_USBKB_FLAG = -DEXIT_USBKB
 DEFINE JIEF_DEBUG_FLAG = -DJIEF_DEBUG
 !endif
 
+DEFINE BUILD_OPTIONS=-DIS_UEFI_MODULE -DMDEPKG_NDEBUG -DCLOVER_BUILD $(VBIOS_PATCH_CLOVEREFI_FLAG) $(ONLY_SATA_0_FLAG) $(BLOCKIO_FLAG) $(NOUSB_FLAG) $(NOUDMA_FLAG) $(AMD_FLAG) $(SECURE_BOOT_FLAG) $(ANDX86_FLAG) $(PS2MOUSE_LEGACYBOOT_FLAG) $(DEBUG_ON_SERIAL_PORT_FLAG) $(EXIT_USBKB_FLAG) $(JIEF_DEBUG_FLAG) -DDISABLE_NEW_DEPRECATED_INTERFACES -DOC_TARGET_DEBUG
 
-DEFINE BUILD_OPTIONS=-DIS_UEFI_MODULE -DMDEPKG_NDEBUG -DCLOVER_BUILD $(VBIOS_PATCH_CLOVEREFI_FLAG) $(ONLY_SATA_0_FLAG) $(BLOCKIO_FLAG) $(NOUSB_FLAG) $(NOUDMA_FLAG) $(AMD_FLAG) $(SECURE_BOOT_FLAG) $(ANDX86_FLAG) $(PS2MOUSE_LEGACYBOOT_FLAG) $(DEBUG_ON_SERIAL_PORT_FLAG) $(EXIT_USBKB_FLAG) $(JIEF_DEBUG_FLAG)
+  XCODE:DEBUG_*_*_CC_FLAGS = 
+  XCODE:DEBUG_*_*_CXX_FLAGS = 
 
-  #MSFT:*_*_*_CC_FLAGS  = /FAcs /FR$(@R).SBR /wd4701 /wd4703 $(BUILD_OPTIONS)
-  MSFT:*_*_*_CC_FLAGS  = /FAcs $(BUILD_OPTIONS) -Dinline=__inline /Zi  -D DISABLE_NEW_DEPRECATED_INTERFACES -D OC_TARGET_DEBUG
+  # -Dinline=__inline
+  MSFT:*_*_*_CC_FLAGS  = $(BUILD_OPTIONS)
+  MSFT:*_*_*_CXX_FLAGS  = $(BUILD_OPTIONS)
 
-  XCODE:*_*_*_CC_FLAGS = -fno-unwind-tables -Wno-msvc-include $(BUILD_OPTIONS) $(LTO_FLAG) -D DISABLE_NEW_DEPRECATED_INTERFACES  -D OC_TARGET_DEBUG
-  GCC:*_*_*_CC_FLAGS   = $(BUILD_OPTIONS) $(LTO_FLAG) -D DISABLE_NEW_DEPRECATED_INTERFACES -D OC_TARGET_DEBUG
-  GCC:*_*_*_CXX_FLAGS  = $(BUILD_OPTIONS) $(LTO_FLAG) -D DISABLE_NEW_DEPRECATED_INTERFACES -D OC_TARGET_DEBUG
+  XCODE:*_*_*_CC_FLAGS = -std=c11 -fno-unwind-tables $(BUILD_OPTIONS) $(LTO_FLAG)
+  XCODE:*_*_*_CXX_FLAGS = -std=c++11 -fno-unwind-tables $(BUILD_OPTIONS) $(LTO_FLAG)
+  GCC:*_*_*_CC_FLAGS   = -std=c11 $(BUILD_OPTIONS) $(LTO_FLAG)
+  GCC:*_*_*_CXX_FLAGS  =  -std=c++11 $(BUILD_OPTIONS) $(LTO_FLAG)
   #-fanalyzer -Wmismatched-tags 
   #-Weffc++
-  #-Wunused-but-set-variable
-  # -Os -fno-omit-frame-pointer -maccumulate-outgoing-args

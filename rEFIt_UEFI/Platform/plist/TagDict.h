@@ -8,7 +8,6 @@
 #ifndef __TagDict_h__
 #define __TagDict_h__
 
-#include <Platform.h>
 #include "plist.h"
 
 class TagDict : public TagStruct
@@ -41,12 +40,16 @@ public:
    */
   const XObjArray<TagStruct>& dictContent() const
   {
+#ifdef DEBUG
     if ( !isDict() ) panic("TagDict::dictContent() : !isDict() ");
+#endif
     return _dictContent;
   }
   XObjArray<TagStruct>& dictContent()
   {
+#ifdef DEBUG
     if ( !isDict() ) panic("TagDict::dictContent() : !isDict() ");
+#endif
     return _dictContent;
   }
   INTN dictKeyCount() const;

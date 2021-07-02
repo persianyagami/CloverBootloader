@@ -41,6 +41,7 @@
 #include "../Platform/BasicIO.h"
 #include "menu.h"
 #include "../gui/REFIT_MENU_SCREEN.h"
+#include "../Platform/CloverVersion.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_SCR 1
@@ -123,7 +124,7 @@ void InitScreen(IN BOOLEAN SetMaxResolution)
 
 void SetupScreen(void)
 {
-    if (GlobalConfig.TextOnly) {
+    if (gSettings.GUI.TextOnly) {
         // switch to text mode if requested
         AllowGraphicsMode = FALSE;
         SwitchToText(FALSE);
@@ -203,7 +204,7 @@ void FinishExternalScreen(void)
     if (haveError) {
         // leave error messages on screen in case of error,
         // wait for a key press, and then switch
-        PauseForKey(L"was error, press any key\n");
+        PauseForKey("was error."_XS8);
         SwitchToText(FALSE);
     }
     
@@ -385,7 +386,7 @@ void REFIT_MENU_SCREEN::GetAnime()
 
 void REFIT_MENU_SCREEN::InitAnime()
 {
-  if (gThemeChanged) {
+  if (GlobalConfig.gThemeChanged) {
     FilmC = nullptr;
   }
   if (FilmC == nullptr) {

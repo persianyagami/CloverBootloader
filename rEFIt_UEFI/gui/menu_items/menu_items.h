@@ -35,11 +35,15 @@
 #ifndef __menu_items_H__
 #define __menu_items_H__
 
-
+#include <Efi.h>
+#include "../../Platform/KERNEL_AND_KEXT_PATCHES.h"
+#include "../../Platform/plist/plist.h"
 #include "../../libeg/libeg.h"
+#include "../../libeg/XIcon.h"
 #include "../../refit/lib.h"
-#include <UefiLoader.h>
+#include <UefiLoader.h> // for cpu_type_t
 #include "../../Platform/boot.h"
+#include "../../Platform/Volumes.h"
 
 #include "../../cpp_foundation/XObjArray.h"
 #include "../../cpp_foundation/XStringArray.h"
@@ -50,7 +54,7 @@
 
 //
 //#define REFIT_DEBUG (2)
-//#define Print if ((!GlobalConfig.Quiet) || (GlobalConfig.TextOnly)) Print
+//#define Print if ((!GlobalConfig.Quiet) || (gSettings.GUI.TextOnly)) Print
 ////#include "GenericBdsLib.h"
 
 
@@ -100,18 +104,18 @@ class SIDELOAD_KEXT;
 class REFIT_ABSTRACT_MENU_ENTRY
 {
   public:
-  XStringW           Title;
-  bool               Hidden;
-  UINTN              Row;
-  CHAR16             ShortcutDigit;
-  CHAR16             ShortcutLetter;
-  XIcon              Image;
-  EG_RECT            Place;
-  ACTION             AtClick;
-  ACTION             AtDoubleClick;
-  ACTION             AtRightClick;
-  ACTION             AtMouseOver;
-  REFIT_MENU_SCREEN *SubScreen;
+  XStringW           Title = XStringW();
+  bool               Hidden = 0;
+  UINTN              Row = 0;
+  CHAR16             ShortcutDigit = 0;
+  char32_t           ShortcutLetter = 0;
+  XIcon              Image = 0;
+  EG_RECT            Place = EG_RECT();
+  ACTION             AtClick = ActionNone;
+  ACTION             AtDoubleClick = ActionNone;
+  ACTION             AtRightClick = ActionNone;
+  ACTION             AtMouseOver = ActionNone;
+  REFIT_MENU_SCREEN *SubScreen = NULL;
 
   virtual XIcon* getDriveImage() { return nullptr; };
   virtual XIcon* getBadgeImage() { return nullptr; };
@@ -138,30 +142,13 @@ class REFIT_ABSTRACT_MENU_ENTRY
   virtual void StartLegacy() {};
   virtual void StartTool() {};
 
-  REFIT_ABSTRACT_MENU_ENTRY()
-      : Title(), Hidden(0), Row(0), ShortcutDigit(0), ShortcutLetter(0), Image(), Place(), AtClick(ActionNone), AtDoubleClick(ActionNone), AtRightClick(ActionNone), AtMouseOver(ActionNone), SubScreen(NULL)
-      {};
-  REFIT_ABSTRACT_MENU_ENTRY(const XStringW& Title_)
-      : Title(Title_), Hidden(0), Row(0), ShortcutDigit(0), ShortcutLetter(0), Image(), Place(), AtClick(ActionNone), AtDoubleClick(ActionNone), AtRightClick(ActionNone), AtMouseOver(ActionNone), SubScreen(NULL)
-      {};
-  REFIT_ABSTRACT_MENU_ENTRY(const XStringW& Title_, ACTION AtClick_)
-      : Title(Title_), Hidden(0), Row(0), ShortcutDigit(0), ShortcutLetter(0), Image(), Place(), AtClick(AtClick_), AtDoubleClick(ActionNone), AtRightClick(ActionNone), AtMouseOver(ActionNone), SubScreen(NULL)
-      {};
-  REFIT_ABSTRACT_MENU_ENTRY(const XStringW& Title_, UINTN Row_, CHAR16 ShortcutDigit_, CHAR16 ShortcutLetter_, ACTION AtClick_)
-      : Title(Title_), Hidden(0), Row(Row_), ShortcutDigit(ShortcutDigit_), ShortcutLetter(ShortcutLetter_), Image(), Place(), AtClick(AtClick_), AtDoubleClick(ActionNone), AtRightClick(ActionNone), AtMouseOver(ActionNone), SubScreen(NULL)
-      {};
-//  REFIT_ABSTRACT_MENU_ENTRY(const XStringW& Title_, UINTN Row_,
-//                            CHAR16 ShortcutDigit_, CHAR16 ShortcutLetter_, const XIcon& Icon_,
-//                            EG_RECT Place_, ACTION AtClick_, ACTION AtDoubleClick_, ACTION AtRightClick_, ACTION AtMouseOver_,
-//                            REFIT_MENU_SCREEN *SubScreen_)
-//              : Title(Title_), Row(Row_), ShortcutDigit(ShortcutDigit_), ShortcutLetter(ShortcutLetter_),
-//                Image(Icon_), Place(Place_),
-//                AtClick(AtClick_), AtDoubleClick(AtDoubleClick_), AtRightClick(AtRightClick_), AtMouseOver(AtMouseOver_),
-//                SubScreen(SubScreen_)
-//              {};
+  REFIT_ABSTRACT_MENU_ENTRY() {};
+  REFIT_ABSTRACT_MENU_ENTRY(const XStringW& Title_) : Title(Title_) {};
+  REFIT_ABSTRACT_MENU_ENTRY(const XStringW& Title_, ACTION AtClick_) : Title(Title_), AtClick(AtClick_) {};
+  REFIT_ABSTRACT_MENU_ENTRY(const XStringW& Title_, UINTN Row_, CHAR16 ShortcutDigit_, CHAR16 ShortcutLetter_, ACTION AtClick_) : Title(Title_), Row(Row_), ShortcutDigit(ShortcutDigit_), ShortcutLetter(ShortcutLetter_), AtClick(AtClick_) {};
 
-  REFIT_ABSTRACT_MENU_ENTRY(const REFIT_ABSTRACT_MENU_ENTRY&) = delete;
-  REFIT_ABSTRACT_MENU_ENTRY& operator=(const REFIT_ABSTRACT_MENU_ENTRY&) = delete;
+  REFIT_ABSTRACT_MENU_ENTRY(const REFIT_ABSTRACT_MENU_ENTRY&) { panic("not yet defined"); }
+  REFIT_ABSTRACT_MENU_ENTRY& operator=(const REFIT_ABSTRACT_MENU_ENTRY&) { panic("not yet defined"); }
 
   virtual ~REFIT_ABSTRACT_MENU_ENTRY() {}; // virtual destructor : this is vital
 };
@@ -283,7 +270,7 @@ class REFIT_ABSTRACT_MENU_ENTRY
     XIcon        BadgeImage;
 
     REFIT_MENU_ITEM_ABSTRACT_ENTRY_LOADER()
-        : REFIT_ABSTRACT_MENU_ENTRY(), DevicePathString(0), LoadOptions(), LoaderPath(), DriveImage(), BadgeImage()
+        : REFIT_ABSTRACT_MENU_ENTRY(), DevicePathString(), LoadOptions(), LoaderPath(), DriveImage(), BadgeImage()
         {}
     REFIT_MENU_ITEM_ABSTRACT_ENTRY_LOADER(const REFIT_MENU_ITEM_ABSTRACT_ENTRY_LOADER&) = delete;
     REFIT_MENU_ITEM_ABSTRACT_ENTRY_LOADER& operator=(const REFIT_MENU_ITEM_ABSTRACT_ENTRY_LOADER&) = delete;
@@ -371,7 +358,7 @@ class REFIT_ABSTRACT_MENU_ENTRY
 				EFI_DEVICE_PATH  *DevicePath;
 				UINT16            Flags;
 				UINT8             LoaderType;
-				MacOsVersion      OSVersion;
+				MacOsVersion      macOSVersion;
 				XString8          BuildVersion;
         EFI_GRAPHICS_OUTPUT_BLT_PIXEL BootBgColor;
 
@@ -415,7 +402,7 @@ class REFIT_ABSTRACT_MENU_ENTRY
         
 
 				LOADER_ENTRY()
-						: REFIT_MENU_ITEM_BOOTNUM(), APFSTargetUUID(), DisplayedVolName(), DevicePath(0), Flags(0), LoaderType(0), OSVersion(), BuildVersion(),
+						: REFIT_MENU_ITEM_BOOTNUM(), APFSTargetUUID(), DisplayedVolName(), DevicePath(0), Flags(0), LoaderType(0), macOSVersion(), BuildVersion(),
               BootBgColor({0,0,0,0}),
               CustomBoot(0), CustomLogo(), KernelAndKextPatches(), Settings(), KernelData(0),
               AddrVtable(0), SizeVtable(0), NamesTable(0), SegVAddr(0), shift(0),
@@ -437,8 +424,8 @@ class REFIT_ABSTRACT_MENU_ENTRY
         UINTN         searchProc(const XString8& procedure);
         UINTN         searchProcInDriver(UINT8 * driver, UINT32 driverLen, const XString8& procedure);
         UINT32        searchSectionByNum(UINT8 * Binary, UINT32 Num);
-        void          KernelAndKextsPatcherStart();
-        void          KernelAndKextPatcherInit();
+//        void          KernelAndKextsPatcherStart();
+//        void          KernelAndKextPatcherInit();
         BOOLEAN       KernelUserPatch();
         BOOLEAN       KernelPatchPm();
         BOOLEAN       KernelLapicPatch_32();
@@ -467,7 +454,7 @@ class REFIT_ABSTRACT_MENU_ENTRY
         EFI_STATUS AddKext(const EFI_FILE *RootDir, const XString8& FileName, IN cpu_type_t archCpuType);
         void      LoadPlugInKexts(const EFI_FILE *RootDir, const XString8& DirName, IN cpu_type_t archCpuType, IN BOOLEAN Force);
 //        void      AddKexts(const XStringW& SrcDir, const XStringW& Path, cpu_type_t archCpuType);
-        void      AddKextsFromDirInArray(const XString8& SrcDir, const XString8& Path, cpu_type_t archCpuType, XObjArray<SIDELOAD_KEXT>* kextArray);
+        void      AddKextsFromDirInArray(const XString8& SrcDir, cpu_type_t archCpuType, XObjArray<SIDELOAD_KEXT>* kextArray);
         void      AddKextsInArray(XObjArray<SIDELOAD_KEXT>* kextArray);
         void      KextPatcherRegisterKexts(void *FSInject, void *ForceLoadKexts);
         void      KextPatcherStart();

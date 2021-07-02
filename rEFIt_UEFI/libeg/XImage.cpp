@@ -1,3 +1,4 @@
+#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 #include "XImage.h"
 #include "lodepng.h"
 #include "nanosvg.h"
@@ -18,6 +19,7 @@
 #endif
 
 EFI_GRAPHICS_OUTPUT_BLT_PIXEL NullColor = {0,0,0,0};
+XImage NullXImage;
 
 
 XImage::XImage(UINTN W, UINTN H) : Width(0), Height(0), PixelData() // initialisation of Width and Height and , PixelData() to avoid warning with -Weffc++
@@ -173,7 +175,7 @@ void XImage::Fill(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL& Color)
 
 void XImage::Fill(const EG_PIXEL* Color)
 {
-  Fill((const EFI_GRAPHICS_OUTPUT_BLT_PIXEL&)Color);
+  Fill( *(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL*)Color );
 }
 
 void XImage::FillArea(const EG_PIXEL* Color, EG_RECT& Rect)
@@ -195,6 +197,15 @@ UINT8 XImage::Smooth(const UINT8* p, int a01, int a10, int a21, int a12,  float 
 {
   return (UINT8)((*(p + a01) * (scale - dx) * 3.f + *(p + a10) * (scale - dy) * 3.f + *(p + a21) * dx * 3.f +
                   *(p + a12) * dy * 3.f + *(p) * 2.f *scale) / (scale * 8.f));
+}
+
+/* Place Top image over this image at PosX,PosY
+ * Lowest means final image is opaque
+ * else transparency will be multiplied
+ */
+void XImage::Copy(XImage* Image)
+{
+  CopyRect(*Image, 0, 0);
 }
 
 //sizes remain as were assumed input image is large enough?
@@ -230,10 +241,33 @@ void XImage::CopyScaled(const XImage& Image, float scale)
   }
 }
 
-/* Place Top image over this image at PosX,PosY
- * Lowest means final image is opaque
- * else transparency will be multiplied
+void XImage::CopyRect(const XImage& Image, INTN XPos, INTN YPos)
+{
+  for (INTN y = 0; y < GetHeight() && (y + YPos) < Image.GetHeight(); ++y) {
+    for (INTN x = 0; x < GetWidth() && (x + XPos) < Image.GetWidth(); ++x) {
+      PixelData[y * Width + x] = Image.GetPixel(x + XPos, y + YPos);
+    }
+  }
+}
+
+/*
+ * copy rect InputRect from the input Image and place to OwnRect in this image
+ * width and height will be the smaller of the two rect
+ * taking into account boundary intersect
  */
+void XImage::CopyRect(const XImage& Image, const EG_RECT& OwnPlace, const EG_RECT& InputRect)
+{
+  INTN Dx = OwnPlace.XPos - InputRect.XPos;
+  INTN Dy = OwnPlace.YPos - InputRect.YPos;
+  INTN W = MIN(OwnPlace.Width, InputRect.Width);
+  INTN H = MIN(OwnPlace.Height, InputRect.Height);
+  for (INTN y = OwnPlace.YPos; y - OwnPlace.YPos < H && y < GetHeight() && (y - Dy) < Image.GetHeight(); ++y) {
+    for (INTN x = OwnPlace.XPos; x - OwnPlace.XPos < W && x < GetWidth() && (x - Dx) < Image.GetWidth(); ++x) {
+      PixelData[y * Width + x] = Image.GetPixel(x - Dx, y - Dy);
+    }
+  }
+}
+
 void XImage::Compose(INTN PosX, INTN PosY, const XImage& TopImage, bool Lowest, float topScale)
 {
   EG_RECT OutPlace;
@@ -351,17 +385,25 @@ void XImage::FlipRB()
  * The function converted plain array into XImage object
  * Error = 0 - Success
  * Error = 28 - invalid signature
+ * Image is emptied if there is an error.
  */
 EFI_STATUS XImage::FromPNG(const UINT8 * Data, UINTN Length)
 {
 //  DBG("XImage len=%llu\n", Length);
-  if (Data == NULL) return EFI_INVALID_PARAMETER;
+  if (Data == NULL) {
+    setEmpty(); // to be 100% sure
+    return EFI_INVALID_PARAMETER;
+  }
   UINT8 * PixelPtr; // = (UINT8 *)&PixelData[0];
   unsigned Error = eglodepng_decode(&PixelPtr, &Width, &Height, Data, Length);
   if (Error != 0 && Error != 28) {
+    setEmpty(); // to be 100% sure
     return EFI_NOT_FOUND;
   }
-  if ( !PixelPtr ) return EFI_UNSUPPORTED; // It's possible to get error 28 and PixelPtr == NULL
+  if ( !PixelPtr ) {
+    setEmpty(); // to be 100% sure
+    return EFI_UNSUPPORTED; // It's possible to get error 28 and PixelPtr == NULL
+  }
   setSizeInPixels(Width, Height);
   //now we have a new pointer and want to move data
   INTN NewLength = Width * Height * sizeof(EFI_GRAPHICS_OUTPUT_BLT_PIXEL);
@@ -685,43 +727,12 @@ void XImage::DummyImage(IN UINTN PixelSize)
   }
 }
 
-void XImage::Copy(XImage* Image)
-{
-  CopyRect(*Image, 0, 0);
-}
-void XImage::CopyRect(const XImage& Image, INTN XPos, INTN YPos)
-{
-  for (INTN y = 0; y < GetHeight() && (y + YPos) < Image.GetHeight(); ++y) {
-    for (INTN x = 0; x < GetWidth() && (x + XPos) < Image.GetWidth(); ++x) {
-      PixelData[y * Width + x] = Image.GetPixel(x + XPos, y + YPos);
-    }
-  }
-}
-
-/*
- * copy rect InputRect from the input Image and place to OwnRect in this image
- * width and height will be the smaller of the two rect
- * taking into account boundary intersect
- */
-void XImage::CopyRect(const XImage& Image, const EG_RECT& OwnPlace, const EG_RECT& InputRect)
-{
-  INTN Dx = OwnPlace.XPos - InputRect.XPos;
-  INTN Dy = OwnPlace.YPos - InputRect.YPos;
-  INTN W = MIN(OwnPlace.Width, InputRect.Width);
-  INTN H = MIN(OwnPlace.Height, InputRect.Height);
-  for (INTN y = OwnPlace.YPos; y - OwnPlace.YPos < H && y < GetHeight() && (y - Dy) < Image.GetHeight(); ++y) {
-    for (INTN x = OwnPlace.XPos; x - OwnPlace.XPos < W && x < GetWidth() && (x - Dx) < Image.GetWidth(); ++x) {
-      PixelData[y * Width + x] = Image.GetPixel(x - Dx, y - Dy);
-    }
-  }
-}
-
 //
 // Load an image from a .icns file
 //
 EFI_STATUS XImage::LoadIcns(const EFI_FILE* BaseDir, IN CONST CHAR16 *FileName, IN UINTN PixelSize)
 {
-  if (GlobalConfig.TextOnly)      // skip loading if it's not used anyway
+  if (gSettings.GUI.TextOnly)      // skip loading if it's not used anyway
     return EFI_SUCCESS;
   if (BaseDir) {
     EFI_STATUS  Status = EFI_NOT_FOUND;

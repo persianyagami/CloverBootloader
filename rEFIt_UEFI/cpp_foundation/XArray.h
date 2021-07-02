@@ -1,17 +1,16 @@
-//*************************************************************************************************
-//*************************************************************************************************
-//
-//                                          XArray
-//
-// Developed by jief666, from 1997.
-//
-//*************************************************************************************************
-//*************************************************************************************************
+/*
+ *
+ * Created by jief in 1997.
+ * Copyright (c) 2020 Jief
+ * All rights reserved.
+ *
+ */
 
 #if !defined(__XARRAY_H__)
 #define __XARRAY_H__
 
 #include <XToolsConf.h>
+#include "XToolsCommon.h"
 
 
 #if 0
@@ -47,29 +46,55 @@ class XArray
 
   //low case functions like in std::vector
 
-  const TYPE& begin() const { return ElementAt(0); }
-        TYPE& begin()       { return ElementAt(0); }
+  const TYPE& begin() const { if ( m_len == 0 ) panic("m_len == 0"); return ElementAt(0); }
+        TYPE& begin()       { if ( m_len == 0 ) panic("m_len == 0"); return ElementAt(0); }
 
-  const TYPE& end() const { return ElementAt(m_len - 1); }
-        TYPE& end()       { return ElementAt(m_len - 1); }
+  const TYPE& end() const { if ( m_len == 0 ) panic("m_len == 0"); return ElementAt(m_len - 1); }
+        TYPE& end()       { if ( m_len == 0 ) panic("m_len == 0"); return ElementAt(m_len - 1); }
 
   size_t insert(const TYPE newElement, size_t pos, size_t count = 1) { return Insert(newElement, pos, count); }
  
 //--------------------------------------------------
 
-	const TYPE& ElementAt(size_t nIndex) const;
-	TYPE& ElementAt(size_t nIndex);
-	const TYPE& ElementAt(int nIndex) const;
-	TYPE& ElementAt(int nIndex);
+  template<typename IntegralType, enable_if(is_integral(IntegralType))>
+	const TYPE& ElementAt(IntegralType index) const
+  {
+    #ifdef DEBUG
+      if ( index < 0 ) {
+        panic("XArray::ElementAt(int) -> Operator [] : index < 0");
+      }
+      if ( (unsigned int)index >= m_len ) { // cast safe, index > 0
+        panic("XArray::ElementAt(int) -> Operator [] : index > m_len");
+      }
+    #endif
+    return  m_data[index];
+  }
+  template<typename IntegralType, enable_if(is_integral(IntegralType))>
+	TYPE& ElementAt(IntegralType index) { return const_cast<TYPE&>(const_cast<const XArray<TYPE>*>(this)->ElementAt(index)); }
 
-//	const TYPE& operator[](size_t nIndex) const { return ElementAt(nIndex); }
-//	      TYPE& operator[](size_t nIndex)       { return ElementAt(nIndex); }
-//	const TYPE& operator[]( int nIndex)  const { return ElementAt(nIndex); }
-	      TYPE& operator[]( int nIndex)        { return ElementAt(nIndex); }
-//	const TYPE& operator[]( unsigned long long nIndex)  const { return ElementAt((size_t)nIndex); }
-//	const TYPE& operator[]( long long nIndex)  const { return ElementAt((size_t)nIndex); }
-	      TYPE& operator[]( unsigned long long nIndex)        { return ElementAt((size_t)nIndex); }
-	      TYPE& operator[]( long long nIndex)        { return ElementAt((size_t)nIndex); }
+  template<typename IntegralType, enable_if(is_integral(IntegralType))>
+  const TYPE &operator[](IntegralType nIndex) const { return ElementAt(nIndex); }
+  template<typename IntegralType, enable_if(is_integral(IntegralType))>
+  TYPE &operator[](IntegralType nIndex) { return ElementAt(nIndex); }
+
+  bool operator==(const XArray<TYPE>& other) const
+  {
+    if ( size() != other.size() ) return false;
+    for ( size_t idx = 0 ; idx < other.size() ; ++idx ) {
+      if ( !( ElementAt(idx) == other.ElementAt(idx) ) ) return false;
+    }
+    return true;
+  }
+  bool isEqual(const XArray<TYPE>& other) const
+  {
+    if ( size() != other.size() ) return false;
+    for ( size_t idx = 0 ; idx < other.size() ; ++idx ) {
+      if ( !( ElementAt(idx).isEqual(other.ElementAt(idx)) ) ) return false;
+    }
+    return true;
+  }
+
+
 
 	operator const void *() const { return m_data; };
 	operator       void *()       { return m_data; };
@@ -184,7 +209,9 @@ void XArray<TYPE>::CheckSize(size_t nNewSize, size_t nGrowBy)
 		nNewSize += nGrowBy;
 		m_data = (TYPE *)Xrealloc((void *)m_data, nNewSize * sizeof(TYPE), m_allocatedSize * sizeof(TYPE) );
 		if ( !m_data ) {
+#ifdef DEBUG
 			panic("XArray<TYPE>::CheckSize(nNewSize=%zu, nGrowBy=%zu) : Xrealloc(%zu, %lu, %" PRIuPTR ") returned NULL. System halted\n", nNewSize, nGrowBy, m_allocatedSize, nNewSize*sizeof(TYPE), (uintptr_t)m_data);
+#endif
 		}
 //		memset(&_Data[_Size], 0, (nNewSize-_Size) * sizeof(TYPE)); // Could help for debugging, but zeroing in not needed.
 		m_allocatedSize = nNewSize;
@@ -211,60 +238,6 @@ void XArray<TYPE>::setSize(size_t l)
 	#endif
 }
 
-
-/* ElementAt() */
-template<class TYPE>
-TYPE &XArray<TYPE>::ElementAt(size_t index)
-{
-//	#ifdef _DEBUG
-		if ( index >= m_len ) {
-			panic("XArray::ElementAt(size_t) -> Operator [] : index > m_len");
-		}
-//	#endif
-	return  m_data[index];
-}
-
-/* ElementAt() */
-template<class TYPE>
-const TYPE& XArray<TYPE>::ElementAt(size_t index) const
-{
-//	#ifdef _DEBUG
-		if ( index >= m_len ) {
-			panic("XArray::ElementAt(size_t) const -> Operator [] : index > m_len");
-		}
-//	#endif
-	return  m_data[index];
-}
-
-/* ElementAt() */
-template<class TYPE>
-TYPE &XArray<TYPE>::ElementAt(int index)
-{
-//	#ifdef _DEBUG
-    if ( index < 0 ) {
-			panic("XArray::ElementAt(int) -> Operator [] : index < 0");
-		}
-		if ( (unsigned int)index >= m_len ) { // cast safe, index > 0
-			panic("XArray::ElementAt(int) -> Operator [] : index > m_len");
-		}
-//	#endif
-	return  m_data[index];
-}
-
-/* ElementAt() */
-template<class TYPE>
-const TYPE& XArray<TYPE>::ElementAt(int index) const
-{
-//	#ifdef _DEBUG
-    if ( index < 0 ) {
-			panic("XArray::ElementAt(int) const -> Operator [] : index < 0");
-		}
-		if ( (unsigned int)index >= m_len ) { // cast ok as index > 0. Ideally cast would be like '(unsigned __typeof__(index))'
-			panic("XArray::ElementAt(int) const -> Operator [] : index > m_len");
-		}
-//	#endif
-	return  m_data[index];
-}
 
 /* Add(size_t) */
 template<class TYPE>

@@ -9,6 +9,7 @@
  */
 
 #include "AmlGenerator.h"
+#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 
 BOOLEAN aml_add_to_parent(AML_CHUNK* parent, AML_CHUNK* node)
 {
@@ -376,7 +377,7 @@ AML_CHUNK* aml_add_store(AML_CHUNK* parent)
 	return node;
 }
 
-AML_CHUNK* aml_add_byte_buffer(AML_CHUNK* parent, /* CONST*/ UINT8* data, UINT32 size)
+AML_CHUNK* aml_add_byte_buffer(AML_CHUNK* parent, CONST UINT8* data, UINT32 size)
 {
 	AML_CHUNK* node = aml_create_node(parent);
 	

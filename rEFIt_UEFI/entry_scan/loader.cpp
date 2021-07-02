@@ -33,6 +33,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <Platform.h>
+#include "../refit/lib.h"
+#include "../libeg/libeg.h"
 #include "loader.h"
 #include "../cpp_foundation/XString.h"
 #include "entry_scan.h"
@@ -40,15 +43,18 @@
 #include "../Platform/Hibernate.h"
 #include "../refit/screen.h"
 #include "../refit/menu.h"
-#include "common.h"
 #include "../Platform/Nvram.h"
 #include "../Platform/APFS.h"
 #include "../Platform/guid.h"
 #include "../refit/lib.h"
 #include "../gui/REFIT_MENU_SCREEN.h"
-#include "Self.h"
-#include "../include/OsType.h"
+#include "../gui/REFIT_MAINMENU_SCREEN.h"
+#include "../Settings/Self.h"
+#include "../include/OSTypes.h"
 #include "../Platform/BootOptions.h"
+#include "../Platform/Volumes.h"
+#include "../include/OSFlags.h"
+#include "../libeg/XTheme.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_SCAN_LOADER 1
@@ -87,7 +93,7 @@ typedef struct LINUX_PATH_DATA
    CONST XStringW Path;
    CONST XStringW Title;
    CONST XStringW Icon;
-   CONST XString8  Issue;
+   CONST XString8 Issue;
 } LINUX_PATH_DATA;
 
 typedef struct LINUX_ICON_DATA
@@ -113,7 +119,7 @@ STATIC LINUX_PATH_DATA LinuxEntryData[] = {
   //comment out all common names
 //  { L"\\EFI\\grub\\grubx64.efi", L"Grub EFI boot menu", L"grub,linux" },
 //  { L"\\EFI\\Gentoo\\grubx64.efi", L"Gentoo EFI boot menu", L"gentoo,linux", "Gentoo" },
-  { L"\\EFI\\Gentoo\\kernelx64.efi"_XSW, L"Gentoo EFI kernel"_XSW, L"gentoo,linux"_XSW },
+  { L"\\EFI\\Gentoo\\kernelx64.efi"_XSW, L"Gentoo EFI kernel"_XSW, L"gentoo,linux"_XSW, ""_XS8 },
 //  { L"\\EFI\\RedHat\\grubx64.efi", L"RedHat EFI boot menu", L"redhat,linux", "Redhat" },
 //  { L"\\EFI\\debian\\grubx64.efi", L"Debian EFI boot menu", L"debian,linux", "Debian" },
 //  { L"\\EFI\\kali\\grubx64.efi", L"Kali EFI boot menu", L"kali,linux", "Kali" },
@@ -168,7 +174,7 @@ STATIC LINUX_PATH_DATA LinuxEntryData[] = {
   { L"\\EFI\\MX19\\grub.efi", L"MX Linux EFI boot menu", L"mx,linux", "MX Linux" },
   { L"\\EFI\\parrot\\grub.efi", L"Parrot OS EFI boot menu", L"parrot,linux", "Parrot OS" },
 #endif
-  { L"\\EFI\\SuSe\\elilo.efi"_XSW, L"OpenSuse EFI boot menu"_XSW, L"suse,linux"_XSW },
+  { L"\\EFI\\SuSe\\elilo.efi"_XSW, L"OpenSuse EFI boot menu"_XSW, L"suse,linux"_XSW, ""_XS8 },
 };
 STATIC CONST UINTN LinuxEntryDataCount = (sizeof(LinuxEntryData) / sizeof(LinuxEntryData[0]));
 
@@ -255,25 +261,25 @@ UINT8 GetOSTypeFromPath(IN CONST XStringW& Path)
   if (Path.isEmpty()) {
     return OSTYPE_OTHER;
   }
-  if ( Path.equalIC(MACOSX_LOADER_PATH)) {
+  if ( Path.isEqualIC(MACOSX_LOADER_PATH)) {
     return OSTYPE_OSX;
-  } else if ( Path.equalIC(OSXInstallerPaths[0]) ||
-             ( Path.equalIC(OSXInstallerPaths[1])) ||
-             ( Path.equalIC(OSXInstallerPaths[2])) ||
-             ( Path.equalIC(OSXInstallerPaths[3])) ||
-             ( Path.equalIC(OSXInstallerPaths[4])) ||
-             ( Path.equalIC(RockBoot)) || ( Path.equalIC(PaperBoot)) || ( Path.equalIC(ScissorBoot)) ||
-             (! Path.equalIC(L"\\.IABootFiles\\boot.efi") &&  Path.equalIC(L"\\.IAPhysicalMedia") &&  Path.equalIC(MACOSX_LOADER_PATH))
+  } else if ( Path.isEqualIC(OSXInstallerPaths[0]) ||
+             ( Path.isEqualIC(OSXInstallerPaths[1])) ||
+             ( Path.isEqualIC(OSXInstallerPaths[2])) ||
+             ( Path.isEqualIC(OSXInstallerPaths[3])) ||
+             ( Path.isEqualIC(OSXInstallerPaths[4])) ||
+             ( Path.isEqualIC(RockBoot)) || ( Path.isEqualIC(PaperBoot)) || ( Path.isEqualIC(ScissorBoot)) ||
+             (! Path.isEqualIC(L"\\.IABootFiles\\boot.efi") &&  Path.isEqualIC(L"\\.IAPhysicalMedia") &&  Path.isEqualIC(MACOSX_LOADER_PATH))
              ) {
     return OSTYPE_OSX_INSTALLER;
-  } else if ( Path.equalIC(L"\\com.apple.recovery.boot\\boot.efi")) {
+  } else if ( Path.isEqualIC(L"\\com.apple.recovery.boot\\boot.efi")) {
     return OSTYPE_RECOVERY;
-  } else if (( Path.equalIC(L"\\EFI\\Microsoft\\Boot\\bootmgfw-orig.efi")) || //test first as orig
-             ( Path.equalIC(L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi")) ||      //it can be Clover
-    //         ( Path.equalIC(L"\\bootmgr.efi")) || //never worked, just extra icon in menu
-             ( Path.equalIC(L"\\EFI\\MICROSOFT\\BOOT\\cdboot.efi"))) {
+  } else if (( Path.isEqualIC(L"\\EFI\\Microsoft\\Boot\\bootmgfw-orig.efi")) || //test first as orig
+             ( Path.isEqualIC(L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi")) ||      //it can be Clover
+    //         ( Path.isEqualIC(L"\\bootmgr.efi")) || //never worked, just extra icon in menu
+             ( Path.isEqualIC(L"\\EFI\\MICROSOFT\\BOOT\\cdboot.efi"))) {
     return OSTYPE_WINEFI;
-  } else if (LINUX_FULL_LOADER_PATH.equalIC(Path)) {
+  } else if (LINUX_FULL_LOADER_PATH.isEqualIC(Path)) {
     return OSTYPE_LINEFI;
   } else if ( Path.containsIC("grubx64.efi") ) {
     return OSTYPE_LINEFI;
@@ -282,7 +288,7 @@ UINT8 GetOSTypeFromPath(IN CONST XStringW& Path)
 #if defined(ANDX86)
     Index = 0;
     while (Index < AndroidEntryDataCount) {
-      if ( Path.equalIC(AndroidEntryData[Index].Path) ) {
+      if ( Path.isEqualIC(AndroidEntryData[Index].Path) ) {
         return OSTYPE_LIN;
       }
       ++Index;
@@ -290,7 +296,7 @@ UINT8 GetOSTypeFromPath(IN CONST XStringW& Path)
 #endif
     Index = 0;
     while (Index < LinuxEntryDataCount) {
-      if ( Path.equalIC(LinuxEntryData[Index].Path) ) {
+      if ( Path.isEqualIC(LinuxEntryData[Index].Path) ) {
         return OSTYPE_LIN;
       }
       ++Index;
@@ -308,7 +314,7 @@ STATIC CONST XStringW& LinuxIconNameFromPath(IN CONST XStringW& Path,
 #if defined(ANDX86)
   Index = 0;
   while (Index < AndroidEntryDataCount) {
-    if ( Path.equalIC(AndroidEntryData[Index].Path) ) {
+    if ( Path.isEqualIC(AndroidEntryData[Index].Path) ) {
       return AndroidEntryData[Index].Icon;
     }
     ++Index;
@@ -318,14 +324,14 @@ STATIC CONST XStringW& LinuxIconNameFromPath(IN CONST XStringW& Path,
   //check not common names
   Index = 0;
   while (Index < LinuxEntryDataCount) {
-    if ( Path.equalIC(LinuxEntryData[Index].Path) ) {
+    if ( Path.isEqualIC(LinuxEntryData[Index].Path) ) {
       return LinuxEntryData[Index].Icon;
     }
     ++Index;
   }
   
   // Try to open the linux issue
-  if ((RootDir != NULL) && LINUX_FULL_LOADER_PATH.equalIC(Path)) {
+  if ((RootDir != NULL) && LINUX_FULL_LOADER_PATH.isEqualIC(Path)) {
     CHAR8 *Issue = NULL;
     UINTN  IssueLen = 0;
     if (!EFI_ERROR(egLoadFile(RootDir, LINUX_ISSUE_PATH.wc_str(), (UINT8 **)&Issue, &IssueLen)) && (Issue != NULL)) {
@@ -442,20 +448,459 @@ STATIC EFI_STATUS GetOSXVolumeName(LOADER_ENTRY *Entry)
   return Status;
 }
 
+
+MacOsVersion GetOSVersion(int LoaderType, const XStringW& APFSTargetUUID, const REFIT_VOLUME* Volume, XString8* BuildVersionPtr)
+{
+  XString8   OSVersion;
+  XString8   BuildVersion;
+  EFI_STATUS Status      = EFI_NOT_FOUND;
+  CHAR8*     PlistBuffer = NULL;
+  UINTN      PlistLen;
+  TagDict*     Dict        = NULL;
+  const TagDict*     DictPointer = NULL;
+  const TagStruct*     Prop        = NULL;
+
+  if ( !Volume ) {
+    return NullXString8;
+  }
+
+  if (OSTYPE_IS_OSX(LoaderType))
+  {
+    XString8 uuidPrefix;
+    if ( APFSTargetUUID.notEmpty() ) uuidPrefix = S8Printf("\\%ls", APFSTargetUUID.wc_str());
+
+    XStringW plist = SWPrintf("%s\\System\\Library\\CoreServices\\SystemVersion.plist", uuidPrefix.c_str());
+    if ( !FileExists(Volume->RootDir, plist) ) {
+      plist = SWPrintf("%s\\System\\Library\\CoreServices\\ServerVersion.plist", uuidPrefix.c_str());
+      if ( !FileExists(Volume->RootDir, plist) ) {
+        plist.setEmpty();
+      }
+    }
+
+    if ( plist.notEmpty() ) { // found macOS System
+      Status = egLoadFile(Volume->RootDir, plist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
+      if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS) {
+        Prop = Dict->propertyForKey("ProductVersion");
+        if ( Prop != NULL ) {
+          if ( !Prop->isString() ) {
+            MsgLog("ATTENTION : property not string in ProductVersion\n");
+          }else{
+            if( Prop->getString()->stringValue().notEmpty() ) {
+              OSVersion = Prop->getString()->stringValue();
+            }
+          }
+        }
+        Prop = Dict->propertyForKey("ProductBuildVersion");
+        if ( Prop != NULL ) {
+          if ( !Prop->isString() ) {
+            MsgLog("ATTENTION : property not string in ProductBuildVersion\n");
+          }else{
+            if( Prop->getString()->stringValue().notEmpty() ) {
+              BuildVersion = Prop->getString()->stringValue();
+            }
+          }
+        }
+        Dict->FreeTag();
+      }
+    }
+  }
+
+  if (OSTYPE_IS_OSX_INSTALLER (LoaderType)) {
+    // Detect exact version for 2nd stage Installer (thanks to dmazar for this idea)
+    // This should work for most installer cases. Rest cases will be read from boot.efi before booting.
+    // Reworked by Sherlocks. 2018.04.12
+
+    // 1st stage - 1
+    // Check for plist - createinstallmedia/BaseSystem/InstallDVD/InstallESD
+
+    XStringW InstallerPlist;
+
+    if ( APFSTargetUUID.notEmpty() ) {
+      InstallerPlist = SWPrintf("%ls\\System\\Library\\CoreServices\\SystemVersion.plist", APFSTargetUUID.wc_str());
+      if ( !FileExists(Volume->RootDir, InstallerPlist) ) InstallerPlist.setEmpty();
+    }
+
+    if ( InstallerPlist.isEmpty() ) {
+      InstallerPlist = SWPrintf("\\.IABootFilesSystemVersion.plist"); // 10.9 - 10.13.3
+      if (!FileExists(Volume->RootDir, InstallerPlist) && FileExists (Volume->RootDir, L"\\System\\Library\\CoreServices\\boot.efi") &&
+          ((FileExists(Volume->RootDir, L"\\BaseSystem.dmg") && FileExists (Volume->RootDir, L"\\mach_kernel")) || // 10.7/10.8
+           FileExists(Volume->RootDir, L"\\System\\Installation\\CDIS\\Mac OS X Installer.app") || // 10.6/10.7
+           FileExists(Volume->RootDir, L"\\System\\Installation\\CDIS\\OS X Installer.app") || // 10.8 - 10.11
+           FileExists(Volume->RootDir, L"\\System\\Installation\\CDIS\\macOS Installer.app") || // 10.12+
+           FileExists(Volume->RootDir, L"\\.IAPhysicalMedia"))) { // 10.13.4+
+        InstallerPlist = SWPrintf("\\System\\Library\\CoreServices\\SystemVersion.plist");
+      }
+    }
+    if (FileExists (Volume->RootDir, InstallerPlist)) {
+      Status = egLoadFile(Volume->RootDir, InstallerPlist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
+      if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS) {
+        Prop = Dict->propertyForKey("ProductVersion");
+        if ( Prop != NULL ) {
+          if ( !Prop->isString() ) {
+            MsgLog("ATTENTION : property not string in ProductVersion\n");
+          }else{
+            if( Prop->getString()->stringValue().notEmpty() ) {
+              OSVersion = Prop->getString()->stringValue();
+            }
+          }
+        }
+        Prop = Dict->propertyForKey("ProductBuildVersion");
+        if ( Prop != NULL ) {
+          if ( !Prop->isString() ) {
+            MsgLog("ATTENTION : property not string in ProductBuildVersion\n");
+          }else{
+            if( Prop->getString()->stringValue().notEmpty() ) {
+              BuildVersion = Prop->getString()->stringValue();
+            }
+          }
+        }
+        Dict->FreeTag();
+      }
+    }
+
+//    if ( OSVersion.isEmpty() )
+//    {
+//      if ( FileExists(Volume->RootDir, SWPrintf("\\%ls\\com.apple.installer\\BridgeVersion.plist", APFSTargetUUID.wc_str()).wc_str()) ) {
+//        OSVersion = "11.0"_XS8;
+//        // TODO so far, is there is a BridgeVersion.plist, it's version 11.0. Has to be improved with next releases.
+//      }
+//    }
+
+    // 1st stage - 2
+    // Check for plist - createinstallmedia/NetInstall
+    if (OSVersion.isEmpty()) {
+      InstallerPlist = SWPrintf("\\.IABootFiles\\com.apple.Boot.plist"); // 10.9 - ...
+      if (FileExists (Volume->RootDir, InstallerPlist)) {
+        Status = egLoadFile(Volume->RootDir, InstallerPlist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
+        if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS) {
+          Prop = Dict->propertyForKey("Kernel Flags");
+          if ( Prop != NULL ) {
+            if ( !Prop->isString() ) {
+              MsgLog("ATTENTION : property not string in Kernel Flags\n");
+            }else{
+              if ( Prop->getString()->stringValue().contains("Install%20macOS%20BigSur") || Prop->getString()->stringValue().contains("Install%20macOS%2011")) {
+                OSVersion = "11"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20macOS%20Monterey") || Prop->getString()->stringValue().contains("Install%20macOS%2012")) {
+                OSVersion = "12"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20macOS%2010.16")) {
+                OSVersion = "10.16"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20macOS%20Catalina") || Prop->getString()->stringValue().contains("Install%20macOS%2010.15")) {
+                OSVersion = "10.15"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20macOS%20Mojave") || Prop->getString()->stringValue().contains("Install%20macOS%2010.14")) {
+                OSVersion = "10.14"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20macOS%20High%20Sierra") || Prop->getString()->stringValue().contains("Install%20macOS%2010.13")) {
+                OSVersion = "10.13"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20macOS%20Sierra") || Prop->getString()->stringValue().contains("Install%20OS%20hhX%2010.12")) {
+                OSVersion = "10.12"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20OS%20hhX%20El%20Capitan") || Prop->getString()->stringValue().contains("Install%20OS%20hhX%2010.11")) {
+                OSVersion = "10.11"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20OS%20hhX%20Yosemite") || Prop->getString()->stringValue().contains("Install%20OS%20hhX%2010.10")) {
+                OSVersion = "10.10"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20OS%20hhX%20Mavericks.app")) {
+                OSVersion = "10.9"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20OS%20hhX%20Mountain%20Lion")) {
+                OSVersion = "10.8"_XS8;
+              } else if ( Prop->getString()->stringValue().contains("Install%20Mac%20OS%20hhX%20Lion")) {
+                OSVersion = "10.7"_XS8;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 2nd stage - 1
+    // Check for plist - AppStore/createinstallmedia/startosinstall/Fusion Drive
+    if (OSVersion.isEmpty()) {
+      InstallerPlist = SWPrintf("\\macOS Install Data\\Locked Files\\Boot Files\\SystemVersion.plist"); // 10.12.4+
+      if (!FileExists (Volume->RootDir, InstallerPlist)) {
+        InstallerPlist = SWPrintf("\\macOS Install Data\\InstallInfo.plist"); // 10.12+
+        if (!FileExists (Volume->RootDir, InstallerPlist)) {
+          InstallerPlist = SWPrintf("\\com.apple.boot.R\\SystemVersion.plist)"); // 10.12+
+          if (!FileExists (Volume->RootDir, InstallerPlist)) {
+            InstallerPlist = SWPrintf("\\com.apple.boot.P\\SystemVersion.plist"); // 10.12+
+            if (!FileExists (Volume->RootDir, InstallerPlist)) {
+              InstallerPlist = SWPrintf("\\com.apple.boot.S\\SystemVersion.plist"); // 10.12+
+              if (!FileExists (Volume->RootDir, InstallerPlist) &&
+                  (FileExists (Volume->RootDir, L"\\com.apple.boot.R\\System\\Library\\PrelinkedKernels\\prelinkedkernel") ||
+                   FileExists (Volume->RootDir, L"\\com.apple.boot.P\\System\\Library\\PrelinkedKernels\\prelinkedkernel") ||
+                   FileExists (Volume->RootDir, L"\\com.apple.boot.S\\System\\Library\\PrelinkedKernels\\prelinkedkernel"))) {
+                InstallerPlist = SWPrintf("\\System\\Library\\CoreServices\\SystemVersion.plist"); // 10.11
+              }
+            }
+          }
+        }
+      }
+      if (FileExists (Volume->RootDir, InstallerPlist)) {
+        Status = egLoadFile(Volume->RootDir, InstallerPlist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
+        if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS) {
+          Prop = Dict->propertyForKey("ProductVersion");
+          if ( Prop != NULL ) {
+            if ( !Prop->isString() ) {
+              MsgLog("ATTENTION : property not string in ProductVersion\n");
+            }else{
+              if( Prop->getString()->stringValue().notEmpty() ) {
+                OSVersion = Prop->getString()->stringValue();
+              }
+            }
+          }
+          Prop = Dict->propertyForKey("ProductBuildVersion");
+          if ( Prop != NULL ) {
+            if ( !Prop->isString() ) {
+              MsgLog("ATTENTION : property not string in ProductBuildVersion\n");
+            }else{
+              if( Prop->getString()->stringValue().notEmpty() ) {
+                BuildVersion = Prop->getString()->stringValue();
+              }
+            }
+          }
+          // In InstallInfo.plist, there is no a version key only when updating from AppStore in 10.13+
+          // If use the startosinstall in 10.13+, this version key exists in InstallInfo.plist
+          DictPointer = Dict->dictPropertyForKey("System Image Info"); // 10.12+
+          if (DictPointer != NULL) {
+            Prop = DictPointer->propertyForKey("version");
+            if ( Prop != NULL ) {
+              if ( !Prop->isString() ) {
+                MsgLog("ATTENTION : property not string in version\n");
+              }else{
+                OSVersion = Prop->getString()->stringValue();
+              }
+            }
+          }
+          Dict->FreeTag();
+        }
+      }
+    }
+
+    // 2nd stage - 2
+    // Check for ia.log - InstallESD/createinstallmedia/startosinstall
+    // Implemented by Sherlocks
+    if (OSVersion.isEmpty()) {
+      CONST CHAR8  *s, *fileBuffer;
+//      CHAR8  *Res5 = (__typeof__(Res5))AllocateZeroPool(5);
+//      CHAR8  *Res6 = (__typeof__(Res6))AllocateZeroPool(6);
+//      CHAR8  *Res7 = (__typeof__(Res7))AllocateZeroPool(7);
+//      CHAR8  *Res8 = (__typeof__(Res8))AllocateZeroPool(8);
+      UINTN  fileLen = 0;
+      XStringW InstallerLog;
+      InstallerLog = L"\\Mac OS X Install Data\\ia.log"_XSW; // 10.7
+      if (!FileExists (Volume->RootDir, InstallerLog)) {
+        InstallerLog = L"\\OS X Install Data\\ia.log"_XSW; // 10.8 - 10.11
+        if (!FileExists (Volume->RootDir, InstallerLog)) {
+          InstallerLog = L"\\macOS Install Data\\ia.log"_XSW; // 10.12+
+        }
+      }
+      if (FileExists (Volume->RootDir, InstallerLog)) {
+        Status = egLoadFile(Volume->RootDir, InstallerLog.wc_str(), (UINT8 **)&fileBuffer, &fileLen);
+        if (!EFI_ERROR(Status)) {
+          XString8 targetString;
+          targetString.strncpy(fileBuffer, fileLen);
+      //    s = SearchString(targetString, fileLen, "Running OS Build: Mac OS X ", 27);
+          s = AsciiStrStr(targetString.c_str(), "Running OS Build: Mac OS X ");
+          if (s[31] == ' ') {
+            OSVersion.S8Printf("%c%c.%c\n", s[27], s[28], s[30]);
+            if (s[38] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c\n", s[33], s[34], s[35], s[36], s[37]);
+            } else if (s[39] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c%c\n", s[33], s[34], s[35], s[36], s[37], s[38]);
+            }
+          } else if (s[31] == '.') {
+            OSVersion.S8Printf("%c%c.%c.%c\n", s[27], s[28], s[30], s[32]);
+            if (s[40] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c\n", s[35], s[36], s[37], s[38], s[39]);
+            } else if (s[41] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c%c\n", s[35], s[36], s[37], s[38], s[39], s[40]);
+            }
+          } else if (s[32] == ' ') {
+            OSVersion.S8Printf("%c%c.%c%c\n", s[27], s[28], s[30], s[31]);
+            if (s[39] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c\n", s[34], s[35], s[36], s[37], s[38]);
+            } else if (s[40] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c%c\n", s[34], s[35], s[36], s[37], s[38], s[39]);
+            } else if (s[41] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c%c%c\n", s[34], s[35], s[36], s[37], s[38], s[39], s[40]);
+            }
+          } else if (s[32] == '.') {
+            OSVersion.S8Printf("%c%c.%c%c.%c\n", s[27], s[28], s[30], s[31], s[33]);
+            if (s[41] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c\n", s[36], s[37], s[38], s[39], s[40]);
+            } else if (s[42] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c%c\n", s[36], s[37], s[38], s[39], s[40], s[41]);
+            } else if (s[43] == ')') {
+              BuildVersion.S8Printf("%c%c%c%c%c%c%c\n", s[36], s[37], s[38], s[39], s[40], s[41], s[42]);
+            }
+          }
+          FreePool(fileBuffer);
+        }
+      }
+    }
+
+    // 2nd stage - 3
+    // Check for plist - Preboot of APFS
+    if ( OSVersion.isEmpty() )
+    {
+      XStringW plist = L"\\macOS Install Data\\Locked Files\\Boot Files\\SystemVersion.plist"_XSW;
+      if ( !FileExists(Volume->RootDir, plist) ) {
+        plist.setEmpty();
+      }
+
+      if ( plist.notEmpty() ) { // found macOS System
+
+        Status = egLoadFile(Volume->RootDir, plist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
+        if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS) {
+          Prop = Dict->propertyForKey("ProductVersion");
+          if ( Prop != NULL ) {
+            if ( !Prop->isString() ) {
+              MsgLog("ATTENTION : property not string in ProductVersion\n");
+            }else{
+              OSVersion = Prop->getString()->stringValue();
+            }
+          }
+          Prop = Dict->propertyForKey("ProductBuildVersion");
+          if ( Prop != NULL ) {
+            if ( !Prop->isString() ) {
+              MsgLog("ATTENTION : property not string in ProductBuildVersion\n");
+            }else{
+              BuildVersion = Prop->getString()->stringValue();
+            }
+          }
+        }
+        Dict->FreeTag();
+      }
+    }
+  }
+
+  if (OSTYPE_IS_OSX_RECOVERY (LoaderType)) {
+
+    XString8 uuidPrefix;
+    if ( APFSTargetUUID.notEmpty() ) uuidPrefix = S8Printf("\\%ls", APFSTargetUUID.wc_str());
+
+    XStringW plist = SWPrintf("%s\\SystemVersion.plist", uuidPrefix.c_str());
+    if ( !FileExists(Volume->RootDir, plist) ) {
+      plist = SWPrintf("%s\\ServerVersion.plist", uuidPrefix.c_str());
+      if ( !FileExists(Volume->RootDir, plist) ) {
+        plist = L"\\com.apple.recovery.boot\\SystemVersion.plist"_XSW;
+        if ( !FileExists(Volume->RootDir, plist) ) {
+          plist = L"\\com.apple.recovery.boot\\ServerVersion.plist"_XSW;
+          if ( !FileExists(Volume->RootDir, plist) ) {
+            plist.setEmpty();
+          }
+        }
+      }
+    }
+
+    // Detect exact version for OS X Recovery
+    if ( plist.notEmpty() ) { // found macOS System
+      Status = egLoadFile(Volume->RootDir, plist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
+      if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS) {
+        Prop = Dict->propertyForKey("ProductVersion");
+        if ( Prop != NULL ) {
+          if ( !Prop->isString() ) {
+            MsgLog("ATTENTION : property not string in ProductVersion\n");
+          }else{
+            OSVersion = Prop->getString()->stringValue();
+          }
+        }
+        Prop = Dict->propertyForKey("ProductBuildVersion");
+        if ( Prop != NULL ) {
+          if ( !Prop->isString() ) {
+            MsgLog("ATTENTION : property not string in ProductBuildVersion\n");
+          }else{
+            BuildVersion = Prop->getString()->stringValue();
+          }
+        }
+      }
+      Dict->FreeTag();
+    } else if (FileExists (Volume->RootDir, L"\\com.apple.recovery.boot\\boot.efi")) {
+      // Special case - com.apple.recovery.boot/boot.efi exists but SystemVersion.plist doesn't --> 10.9 recovery
+      OSVersion = "10.9"_XS8;
+    }
+  }
+
+  if (PlistBuffer != NULL) {
+    FreePool(PlistBuffer);
+  }
+  (*BuildVersionPtr).stealValueFrom(&BuildVersion);
+  return OSVersion;
+}
+
+inline MacOsVersion GetOSVersion (IN LOADER_ENTRY *Entry) { return GetOSVersion(Entry->LoaderType, Entry->APFSTargetUUID, Entry->Volume, &Entry->BuildVersion); };
+
+//constexpr XStringW iconMac = L"mac"_XSW;
+CONST XStringW
+GetOSIconName (const MacOsVersion& OSVersion)
+{
+  XStringW OSIconName;
+  if (OSVersion.isEmpty()) {
+    OSIconName = L"mac"_XSW;
+  } else if (OSVersion.elementAt(0) == 12 ){
+    // Monterey
+    OSIconName = L"monterey,mac"_XSW;
+  } else if ( (OSVersion.elementAt(0) == 10 && OSVersion.elementAt(1) == 16 ) ||
+              (OSVersion.elementAt(0) == 11 /*&& OSVersion.elementAt(1) == 0*/ )
+            ) {
+    // Big Sur
+    OSIconName = L"bigsur,mac"_XSW;
+  } else if ( OSVersion.elementAt(0) == 10 ) {
+    if ( OSVersion.elementAt(1) == 15 ) {
+      // Catalina
+      OSIconName = L"cata,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 14 ) {
+      // Mojave
+      OSIconName = L"moja,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 13 ) {
+      // High Sierra
+      OSIconName = L"hsierra,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 12 ) {
+      // Sierra
+      OSIconName = L"sierra,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 11 ) {
+      // El Capitan
+      OSIconName = L"cap,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 10 ) {
+      // Yosemite
+      OSIconName = L"yos,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 9 ) {
+      // Mavericks
+      OSIconName = L"mav,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 8 ) {
+      // Mountain Lion
+      OSIconName = L"cougar,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 7 ) {
+      // Lion
+      OSIconName = L"lion,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 6 ) {
+      // Snow Leopard
+      OSIconName = L"snow,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 5 ) {
+      // Leopard
+      OSIconName = L"leo,mac"_XSW;
+    } else if ( OSVersion.elementAt(1) == 4 ) {
+      // Tiger
+      OSIconName = L"tiger,mac"_XSW;
+    } else {
+      OSIconName = L"mac"_XSW;
+    }
+  } else {
+    OSIconName = L"mac"_XSW;
+  }
+
+  return OSIconName;
+}
+
 STATIC LOADER_ENTRY *CreateLoaderEntry(IN CONST XStringW& LoaderPath,
                                        IN CONST XString8Array& LoaderOptions,
-                                       IN CONST XStringW& FullTitle,
-                                       IN CONST XStringW& LoaderTitle,
+                                       IN CONST XString8& FullTitle,
+                                       IN CONST XString8& LoaderTitle,
                                        IN REFIT_VOLUME *Volume,
-                                       IN const XStringW& APFSTargetUUID,
                                        IN XIcon *Image,
                                        IN XIcon *DriveImage,
                                        IN UINT8 OSType,
                                        IN UINT8 Flags,
-                                       IN CHAR16 Hotkey,
+                                       IN char32_t Hotkey,
                                        EFI_GRAPHICS_OUTPUT_BLT_PIXEL BootBgColor,
                                        IN UINT8 CustomBoot,
-                                       IN XImage *CustomLogo,
+                                       IN const XImage& CustomLogo,
                                        IN const KERNEL_AND_KEXT_PATCHES* Patches,
                                        IN BOOLEAN CustomEntry)
 {
@@ -465,7 +910,7 @@ STATIC LOADER_ENTRY *CreateLoaderEntry(IN CONST XStringW& LoaderPath,
 //  CONST CHAR16          *OSIconName = NULL;
   CHAR16                ShortcutLetter;
   LOADER_ENTRY          *Entry;
-  CONST CHAR8           *indent = "    ";
+  CONST CHAR8           *indent = "      ";
 
   // Check parameters are valid
   if ((LoaderPath.isEmpty()) || (Volume == NULL)) {
@@ -485,34 +930,32 @@ STATIC LOADER_ENTRY *CreateLoaderEntry(IN CONST XStringW& LoaderPath,
   // Ignore this loader if it's self path
   XStringW selfDevicePathAsXStringW = FileDevicePathToXStringW(&self.getSelfDevicePath());
   if ( selfDevicePathAsXStringW == LoaderDevicePathString ) {
-    DBG("%s skipped because path `%ls` is self path!\n", indent, LoaderDevicePathString.wc_str());
+    DBG("%sskipped because path `%ls` is self path!\n", indent, LoaderDevicePathString.wc_str());
     return NULL;
   }
 // DBG("OSType =%d\n", OSType);
   // DBG("prepare the menu entry\n");
   // prepare the menu entry
-  Entry = new LOADER_ENTRY();
+  Entry = new LOADER_ENTRY;
 
   if (!CustomEntry) {
-    CUSTOM_LOADER_ENTRY *Custom;
-    UINTN                CustomIndex = 0;
-
     // Ignore this loader if it's device path is already present in another loader
       for (UINTN i = 0; i < MainMenu.Entries.size(); ++i) {
         REFIT_ABSTRACT_MENU_ENTRY& MainEntry = MainMenu.Entries[i];
         // Only want loaders
         if (MainEntry.getLOADER_ENTRY()) {
           if (StriCmp(MainEntry.getLOADER_ENTRY()->DevicePathString.wc_str(), LoaderDevicePathString.wc_str()) == 0) {
-            DBG("%s skipped because path `%ls` already exists for another entry!\n", indent, LoaderDevicePathString.wc_str());
+            DBG("%sskipped because path `%ls` already exists for another entry!\n", indent, LoaderDevicePathString.wc_str());
             return NULL;
           }
         }
       }
     // If this isn't a custom entry make sure it's not hidden by a custom entry
-    Custom = gSettings.CustomEntries;
-    while (Custom) {
+    for (size_t CustomIndex = 0 ; CustomIndex < GlobalConfig.CustomEntries.size() ; ++CustomIndex ) {
+      CUSTOM_LOADER_ENTRY& Custom = GlobalConfig.CustomEntries[CustomIndex];
+      if ( Custom.settings.Disabled ) continue; // before, disabled entries settings weren't loaded.
       // Check if the custom entry is hidden or disabled
-      if ( OSFLAG_ISSET(Custom->Flags, OSFLAG_DISABLED)  || Custom->Hidden ) {
+      if ( OSFLAG_ISSET(Custom.getFlags(gSettings.SystemParameters.NoCaches), OSFLAG_DISABLED)  || Custom.settings.Hidden ) {
 
         INTN volume_match=0;
         INTN volume_type_match=0;
@@ -520,33 +963,33 @@ STATIC LOADER_ENTRY *CreateLoaderEntry(IN CONST XStringW& LoaderPath,
         INTN type_match=0;
 
         // Check if volume match
-        if (Custom->Volume.notEmpty()) {
+        if (Custom.settings.Volume.notEmpty()) {
           // Check if the string matches the volume
           volume_match =
-            ((StrStr(Volume->DevicePathString.wc_str(), Custom->Volume.wc_str()) != NULL) ||
-             ((Volume->VolName.notEmpty()) && (StrStr(Volume->VolName.wc_str(), Custom->Volume.wc_str()) != NULL))) ? 1 : -1;
+            ((StrStr(Volume->DevicePathString.wc_str(), Custom.settings.Volume.wc_str()) != NULL) ||
+             ((Volume->VolName.notEmpty()) && (StrStr(Volume->VolName.wc_str(), Custom.settings.Volume.wc_str()) != NULL))) ? 1 : -1;
         }
 
         // Check if the volume_type match
-        if (Custom->VolumeType != 0) {
-          volume_type_match = (((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0) ? 1 : -1;
+        if (Custom.settings.VolumeType != 0) {
+          volume_type_match = (((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0) ? 1 : -1;
         }
 
         // Check if the path match
-        if (Custom->Path.notEmpty()) {
+        if (Custom.settings.Path.notEmpty()) {
           // Check if the loader path match
-          path_match = (Custom->Path.equalIC(LoaderPath)) ? 1 : -1;
+          path_match = (Custom.settings.Path.isEqualIC(LoaderPath)) ? 1 : -1;
         }
 
         // Check if the type match
-        if (Custom->Type != 0) {
-          type_match = OSTYPE_COMPARE(Custom->Type, OSType) ? 1 : -1;
+        if (Custom.settings.Type != 0) {
+          type_match = OSTYPE_COMPARE(Custom.settings.Type, OSType) ? 1 : -1;
         }
 
         if (volume_match == -1 || volume_type_match == -1 || path_match == -1 || type_match == -1 ) {
           UINTN add_comma = 0;
 
-          DBG("%sNot match custom entry %llu: ", indent, CustomIndex);
+          DBG("%sNot match custom entry %zu: ", indent, CustomIndex);
           if (volume_match != 0) {
             DBG("Volume: %ls", volume_match == 1 ? L"match" : L"not match");
             add_comma++;
@@ -571,17 +1014,24 @@ STATIC LOADER_ENTRY *CreateLoaderEntry(IN CONST XStringW& LoaderPath,
           DBG("\n");
         } else {
           // Custom entry match
-          DBG("%sSkipped because matching custom entry %llu!\n", indent, CustomIndex);
+          DBG("%sHidden because matching custom entry %zu!\n", indent, CustomIndex);
           Entry->Hidden = true;
         }
       }
-      Custom = Custom->Next;
-      ++CustomIndex;
     }
   }
   Entry->Row = 0;
   Entry->Volume = Volume;
-  Entry->APFSTargetUUID = APFSTargetUUID;
+
+  if ( LoaderPath.length() >= 38 ) {
+    if ( isPathSeparator(LoaderPath[0])  &&  isPathSeparator(LoaderPath[37]) ) {
+      if ( IsValidGuidString(LoaderPath.data(1), 36) ) {
+        Entry->APFSTargetUUID = LoaderPath.subString(1, 36);
+      }
+    }
+  }
+
+//  Entry->APFSTargetUUID = APFSTargetUUID;
 
   Entry->LoaderPath       = LoaderPath;
   Entry->DisplayedVolName = Volume->VolName;
@@ -592,7 +1042,7 @@ STATIC LOADER_ENTRY *CreateLoaderEntry(IN CONST XStringW& LoaderPath,
   if (OSFLAG_ISSET(Flags, OSFLAG_NODEFAULTARGS)) {
     Entry->LoadOptions  = LoaderOptions;
   }else{
-    Entry->LoadOptions = Split<XString8Array>(gSettings.BootArgs, " ");
+    Entry->LoadOptions = Split<XString8Array>(gSettings.Boot.BootArgs, " ");
     Entry->LoadOptions.import(LoaderOptions);
   }
   //actions
@@ -600,9 +1050,7 @@ STATIC LOADER_ENTRY *CreateLoaderEntry(IN CONST XStringW& LoaderPath,
   Entry->AtDoubleClick = ActionEnter;
   Entry->AtRightClick = ActionDetails;
   Entry->CustomBoot = CustomBoot;
-  if (CustomLogo != nullptr) {
-    Entry->CustomLogo = *CustomLogo; //else empty ximage already constructed
-  }
+  Entry->CustomLogo = CustomLogo; //could be an empty image
 
   Entry->LoaderType = OSType;
   Entry->BuildVersion.setEmpty();
@@ -614,8 +1062,8 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
   DBG("%s", "");
 }
 #endif
-  Entry->OSVersion = GetOSVersion(Entry);
-//DBG("OSVersion=%s \n", Entry->OSVersion);
+  Entry->macOSVersion = GetOSVersion(Entry);
+  DBG("%sOSVersion=%s \n", indent, Entry->macOSVersion.asString().c_str());
   // detect specific loaders
   XStringW OSIconName;
   ShortcutLetter = 0;
@@ -624,7 +1072,7 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
     case OSTYPE_OSX:
     case OSTYPE_RECOVERY:
     case OSTYPE_OSX_INSTALLER:
-      OSIconName = GetOSIconName(Entry->OSVersion);// Sothor - Get OSIcon name using OSVersion
+      OSIconName = GetOSIconName(Entry->macOSVersion);// Sothor - Get OSIcon name using OSVersion
       // apianti - force custom logo even when verbose
 /* this is not needed, as this flag is also being unset when booting if -v is present (LoadOptions may change until then)
       if ( Entry->LoadOptions.containsIC("-v")  ) {
@@ -634,12 +1082,12 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
 */
       if (OSType == OSTYPE_OSX && IsOsxHibernated(Entry)) {
         Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_HIBERNATED);
-        DBG("  =>set entry as hibernated\n");
+        DBG("%s  =>set entry as hibernated\n", indent);
       }
       //always unset checkFakeSmc for installer
       if (OSType == OSTYPE_OSX_INSTALLER){
-        Entry->Flags = OSFLAG_UNSET(Entry->Flags, OSFLAG_CHECKFAKESMC);
-        Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_WITHKEXTS);
+//        Entry->Flags = OSFLAG_UNSET(Entry->Flags, OSFLAG_CHECKFAKESMC);
+//        Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_WITHKEXTS);
       }
       ShortcutLetter = 'M';
       if ( Entry->DisplayedVolName.isEmpty() ) {
@@ -662,7 +1110,7 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
       Entry->LoaderType = OSType;
       OSIconName = L"linux"_XSW;
       if (Image == nullptr) {
-        DBG(" linux image not found\n");
+        DBG("%slinux image not found\n", indent);
         OSIconName = LinuxIconNameFromPath(LoaderPath, Volume->RootDir); //something named "issue"
       }
       ShortcutLetter = 'L';
@@ -682,9 +1130,9 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
   Entry->Title = FullTitle;
   if (Entry->Title.isEmpty()  &&  Volume->VolLabel.notEmpty()) {
     if (Volume->VolLabel[0] == L'#') {
-      Entry->Title.SWPrintf("Boot %ls from %ls", (!LoaderTitle.isEmpty()) ? LoaderTitle.wc_str() : LoaderPath.basename().wc_str(), Volume->VolLabel.data(1));
+      Entry->Title.SWPrintf("Boot %ls from %ls", (!LoaderTitle.isEmpty()) ? XStringW(LoaderTitle).wc_str() : LoaderPath.basename().wc_str(), Volume->VolLabel.data(1));
     }else{
-      Entry->Title.SWPrintf("Boot %ls from %ls", (!LoaderTitle.isEmpty()) ? LoaderTitle.wc_str() : LoaderPath.basename().wc_str(), Volume->VolLabel.wc_str());
+      Entry->Title.SWPrintf("Boot %ls from %ls", (!LoaderTitle.isEmpty()) ? XStringW(LoaderTitle).wc_str() : LoaderPath.basename().wc_str(), Volume->VolLabel.wc_str());
     }
   }
 
@@ -700,7 +1148,7 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
         Entry->Title = (BasenameXW.contains(L"-")) ? BasenameXW.subString(0,BasenameXW.indexOf(L"-") + 1) + L"..)" : BasenameXW;
       }
     } else {
-      Entry->Title.SWPrintf("Boot %ls from %ls", (!LoaderTitle.isEmpty()) ? LoaderTitle.wc_str() : LoaderPath.basename().wc_str(),
+      Entry->Title.SWPrintf("Boot %ls from %ls", (!LoaderTitle.isEmpty()) ? XStringW(LoaderTitle).wc_str() : LoaderPath.basename().wc_str(),
                             (BasenameXW.contains(L"-")) ? (BasenameXW.subString(0,BasenameXW.indexOf(L"-") + 1) + L"..)").wc_str() : BasenameXW.wc_str());
     }
   }
@@ -708,7 +1156,7 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
   if ( Entry->Title.isEmpty() ) {
  //   DBG("encounter LoaderTitle ==%ls and Entry->VolName ==%ls\n", LoaderTitle.wc_str(), Entry->VolName);
     if (BootCampStyle) {
-      if ((StriCmp(LoaderTitle.wc_str(), L"macOS") == 0) || (StriCmp(LoaderTitle.wc_str(), L"Recovery") == 0)) {
+      if ((StriCmp(XStringW(LoaderTitle).wc_str(), L"macOS") == 0) || (StriCmp(XStringW(LoaderTitle).wc_str(), L"Recovery") == 0)) {
         Entry->Title.takeValueFrom(Entry->DisplayedVolName);
       } else {
         if (!LoaderTitle.isEmpty()) {
@@ -718,7 +1166,7 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
         }
       }
     } else {
-      Entry->Title.SWPrintf("Boot %ls from %ls", (!LoaderTitle.isEmpty()) ? LoaderTitle.wc_str() : LoaderPath.basename().wc_str(),
+      Entry->Title.SWPrintf("Boot %ls from %ls", (!LoaderTitle.isEmpty()) ? XStringW(LoaderTitle).wc_str() : LoaderPath.basename().wc_str(),
                             Entry->DisplayedVolName.wc_str());
     }
   }
@@ -732,11 +1180,11 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
   Entry->ShortcutLetter = (Hotkey == 0) ? ShortcutLetter : Hotkey;
 
   // get custom volume icon if present
-  if (GlobalConfig.CustomIcons && FileExists(Volume->RootDir, L"\\.VolumeIcon.icns")){
+  if (gSettings.GUI.CustomIcons && FileExists(Volume->RootDir, L"\\.VolumeIcon.icns")){
     Entry->Image.Image.LoadIcns(Volume->RootDir, L"\\.VolumeIcon.icns", 128);
     if (!Entry->Image.Image.isEmpty()) {
       Entry->Image.setFilled();
-      DBG("using VolumeIcon.icns image from Volume\n");
+      DBG("%susing VolumeIcon.icns image from Volume\n", indent);
     }    
   } else if (Image) {
     Entry->Image = *Image; //copy image from temporary storage
@@ -755,10 +1203,10 @@ if ( Entry->APFSTargetUUID.startWith("99999999") ) {
   if (ThemeX.HideBadges & HDBADGES_SHOW) {
     if (ThemeX.HideBadges & HDBADGES_SWAP) {
       Entry->BadgeImage.Image = XImage(Entry->DriveImage.Image, 0);
-       DBG("    Show badge as Drive.\n");
+       DBG("%sShow badge as Drive.\n", indent);
     } else {
       Entry->BadgeImage.Image = XImage(Entry->Image.Image, 0);
-       DBG("    Show badge as OSImage.\n");
+       DBG("%sShow badge as OSImage.\n", indent);
     }
     if (!Entry->BadgeImage.Image.isEmpty()) {
       Entry->BadgeImage.setFilled();
@@ -790,15 +1238,15 @@ void LOADER_ENTRY::AddDefaultMenu()
   BOOLEAN           KernelIs64BitOnly;
 //  UINT64            os_version = AsciiOSVersionToUint64(OSVersion);
 
-  constexpr LString8 quietLitteral = "quiet";
-  constexpr LString8 splashLitteral = "splash";
+  constexpr LString8 quietLitteral = "quiet"_XS8;
+  constexpr LString8 splashLitteral = "splash"_XS8;
 
   // Only kernels up to 10.7 have 32-bit mode
-  KernelIs64BitOnly = (OSVersion.isEmpty() ||
-                       OSVersion >= MacOsVersion("10.8"_XS8));
+  KernelIs64BitOnly = (macOSVersion.isEmpty() ||
+                       macOSVersion >= MacOsVersion("10.8"_XS8));
   
-  const char* macOS = (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.8"_XS8))? "Mac OS X" :
-                      (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.12"_XS8))? "OS X" : "macOS";
+  const char* macOS = (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.8"_XS8))? "Mac OS X" :
+                      (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12"_XS8))? "OS X" : "macOS";
 
   FileName = LoaderPath.basename();
 
@@ -834,43 +1282,35 @@ void LOADER_ENTRY::AddDefaultMenu()
   if (LoaderType == OSTYPE_OSX ||
       LoaderType == OSTYPE_OSX_INSTALLER ||
       LoaderType == OSTYPE_RECOVERY) { // entries for Mac OS X
-    SubScreen->AddMenuInfoLine_f("%s: %s", macOS, OSVersion.asString().c_str());
+    SubScreen->AddMenuInfoLine_f("%s: %s", macOS, macOSVersion.asString().c_str());
 
     if (OSFLAG_ISSET(Flags, OSFLAG_HIBERNATED)) {
       SubEntry = getPartiallyDuplicatedEntry();
-      if (SubEntry) {
-        SubEntry->Title.takeValueFrom("Cancel hibernate wake");
-        SubEntry->Flags     = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_HIBERNATED);
-        SubScreen->AddMenuEntry(SubEntry, true);
-      }
+       SubEntry->Title.takeValueFrom("Cancel hibernate wake");
+       SubEntry->Flags     = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_HIBERNATED);
+       SubScreen->AddMenuEntry(SubEntry, true);
     }
 
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      SubEntry->Title.SWPrintf("Boot %s with selected options", macOS);
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubEntry->Title.SWPrintf("Boot %s with selected options", macOS);
+    SubScreen->AddMenuEntry(SubEntry, true);
 #if 0
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      SubEntry->Title.SWPrintf("Boot %s with injected kexts", macOS);
-      SubEntry->Flags       = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_CHECKFAKESMC);
-      SubEntry->Flags       = OSFLAG_SET(SubEntry->Flags, OSFLAG_WITHKEXTS);
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubEntry->Title.SWPrintf("Boot %s with injected kexts", macOS);
+    SubEntry->Flags       = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_CHECKFAKESMC);
+    SubEntry->Flags       = OSFLAG_SET(SubEntry->Flags, OSFLAG_WITHKEXTS);
+    SubScreen->AddMenuEntry(SubEntry, true);
 
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      SubEntry->Title.SWPrintf("Boot %s without injected kexts", macOS);
-      SubEntry->Flags       = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_CHECKFAKESMC);
-      SubEntry->Flags       = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_WITHKEXTS);
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubEntry->Title.SWPrintf("Boot %s without injected kexts", macOS);
+    SubEntry->Flags       = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_CHECKFAKESMC);
+    SubEntry->Flags       = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_WITHKEXTS);
+    SubScreen->AddMenuEntry(SubEntry, true);
 #endif
     SubScreen->AddMenuEntry(SubMenuKextInjectMgmt(), true);
     SubScreen->AddMenuInfo_f("=== boot-args ===");
     if (!KernelIs64BitOnly) {
-      if ( OSVersion.notEmpty() && OSVersion < MacOsVersion("10.8"_XS8) ) {
+      if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.8"_XS8) ) {
         SubScreen->AddMenuCheck("Mac OS X 32bit",   OPT_I386, 68);
       }
 //      SubScreen->AddMenuCheck(XString8().SPrintf("%s 64bit", macOS).c_str(), OPT_X64,  68);
@@ -878,7 +1318,7 @@ void LOADER_ENTRY::AddDefaultMenu()
     }
     SubScreen->AddMenuCheck("Verbose (-v)",                               OPT_VERBOSE, 68);
     // No Caches option works on 10.6 - 10.9
-    if ( OSVersion.notEmpty() && OSVersion < MacOsVersion("10.10"_XS8) ) {
+    if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.10"_XS8) ) {
       SubScreen->AddMenuCheck("Without caches (-f)",                        OPT_NOCACHES, 68);
     }
     SubScreen->AddMenuCheck("Single User (-s)",                           OPT_SINGLE_USER, 68);
@@ -898,7 +1338,7 @@ void LOADER_ENTRY::AddDefaultMenu()
 //    SubScreen->AddMenuCheck("Disable AppleALC (-alcoff)",                 OPT_APPLEALC, 68);
 //    SubScreen->AddMenuCheck("Disable Shiki (-shikioff)",                  OPT_SHIKI, 68);
 
-    if (gSettings.CsrActiveConfig == 0) {
+    if (gSettings.RtVariables.CsrActiveConfig == 0) {
       SubScreen->AddMenuCheck("No SIP", OSFLAG_NOSIP, 69);
     }
     
@@ -908,58 +1348,50 @@ void LOADER_ENTRY::AddDefaultMenu()
     
     // default entry
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      SubEntry->Title.SWPrintf("Run %ls", FileName.wc_str());
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubEntry->Title.SWPrintf("Run %ls", FileName.wc_str());
+    SubScreen->AddMenuEntry(SubEntry, true);
 
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
+    if (Quiet) {
+      SubEntry->Title.SWPrintf("%ls verbose", Title.s());
+      SubEntry->LoadOptions.removeIC(quietLitteral);
+    } else {
+      SubEntry->Title.SWPrintf("%ls quiet", Title.s());
+      SubEntry->LoadOptions.AddID(quietLitteral);
+    }
+    SubScreen->AddMenuEntry(SubEntry, true);
+
+    SubEntry = getPartiallyDuplicatedEntry();
+    if (WithSplash) {
+      SubEntry->Title.SWPrintf("%ls without splash", Title.s());
+      SubEntry->LoadOptions.removeIC(splashLitteral);
+    } else {
+      SubEntry->Title.SWPrintf("%ls with splash", Title.s());
+      SubEntry->LoadOptions.AddID(splashLitteral);
+    }
+    SubScreen->AddMenuEntry(SubEntry, true);
+
+    SubEntry = getPartiallyDuplicatedEntry();
+    if (WithSplash) {
       if (Quiet) {
-        SubEntry->Title.SWPrintf("%ls verbose", Title.s());
+        SubEntry->Title.SWPrintf("%ls verbose without splash", Title.s());
+        SubEntry->LoadOptions.removeIC(splashLitteral);
         SubEntry->LoadOptions.removeIC(quietLitteral);
       } else {
-        SubEntry->Title.SWPrintf("%ls quiet", Title.s());
-        SubEntry->LoadOptions.AddID(quietLitteral);
-      }
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
-
-    SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      if (WithSplash) {
-        SubEntry->Title.SWPrintf("%ls without splash", Title.s());
+        SubEntry->Title.SWPrintf("%ls quiet without splash",Title.s());
         SubEntry->LoadOptions.removeIC(splashLitteral);
-      } else {
-        SubEntry->Title.SWPrintf("%ls with splash", Title.s());
-        SubEntry->LoadOptions.AddID(splashLitteral);
+        SubEntry->LoadOptions.Add(quietLitteral);
       }
-      SubScreen->AddMenuEntry(SubEntry, true);
+    } else if (Quiet) {
+      SubEntry->Title.SWPrintf("%ls verbose with splash",Title.s());
+      SubEntry->LoadOptions.removeIC(quietLitteral); //
+      SubEntry->LoadOptions.AddID(splashLitteral);
+    } else {
+      SubEntry->Title.SWPrintf("%ls quiet with splash",Title.s());
+      SubEntry->LoadOptions.AddID(quietLitteral);
+      SubEntry->LoadOptions.AddID(splashLitteral);
     }
-
-    SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      if (WithSplash) {
-        if (Quiet) {
-          SubEntry->Title.SWPrintf("%ls verbose without splash", Title.s());
-          SubEntry->LoadOptions.removeIC(splashLitteral);
-          SubEntry->LoadOptions.removeIC(quietLitteral);
-        } else {
-          SubEntry->Title.SWPrintf("%ls quiet without splash",Title.s());
-          SubEntry->LoadOptions.removeIC(splashLitteral);
-          SubEntry->LoadOptions.Add(quietLitteral);
-        }
-      } else if (Quiet) {
-        SubEntry->Title.SWPrintf("%ls verbose with splash",Title.s());
-        SubEntry->LoadOptions.removeIC(quietLitteral); //
-        SubEntry->LoadOptions.AddID(splashLitteral);
-      } else {
-        SubEntry->Title.SWPrintf("%ls quiet with splash",Title.s());
-        SubEntry->LoadOptions.AddID(quietLitteral);
-        SubEntry->LoadOptions.AddID(splashLitteral);
-      }
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubScreen->AddMenuEntry(SubEntry, true);
 
   } else if ((LoaderType == OSTYPE_WIN) || (LoaderType == OSTYPE_WINEFI)) {
     // by default, skip the built-in selection and boot from hard disk only
@@ -969,45 +1401,42 @@ void LOADER_ENTRY::AddDefaultMenu()
     
     // default entry
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      SubEntry->Title.SWPrintf("Run %ls", FileName.wc_str());
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubEntry->Title.SWPrintf("Run %ls", FileName.wc_str());
+    SubScreen->AddMenuEntry(SubEntry, true);
 
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      SubEntry->Title.takeValueFrom("Boot Windows from Hard Disk");
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubEntry->Title.takeValueFrom("Boot Windows from Hard Disk");
+    SubScreen->AddMenuEntry(SubEntry, true);
 
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      SubEntry->Title.takeValueFrom("Boot Windows from CD-ROM");
-      LoadOptions.setEmpty();
-      LoadOptions.Add("-s"_XS8);
-      LoadOptions.Add("-c"_XS8);
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubEntry->Title.takeValueFrom("Boot Windows from CD-ROM");
+    LoadOptions.setEmpty();
+    LoadOptions.Add("-s"_XS8);
+    LoadOptions.Add("-c"_XS8);
+    SubScreen->AddMenuEntry(SubEntry, true);
 
     SubEntry = getPartiallyDuplicatedEntry();
-    if (SubEntry) {
-      SubEntry->Title.SWPrintf("Run %ls in text mode", FileName.wc_str());
-      SubEntry->Flags           = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_USEGRAPHICS);
-      LoadOptions.setEmpty();
-      LoadOptions.Add("-v"_XS8);
-      SubEntry->LoaderType      = OSTYPE_OTHER; // Sothor - Why are we using OSTYPE_OTHER here?
-      SubScreen->AddMenuEntry(SubEntry, true);
-    }
+    SubEntry->Title.SWPrintf("Run %ls in text mode", FileName.wc_str());
+    SubEntry->Flags           = OSFLAG_UNSET(SubEntry->Flags, OSFLAG_USEGRAPHICS);
+    LoadOptions.setEmpty();
+    LoadOptions.Add("-v"_XS8);
+    SubEntry->LoaderType      = OSTYPE_OTHER; // Sothor - Why are we using OSTYPE_OTHER here?
+    SubScreen->AddMenuEntry(SubEntry, true);
 
+  }else{
+    // default entry
+    SubEntry = getPartiallyDuplicatedEntry();
+    SubEntry->Title.SWPrintf("Run %ls", FileName.wc_str());
+    SubScreen->AddMenuEntry(SubEntry, true);
   }
 
-  SubScreen->AddMenuEntry(&MenuEntryReturn, false);
+//  SubScreen->AddMenuEntry(&MenuEntryReturn, false); //one-way ticket to avoid confusion
   // DBG("    Added '%ls': OSType='%d', OSVersion='%s'\n",Title,LoaderType,OSVersion);
 }
 
 LOADER_ENTRY* AddLoaderEntry(IN CONST XStringW& LoaderPath, IN CONST XString8Array& LoaderOptions,
                        IN CONST XStringW& FullTitle, IN CONST XStringW& LoaderTitle,
-                       IN REFIT_VOLUME *Volume, IN const XStringW& APFSTargetUUID, IN XIcon *Image,
+                       IN REFIT_VOLUME *Volume, IN XIcon *Image,
                        IN UINT8 OSType, IN UINT8 Flags)
 {
   LOADER_ENTRY *Entry;
@@ -1016,7 +1445,7 @@ LOADER_ENTRY* AddLoaderEntry(IN CONST XStringW& LoaderPath, IN CONST XString8Arr
     return NULL;
   }
 
-  DBG("    AddLoaderEntry for Volume Name=%ls, idx=%zu\n", Volume->VolName.wc_str(), MainMenu.Entries.sizeIncludingHidden());
+  DBG("      AddLoaderEntry for Volume Name=%ls, idx=%zu\n", Volume->VolName.wc_str(), MainMenu.Entries.sizeIncludingHidden());
   if (OSFLAG_ISSET(Flags, OSFLAG_DISABLED)) {
     DBG("     skipped because entry is disabled\n");
     return NULL;
@@ -1028,37 +1457,35 @@ LOADER_ENTRY* AddLoaderEntry(IN CONST XStringW& LoaderPath, IN CONST XString8Arr
   //don't add hided entries
 //  if (!gSettings.ShowHiddenEntries) {
 //    for (HVi = 0; HVi < gSettings.HVCount; HVi++) {
-//      if ( LoaderPath.containsIC(gSettings.HVHideStrings[HVi]) ) {
+//      if ( LoaderPath.containsIC(gSettings.GUI.HVHideStrings[HVi]) ) {
 //        DBG("        hiding entry: %ls\n", LoaderPath.s());
 //        return NULL;
 //      }
 //    }
 //  }
-  if ( Volume->ApfsContainerUUID.notEmpty() ) DBG("    ApfsContainerUUID=%s\n", Volume->ApfsContainerUUID.c_str());
-  if ( Volume->ApfsFileSystemUUID.notEmpty() ) DBG("    ApfsFileSystemUUID=%s\n", Volume->ApfsFileSystemUUID.c_str());
-  if ( APFSTargetUUID.notEmpty() ) DBG("    APFSTargetUUID=%ls\n", APFSTargetUUID.wc_str());
 
-  Entry = CreateLoaderEntry(LoaderPath, LoaderOptions, FullTitle, LoaderTitle, Volume, APFSTargetUUID, Image, NULL, OSType, Flags, 0, MenuBackgroundPixel, CUSTOM_BOOT_DISABLED, NULL, NULL, FALSE);
+  Entry = CreateLoaderEntry(LoaderPath, LoaderOptions, FullTitle, LoaderTitle, Volume, Image, NULL, OSType, Flags, 0, MenuBackgroundPixel, CUSTOM_BOOT_DISABLED, NullXImage, NULL, FALSE);
   if (Entry != NULL) {
     if ((Entry->LoaderType == OSTYPE_OSX) ||
         (Entry->LoaderType == OSTYPE_OSX_INSTALLER ) ||
         (Entry->LoaderType == OSTYPE_RECOVERY)) {
-      if (gSettings.WithKexts) {
-        Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_WITHKEXTS);
-      }
-      if (gSettings.WithKextsIfNoFakeSMC) {
-        Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_CHECKFAKESMC);
-        Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_WITHKEXTS);
-      }
-      if (gSettings.NoCaches) {
+//      if (gSettings.WithKexts) {
+//        Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_WITHKEXTS);
+//      }
+//      if (gSettings.WithKextsIfNoFakeSMC) {
+//        Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_CHECKFAKESMC);
+//        Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_WITHKEXTS);
+//      }
+      if (gSettings.SystemParameters.NoCaches) {
         Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_NOCACHES);
       }
     }
     if ( Volume->Hidden ) {
+      DBG("     hiding entry because volume is hidden: %ls\n", LoaderPath.s());
       Entry->Hidden = true;
     }else{
-      for (size_t HVi = 0; HVi < gSettings.HVHideStrings.size(); HVi++) {
-        if ( LoaderPath.containsIC(gSettings.HVHideStrings[HVi]) ) {
+      for (size_t HVi = 0; HVi < gSettings.GUI.HVHideStrings.size(); HVi++) {
+        if ( LoaderPath.containsIC(gSettings.GUI.HVHideStrings[HVi]) ) {
           DBG("     hiding entry: %ls\n", LoaderPath.s());
           Entry->Hidden = true;
         }
@@ -1067,6 +1494,7 @@ LOADER_ENTRY* AddLoaderEntry(IN CONST XStringW& LoaderPath, IN CONST XString8Arr
     //TODO there is a problem that Entry->Flags is unique while InputItems are global ;(
 //    InputItems[69].IValue = Entry->Flags;
     Entry->AddDefaultMenu();
+    DBG("      Menu entry added at index %zd\n", MainMenu.Entries.sizeIncludingHidden());
     MainMenu.AddMenuEntry(Entry, true);
     return Entry;
   }
@@ -1124,7 +1552,7 @@ STATIC void LinuxScan(REFIT_VOLUME *Volume, UINT8 KernelScan, UINT8 Type, XStrin
           DirIterClose(&DirIter);
           return;
         } 
-        AddLoaderEntry(File, NullXString8Array, L""_XSW, LoaderTitle, Volume, L""_XSW,
+        AddLoaderEntry(File, NullXString8Array, L""_XSW, LoaderTitle, Volume,
                       (ImageX.isEmpty() ? NULL : &ImageX), OSTYPE_LIN, OSFLAG_NODEFAULTARGS);
       } //anyway continue search other entries
     }
@@ -1146,7 +1574,7 @@ STATIC void LinuxScan(REFIT_VOLUME *Volume, UINT8 KernelScan, UINT8 Type, XStrin
           }
           return;
         }
-        AddLoaderEntry(LinuxEntryData[Index].Path, NullXString8Array, L""_XSW, XStringW().takeValueFrom(LinuxEntryData[Index].Title), Volume, L""_XSW,
+        AddLoaderEntry(LinuxEntryData[Index].Path, NullXString8Array, L""_XSW, XStringW().takeValueFrom(LinuxEntryData[Index].Title), Volume,
                        (ImageX.isEmpty() ? NULL : &ImageX), OSTYPE_LIN, OSFLAG_NODEFAULTARGS);
       }
     }
@@ -1274,7 +1702,7 @@ STATIC void LinuxScan(REFIT_VOLUME *Volume, UINT8 KernelScan, UINT8 Type, XStrin
         }
         XString8Array Options = LinuxKernelOptions(Iter.DirHandle, Basename(Path.wc_str()) + LINUX_LOADER_PATH.length(), PartUUID, NullXString8Array);
         // Add the entry
-        AddLoaderEntry(Path, (Options.isEmpty()) ? LINUX_DEFAULT_OPTIONS : Options, L""_XSW, L""_XSW, Volume, L""_XSW, NULL, OSTYPE_LINEFI, OSFLAG_NODEFAULTARGS);
+        AddLoaderEntry(Path, (Options.isEmpty()) ? LINUX_DEFAULT_OPTIONS : Options, L""_XSW, L""_XSW, Volume, NULL, OSTYPE_LINEFI, OSFLAG_NODEFAULTARGS);
         Path.setEmpty();
       }
 
@@ -1289,7 +1717,7 @@ STATIC void LinuxScan(REFIT_VOLUME *Volume, UINT8 KernelScan, UINT8 Type, XStrin
               Path.SWPrintf("%ls\\%ls", LINUX_BOOT_PATH, FileInfo->FileName);
               XString8Array Options = LinuxKernelOptions(Iter.DirHandle, Basename(Path.wc_str()) + LINUX_LOADER_PATH.length(), PartUUID, NullXString8Array);
               // Add the entry
-              AddLoaderEntry(Path, (Options.isEmpty()) ? LINUX_DEFAULT_OPTIONS : Options, L""_XSW, L""_XSW, Volume, L""_XSW, NULL, OSTYPE_LINEFI, OSFLAG_NODEFAULTARGS);
+              AddLoaderEntry(Path, (Options.isEmpty()) ? LINUX_DEFAULT_OPTIONS : Options, L""_XSW, L""_XSW, Volume, NULL, OSTYPE_LINEFI, OSFLAG_NODEFAULTARGS);
               Path.setEmpty();
             }
           }
@@ -1319,16 +1747,16 @@ void AddPRSEntry(REFIT_VOLUME *Volume)
   switch (WhatBoot) {
     case Paper:
     case (Paper | Rock):
-      AddLoaderEntry(PaperBoot, NullXString8Array, L""_XSW, L"macOS InstallP"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0);
+      AddLoaderEntry(PaperBoot, NullXString8Array, L""_XSW, L"macOS InstallP"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0);
       break;
     case Scissor:
     case (Paper | Scissor):
-      AddLoaderEntry(ScissorBoot, NullXString8Array, L""_XSW, L"macOS InstallS"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0);
+      AddLoaderEntry(ScissorBoot, NullXString8Array, L""_XSW, L"macOS InstallS"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0);
       break;
     case Rock:
     case (Rock | Scissor):
     case (Rock | Scissor | Paper):
-      AddLoaderEntry(RockBoot, NullXString8Array, L""_XSW, L"macOS InstallR"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0);
+      AddLoaderEntry(RockBoot, NullXString8Array, L""_XSW, L"macOS InstallR"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0);
       break;
 
     default:
@@ -1339,12 +1767,90 @@ void AddPRSEntry(REFIT_VOLUME *Volume)
 #undef Rock
 #undef Scissor
 
+XString8 GetAuthRootDmg(const EFI_FILE& dir, const XStringW& path)
+{
+  XString8 returnValue;
+
+  XStringW plist = SWPrintf("%ls\\com.apple.Boot.plist", path.wc_str());
+  if ( !FileExists(dir, plist) ) return NullXString8;
+
+  CHAR8*     PlistBuffer = NULL;
+  UINTN      PlistLen;
+  TagDict*     Dict        = NULL;
+  const TagStruct*     Prop        = NULL;
+
+  EFI_STATUS Status = egLoadFile(&dir, plist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
+  if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS)
+  {
+    Prop = Dict->propertyForKey("Kernel Flags");
+    if ( Prop != NULL ) {
+      if ( !Prop->isString() ) {
+        MsgLog("ATTENTION : Kernel Flags not string in ProductVersion\n");
+      }else{
+        if( Prop->getString()->stringValue().notEmpty() ) {
+          const XString8& kernelFlags = Prop->getString()->stringValue();
+          size_t idx = kernelFlags.indexOf("auth-root-dmg");
+          if ( idx == MAX_XSIZE ) return NullXString8;
+          idx += strlen("auth-root-dmg");
+          while ( idx < kernelFlags.length()  &&  IS_BLANK(kernelFlags[idx]) ) ++idx;
+          if ( kernelFlags[idx] == '=' ) ++idx;
+          else return NullXString8;
+          while ( idx < kernelFlags.length()  &&  IS_BLANK(kernelFlags[idx]) ) ++idx;
+          if ( kernelFlags.isEqualAtIC(idx, "file://"_XS8) ) idx += strlen("file://");
+          size_t idxEnd = idx;
+          while ( idxEnd < kernelFlags.length()  &&  !IS_BLANK(kernelFlags[idxEnd]) ) ++idxEnd;
+          returnValue = kernelFlags.subString(idx, idxEnd - idx);
+        }
+      }
+    }
+  }
+  if ( PlistBuffer ) FreePool(PlistBuffer);
+  return returnValue;
+}
+
+MacOsVersion GetMacOSVersionFromFolder(const EFI_FILE& dir, const XStringW& path)
+{
+  MacOsVersion macOSVersion;
+
+  XStringW plist = SWPrintf("%ls\\SystemVersion.plist", path.wc_str());
+  if ( !FileExists(dir, plist) ) {
+    plist = SWPrintf("%ls\\ServerVersion.plist", path.wc_str());
+    if ( !FileExists(dir, plist) ) {
+      plist.setEmpty();
+    }
+  }
+
+  if ( plist.notEmpty() ) { // found macOS System
+    CHAR8*     PlistBuffer = NULL;
+    UINTN      PlistLen;
+    TagDict*     Dict        = NULL;
+    const TagStruct*     Prop        = NULL;
+
+    EFI_STATUS Status = egLoadFile(&dir, plist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
+    if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS) {
+      Prop = Dict->propertyForKey("ProductVersion");
+      if ( Prop != NULL ) {
+        if ( !Prop->isString() ) {
+          MsgLog("ATTENTION : property not string in ProductVersion\n");
+        }else{
+          if( Prop->getString()->stringValue().notEmpty() ) {
+            macOSVersion = Prop->getString()->stringValue();
+          }
+        }
+      }
+    }
+    if ( PlistBuffer ) FreePool(PlistBuffer);
+  }
+  return macOSVersion;
+}
+
 void ScanLoader(void)
 {
   //DBG("Scanning loaders...\n");
   DbgHeader("ScanLoader");
    
-  for (UINTN VolumeIndex = 0; VolumeIndex < Volumes.size(); VolumeIndex++) {
+  for (UINTN VolumeIndex = 0; VolumeIndex < Volumes.size(); VolumeIndex++)
+  {
     REFIT_VOLUME* Volume = &Volumes[VolumeIndex];
     if (Volume->RootDir == NULL) { // || Volume->VolName == NULL)
       //DBG(", no file system\n", VolumeIndex);
@@ -1364,47 +1870,56 @@ void ScanLoader(void)
 
     DBG("\n");
 
+    if ( Volume->ApfsContainerUUID.notEmpty() ) DBG("    ApfsContainerUUID=%s\n", Volume->ApfsContainerUUID.c_str());
+    if ( Volume->ApfsFileSystemUUID.notEmpty() ) DBG("    ApfsFileSystemUUID=%s\n", Volume->ApfsFileSystemUUID.c_str());
+
+
     // check for Mac OS X Install Data
     // 1st stage - createinstallmedia
     if (FileExists(Volume->RootDir, L"\\.IABootFiles\\boot.efi")) {
       if (FileExists(Volume->RootDir, L"\\Install OS X Mavericks.app") ||
           FileExists(Volume->RootDir, L"\\Install OS X Yosemite.app") ||
           FileExists(Volume->RootDir, L"\\Install OS X El Capitan.app")) {
-        AddLoaderEntry(L"\\.IABootFiles\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.9 - 10.11
+        AddLoaderEntry(L"\\.IABootFiles\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.9 - 10.11
       } else {
-        AddLoaderEntry(L"\\.IABootFiles\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12 - 10.13.3
+        AddLoaderEntry(L"\\.IABootFiles\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12 - 10.13.3
       }
     } else if (FileExists(Volume->RootDir, L"\\.IAPhysicalMedia") && FileExists(Volume->RootDir, MACOSX_LOADER_PATH)) {
-      AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.13.4+
+      AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.13.4+
     }
     // 2nd stage - InstallESD/AppStore/startosinstall/Fusion Drive
-    AddLoaderEntry(L"\\Mac OS X Install Data\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"Mac OS X Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.7
-    AddLoaderEntry(L"\\OS X Install Data\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.8 - 10.11
-    AddLoaderEntry(L"\\macOS Install Data\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12 - 10.12.3
-    AddLoaderEntry(L"\\macOS Install Data\\Locked Files\\Boot Files\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12.4+
-    AddLoaderEntry(L"\\macOS Install Data\\Locked Files\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.16+
+     // 10.7
+    AddLoaderEntry(L"\\Mac OS X Install Data\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"Mac OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.7
+    // 10.8 - 10.11
+    AddLoaderEntry(L"\\OS X Install Data\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.8 - 10.11
+    // 10.12 - 10.12.3
+    AddLoaderEntry(L"\\macOS Install Data\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12 - 10.12.3
+    // 10.12.4-10.15
+    AddLoaderEntry(L"\\macOS Install Data\\Locked Files\\Boot Files\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0);
+    // Big Sur install must be via Preboot. Next line must stay commented.
+    // AddLoaderEntry(L"\\macOS Install Data\\Locked Files\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 11+
     AddPRSEntry(Volume); // 10.12+
 
     // Netinstall
-    AddLoaderEntry(L"\\NetInstall macOS High Sierra.nbi\\i386\\booter"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0);
+    AddLoaderEntry(L"\\NetInstall macOS High Sierra.nbi\\i386\\booter"_XSW, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0);
     // Use standard location for boot.efi, according to the install files is present
     // That file indentifies a DVD/ESD/BaseSystem/Fusion Drive Install Media, so when present, check standard path to avoid entry duplication
     if (FileExists(Volume->RootDir, MACOSX_LOADER_PATH)) {
       if (FileExists(Volume->RootDir, L"\\System\\Installation\\CDIS\\Mac OS X Installer.app")) {
         // InstallDVD/BaseSystem
-        AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"Mac OS X Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.6/10.7
+        AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"Mac OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.6/10.7
       } else if (FileExists(Volume->RootDir, L"\\System\\Installation\\CDIS\\OS X Installer.app")) {
         // BaseSystem
-        AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.8 - 10.11
+        AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.8 - 10.11
       } else if (FileExists(Volume->RootDir, L"\\System\\Installation\\CDIS\\macOS Installer.app")) {
         // BaseSystem
-        AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12+
+        AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12+
       } else if (FileExists(Volume->RootDir, L"\\BaseSystem.dmg") && FileExists(Volume->RootDir, L"\\mach_kernel")) {
         // InstallESD
         if (FileExists(Volume->RootDir, L"\\MacOSX_Media_Background.png")) {
-          AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"Mac OS X Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.7
+          AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"Mac OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.7
         } else {
-          AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.8
+          AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.8
         }
       } else if (FileExists(Volume->RootDir, L"\\com.apple.boot.R\\System\\Library\\PrelinkedKernels\\prelinkedkernel") ||
                  FileExists(Volume->RootDir, L"\\com.apple.boot.P\\System\\Library\\PrelinkedKernels\\prelinkedkernel") ||
@@ -1412,54 +1927,26 @@ void ScanLoader(void)
         if (StriStr(Volume->VolName.wc_str(), L"Recovery") != NULL) {
           // FileVault of HFS+
           // TODO: need info for 10.11 and lower
-          AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"macOS FileVault"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX, 0); // 10.12+
+          AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"macOS FileVault"_XSW, Volume, NULL, OSTYPE_OSX, 0); // 10.12+
         } else {
           // Fusion Drive
-          AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.11
+          AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.11
         }
       } else if (!FileExists(Volume->RootDir, L"\\.IAPhysicalMedia")) {
         // Installed
         if (EFI_ERROR(GetRootUUID(Volume)) || isFirstRootUUID(Volume)) {
           if (!FileExists(Volume->RootDir, L"\\System\\Library\\CoreServices\\NotificationCenter.app") && !FileExists(Volume->RootDir, L"\\System\\Library\\CoreServices\\Siri.app")) {
-            AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"Mac OS X"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX, 0); // 10.6 - 10.7
+            AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"Mac OS X"_XSW, Volume, NULL, OSTYPE_OSX, 0); // 10.6 - 10.7
           } else if (FileExists(Volume->RootDir, L"\\System\\Library\\CoreServices\\NotificationCenter.app") && !FileExists(Volume->RootDir, L"\\System\\Library\\CoreServices\\Siri.app")) {
-            AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"OS X"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX, 0); // 10.8 - 10.11
+            AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"OS X"_XSW, Volume, NULL, OSTYPE_OSX, 0); // 10.8 - 10.11
           } else {
-            XString8   OSVersion;
+            MacOsVersion macOSVersion;
             if ( Volume->ApfsFileSystemUUID.notEmpty() && (Volume->ApfsRole & APPLE_APFS_VOLUME_ROLE_SYSTEM) != 0 )
             {
-              XStringW plist = SWPrintf("\\System\\Library\\CoreServices\\SystemVersion.plist");
-              if ( !FileExists(Volume->RootDir, plist) ) {
-                plist = SWPrintf("\\System\\Library\\CoreServices\\ServerVersion.plist");
-                if ( !FileExists(Volume->RootDir, plist) ) {
-                  plist.setEmpty();
-                }
-              }
-
-              if ( plist.notEmpty() ) { // found macOS System
-                CHAR8*     PlistBuffer = NULL;
-                UINTN      PlistLen;
-                TagDict*     Dict        = NULL;
-                const TagStruct*     Prop        = NULL;
-
-                EFI_STATUS Status = egLoadFile(Volume->RootDir, plist.wc_str(), (UINT8 **)&PlistBuffer, &PlistLen);
-                if (!EFI_ERROR(Status) && PlistBuffer != NULL && ParseXML(PlistBuffer, &Dict, 0) == EFI_SUCCESS) {
-                  Prop = Dict->propertyForKey("ProductVersion");
-                  if ( Prop != NULL ) {
-                    if ( !Prop->isString() ) {
-                      MsgLog("ATTENTION : property not string in ProductVersion\n");
-                    }else{
-                      if( Prop->getString()->stringValue().notEmpty() ) {
-                        OSVersion = Prop->getString()->stringValue();
-                      }
-                    }
-                  }
-                }
-                if ( PlistBuffer ) FreePool(PlistBuffer);
-              }
+              macOSVersion = GetMacOSVersionFromFolder(*Volume->RootDir, L"\\System\\Library\\CoreServices"_XSW);
             }
-            if ( !OSVersion.equal("11.0") ) {
-              AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"macOS"_XSW, Volume, L""_XSW, NULL, OSTYPE_OSX, 0); // 10.12+
+            if ( macOSVersion < MacOsVersion("11"_XS8) ) {
+              AddLoaderEntry(MACOSX_LOADER_PATH, NullXString8Array, L""_XSW, L"macOS"_XSW, Volume, NULL, OSTYPE_OSX, 0); // 10.12+
             }
           }
         }
@@ -1467,23 +1954,23 @@ void ScanLoader(void)
     }
 
     // check for Mac OS X Recovery Boot
-    AddLoaderEntry(L"\\com.apple.recovery.boot\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"Recovery"_XSW, Volume, L""_XSW, NULL, OSTYPE_RECOVERY, 0);
+    AddLoaderEntry(L"\\com.apple.recovery.boot\\boot.efi"_XSW, NullXString8Array, L""_XSW, L"Recovery"_XSW, Volume, NULL, OSTYPE_RECOVERY, 0);
 
     // Sometimes, on some systems (HP UEFI, if Win is installed first)
     // it is needed to get rid of bootmgfw.efi to allow starting of
     // Clover as /efi/boot/bootx64.efi from HD. We can do that by renaming
     // bootmgfw.efi to bootmgfw-orig.efi
-    AddLoaderEntry(L"\\EFI\\microsoft\\Boot\\bootmgfw-orig.efi"_XSW, NullXString8Array, L""_XSW, L"Microsoft EFI"_XSW, Volume, L""_XSW, NULL, OSTYPE_WINEFI, 0);
+    AddLoaderEntry(L"\\EFI\\microsoft\\Boot\\bootmgfw-orig.efi"_XSW, NullXString8Array, L""_XSW, L"Microsoft EFI"_XSW, Volume, NULL, OSTYPE_WINEFI, 0);
     // check for Microsoft boot loader/menu
     // If there is bootmgfw-orig.efi, then do not check for bootmgfw.efi
     // since on some systems this will actually be CloverX64.efi
     // renamed to bootmgfw.efi
-    AddLoaderEntry(L"\\EFI\\microsoft\\Boot\\bootmgfw.efi"_XSW, NullXString8Array, L""_XSW, L"Microsoft EFI Boot"_XSW, Volume, L""_XSW, NULL, OSTYPE_WINEFI, 0);
+    AddLoaderEntry(L"\\EFI\\microsoft\\Boot\\bootmgfw.efi"_XSW, NullXString8Array, L""_XSW, L"Microsoft EFI Boot"_XSW, Volume, NULL, OSTYPE_WINEFI, 0);
     // check for Microsoft boot loader/menu. This entry is redundant so excluded
     // AddLoaderEntry(L"\\bootmgr.efi", L"", L"Microsoft EFI mgrboot", Volume, NULL, OSTYPE_WINEFI, 0);
     // check for Microsoft boot loader/menu on CDROM
-    if (!AddLoaderEntry(L"\\EFI\\MICROSOFT\\BOOT\\cdboot.efi"_XSW, NullXString8Array, L""_XSW, L"Microsoft EFI cdboot"_XSW, Volume, L""_XSW, NULL, OSTYPE_WINEFI, 0)) {
-      AddLoaderEntry(L"\\EFI\\MICROSOFT\\BOOT\\CDBOOT.EFI"_XSW, NullXString8Array, L""_XSW, L"Microsoft EFI CDBOOT"_XSW, Volume, L""_XSW, NULL, OSTYPE_WINEFI, 0);
+    if (!AddLoaderEntry(L"\\EFI\\MICROSOFT\\BOOT\\cdboot.efi"_XSW, NullXString8Array, L""_XSW, L"Microsoft EFI cdboot"_XSW, Volume, NULL, OSTYPE_WINEFI, 0)) {
+      AddLoaderEntry(L"\\EFI\\MICROSOFT\\BOOT\\CDBOOT.EFI"_XSW, NullXString8Array, L""_XSW, L"Microsoft EFI CDBOOT"_XSW, Volume, NULL, OSTYPE_WINEFI, 0);
     }
 
 
@@ -1501,7 +1988,7 @@ void ScanLoader(void)
             XIcon ImageX;
             XStringW IconXSW = XStringW().takeValueFrom(AndroidEntryData[Index].Icon);
             ImageX.LoadXImage(&ThemeX.getThemeDir(), (L"os_"_XSW + IconXSW.subString(0, IconXSW.indexOf(','))).wc_str());
-            AddLoaderEntry(AndroidEntryData[Index].Path, NullXString8Array, L""_XSW, XStringW().takeValueFrom(AndroidEntryData[Index].Title), Volume, L""_XSW,
+            AddLoaderEntry(AndroidEntryData[Index].Path, NullXString8Array, L""_XSW, XStringW().takeValueFrom(AndroidEntryData[Index].Title), Volume,
                            (ImageX.isEmpty() ? NULL : &ImageX), OSTYPE_LIN, OSFLAG_NODEFAULTARGS);
           }
         }
@@ -1509,23 +1996,29 @@ void ScanLoader(void)
     }
 #endif
 
-    if (gSettings.LinuxScan) {
-      LinuxScan(Volume, gSettings.KernelScan, 0, NULL, NULL);
+    if (gSettings.GUI.Scan.LinuxScan) {
+      LinuxScan(Volume, gSettings.GUI.Scan.KernelScan, 0, NULL, NULL);
     }
 
     //     DBG("search for  optical UEFI\n");
     if (Volume->DiskKind == DISK_KIND_OPTICAL) {
-      AddLoaderEntry(BOOT_LOADER_PATH, NullXString8Array, L""_XSW, L"UEFI optical"_XSW, Volume, L""_XSW, NULL, OSTYPE_OTHER, 0);
+      AddLoaderEntry(BOOT_LOADER_PATH, NullXString8Array, L""_XSW, L"UEFI optical"_XSW, Volume, NULL, OSTYPE_OTHER, 0);
     }
     //     DBG("search for internal UEFI\n");
     if (Volume->DiskKind == DISK_KIND_INTERNAL) {
-      LOADER_ENTRY* le = AddLoaderEntry(BOOT_LOADER_PATH, NullXString8Array, L""_XSW, L"UEFI internal"_XSW, Volume, L""_XSW, NULL, OSTYPE_OTHER, 0);
-      le->Hidden = true;
+      LOADER_ENTRY* le = AddLoaderEntry(BOOT_LOADER_PATH, NullXString8Array, L""_XSW, L"UEFI internal"_XSW, Volume, NULL, OSTYPE_OTHER, 0);
+      if ( le ) {
+        DBG("     hiding entry because DiskKind is DISK_KIND_INTERNAL: %ls\n", le->LoaderPath.s());
+        le->Hidden = true;
+      }
     }
     //    DBG("search for external UEFI\n");
     if (Volume->DiskKind == DISK_KIND_EXTERNAL) {
-      LOADER_ENTRY* le = AddLoaderEntry(BOOT_LOADER_PATH, NullXString8Array, L""_XSW, L"UEFI external"_XSW, Volume, L""_XSW, NULL, OSTYPE_OTHER, 0);
-      le->Hidden = true;
+      LOADER_ENTRY* le = AddLoaderEntry(BOOT_LOADER_PATH, NullXString8Array, L""_XSW, L"UEFI external"_XSW, Volume, NULL, OSTYPE_OTHER, 0);
+      if ( le ) {
+        DBG("     hiding entry because DiskKind is DISK_KIND_EXTERNAL: %ls\n", le->LoaderPath.s());
+        le->Hidden = true;
+      }
     }
 
 //DBG("Volume->ApfsTargetUUIDArray.size()=%zd\n", Volume->ApfsTargetUUIDArray.size());
@@ -1534,6 +2027,7 @@ void ScanLoader(void)
       for (UINTN i = 0; i < Volume->ApfsTargetUUIDArray.size(); i++)
       {
         const XString8& ApfsTargetUUID = Volume->ApfsTargetUUIDArray[i];
+        DBG("    APFSTargetUUID=%s\n", ApfsTargetUUID.c_str());
         XStringW FullTitle;
         XStringW FullTitleRecovery;
         XStringW FullTitleInstaller;
@@ -1541,16 +2035,7 @@ void ScanLoader(void)
         XStringW LoaderTitleInstaller;
 
         // Find the "target" volume.
-        REFIT_VOLUME* targetVolume = NULL;
-        for (size_t VolumeIndex2 = 0; VolumeIndex2 < Volumes.size(); VolumeIndex2++) {
-          REFIT_VOLUME* Volume2 = &Volumes[VolumeIndex2];
-//DBG("idx=%zu  name %ls  uuid=%s \n", VolumeIndex2, Volume2->VolName.wc_str(), Volume2->ApfsFileSystemUUID.c_str());
-          if ( Volume2->ApfsContainerUUID == Volume->ApfsContainerUUID ) {
-            if ( Volume2->ApfsFileSystemUUID == ApfsTargetUUID ) {
-              targetVolume = Volume2;
-            }
-          }
-        }
+        REFIT_VOLUME* targetVolume = Volumes.getVolumeWithApfsContainerUUIDAndFileSystemUUID(Volume->ApfsContainerUUID, ApfsTargetUUID);
         // If targetVolume is found, and it's a data partition, try to find the system partition that goes with it.
 //DBG("targetVolume=%d\n", targetVolume ? 1 : 0);
         if ( targetVolume ) {
@@ -1596,10 +2081,12 @@ void ScanLoader(void)
             if ( FileExists(bootVolume->RootDir, targetNameFile) ) {
               EFI_STATUS Status = egLoadFile(bootVolume->RootDir, targetNameFile.wc_str(), (UINT8 **)&fileBuffer, &fileLen);
               if(!EFI_ERROR(Status)) {
-                FullTitle.SWPrintf("Boot Mac OS X from %.*s via %ls", (int)fileLen, fileBuffer, Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
-                FullTitleRecovery.SWPrintf("Boot Mac OS X Recovery for %.*s via %ls", (int)fileLen, fileBuffer, Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
-                FullTitleInstaller.SWPrintf("Boot Mac OS X Install for %.*s via %ls", (int)fileLen, fileBuffer, Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
-              DBG("contentDetails name:%s\n", fileBuffer);
+                FullTitle.SWPrintf("Boot Mac OS from %.*s", (int)fileLen, fileBuffer);
+                FullTitleRecovery.SWPrintf("Boot Mac OS Recovery for %.*s", (int)fileLen, fileBuffer);
+                FullTitleInstaller.SWPrintf("Boot Mac OS Install for %.*s", (int)fileLen, fileBuffer);
+                if ( fileLen < MAX_INT32 ) {
+                  DBG("      contentDetails name:%.*s\n", (int)fileLen, fileBuffer);
+                }
                 FreePool(fileBuffer);
               }
             }
@@ -1607,24 +2094,61 @@ void ScanLoader(void)
         }
         if ( FullTitle.isEmpty() ) {
           if ( targetVolume ) {
-            FullTitle.SWPrintf("Boot Mac OS X from %ls via %ls", targetVolume->getVolLabelOrOSXVolumeNameOrVolName().wc_str(), Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
-            FullTitleRecovery.SWPrintf("Boot Mac OS X Recovery for %ls via %ls", targetVolume->getVolLabelOrOSXVolumeNameOrVolName().wc_str(), Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
-            FullTitleInstaller.SWPrintf("Boot Mac OS X Install for %ls via %ls", targetVolume->getVolLabelOrOSXVolumeNameOrVolName().wc_str(), Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
+            FullTitle.SWPrintf("Boot Mac OS from %ls", targetVolume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
+            FullTitleRecovery.SWPrintf("Boot Mac OS Recovery for %ls", targetVolume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
+            FullTitleInstaller.SWPrintf("Boot Mac OS Install for %ls", targetVolume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
           }else{
-            FullTitle.SWPrintf("Boot Mac OS X via %ls", Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
-            FullTitleRecovery.SWPrintf("Boot Mac OS X Recovery via %ls", Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
-            FullTitleInstaller.SWPrintf("Mac OS X Install via %ls", Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
+            FullTitle.SWPrintf("Boot Mac OS");
+            FullTitleRecovery.SWPrintf("Boot Mac OS Recovery");
+            FullTitleInstaller.SWPrintf("Mac OS Install");
           }
         }
-        AddLoaderEntry(SWPrintf("\\%s\\System\\Library\\CoreServices\\boot.efi", ApfsTargetUUID.c_str()), NullXString8Array, FullTitle, LoaderTitle, Volume, Volume->ApfsTargetUUIDArray[i], NULL, OSTYPE_OSX, 0);
+        /*MacOsVersion macOSVersion = GetMacOSVersionFromFolder(*Volume->RootDir, SWPrintf("\\%s\\System\\Library\\CoreServices", ApfsTargetUUID.c_str()));
+        if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("11"_XS8) )*/ FullTitle.SWCatf(" via %ls", Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
+        AddLoaderEntry(SWPrintf("\\%s\\System\\Library\\CoreServices\\boot.efi", ApfsTargetUUID.c_str()), NullXString8Array, FullTitle, LoaderTitle, Volume, NULL, OSTYPE_OSX, 0);
+
         //Try to add Recovery APFS entry
-        if (!AddLoaderEntry(SWPrintf("\\%s\\boot.efi", Volume->ApfsTargetUUIDArray[i].c_str()), NullXString8Array, FullTitleRecovery, L""_XSW, Volume, Volume->ApfsTargetUUIDArray[i], NULL, OSTYPE_RECOVERY, 0)) {
+        /*macOSVersion = GetMacOSVersionFromFolder(*Volume->RootDir, SWPrintf("\\%s", ApfsTargetUUID.c_str()));
+        if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("11"_XS8) )*/ FullTitleRecovery.SWCatf(" via %ls", Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
+        if (!AddLoaderEntry(SWPrintf("\\%s\\boot.efi", Volume->ApfsTargetUUIDArray[i].c_str()), NullXString8Array, FullTitleRecovery, L""_XSW, Volume, NULL, OSTYPE_RECOVERY, 0)) {
           //Try to add Recovery APFS entry as dmg
-          AddLoaderEntry(SWPrintf("\\%s\\BaseSystem.dmg", Volume->ApfsTargetUUIDArray[i].c_str()), NullXString8Array, FullTitleRecovery, L""_XSW, Volume, Volume->ApfsTargetUUIDArray[i], NULL, OSTYPE_RECOVERY, 0);
+          AddLoaderEntry(SWPrintf("\\%s\\BaseSystem.dmg", Volume->ApfsTargetUUIDArray[i].c_str()), NullXString8Array, FullTitleRecovery, L""_XSW, Volume, NULL, OSTYPE_RECOVERY, 0);
         }
        //Try to add macOS install entry
-        AddLoaderEntry(SWPrintf("\\%s\\com.apple.installer\\boot.efi", Volume->ApfsTargetUUIDArray[i].c_str()), NullXString8Array, FullTitleInstaller, LoaderTitleInstaller, Volume, Volume->ApfsTargetUUIDArray[i], NULL, OSTYPE_OSX_INSTALLER, 0);
+        /*macOSVersion = GetMacOSVersionFromFolder(*Volume->RootDir, SWPrintf("\\%s\\com.apple.installer", ApfsTargetUUID.c_str()));
+        if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("11"_XS8) )*/ FullTitleInstaller.SWCatf(" via %ls", Volume->getVolLabelOrOSXVolumeNameOrVolName().wc_str());
+
+        XString8 installerPath = SWPrintf("\\%s\\com.apple.installer", Volume->ApfsTargetUUIDArray[i].c_str());
+        if ( FileExists(Volume->RootDir, installerPath) ) {
+          XString8 rootDmg = GetAuthRootDmg(*Volume->RootDir, installerPath);
+          rootDmg.replaceAll("%20"_XS8, " "_XS8);
+//          while ( rootDmg.notEmpty()  &&  rootDmg.startWith('/') ) rootDmg.deleteCharsAtPos(0, 1);
+          rootDmg.replaceAll('/', '\\');
+          REFIT_VOLUME* targetInstallVolume = Volumes.getVolumeWithApfsContainerUUIDAndFileSystemUUID(Volume->ApfsContainerUUID, Volume->ApfsTargetUUIDArray[i]);
+          if ( targetInstallVolume ) {
+            EFI_FILE_PROTOCOL* TestFile;
+            EFI_STATUS Status = targetInstallVolume->RootDir->Open(targetInstallVolume->RootDir, &TestFile, L"\\", EFI_FILE_MODE_READ, 0);
+            if ( EFI_ERROR(Status) ) TestFile = NULL; // if the root of the volume can't be opened (most likely encrypted), add the installer anyway.
+            if ( rootDmg.isEmpty()  ||  EFI_ERROR(Status)  ||  FileExists(*targetInstallVolume->RootDir, rootDmg) ) { // rootDmg empty is accepted, to be compatible with previous code
+              AddLoaderEntry(SWPrintf("\\%s\\com.apple.installer\\boot.efi", Volume->ApfsTargetUUIDArray[i].c_str()), NullXString8Array, FullTitleInstaller, LoaderTitleInstaller, Volume, NULL, OSTYPE_OSX_INSTALLER, 0);
+            }else{
+              DBG("    Dead installer entry found (installer dmg boot file not found : '%s')\n", rootDmg.c_str());
+            }
+            if ( TestFile != NULL ) TestFile->Close(TestFile);
+          }else{
+            DBG("    Dead installer entry found (target volume not found : '%s')\n", Volume->ApfsTargetUUIDArray[i].c_str());
+          }
+        }
       }
+    }
+  }
+
+  DBG("Entries list before ordering\n");
+  for (size_t idx = 0; idx < MainMenu.Entries.sizeIncludingHidden(); idx++) {
+    if ( MainMenu.Entries.ElementAt(idx).getLOADER_ENTRY() ) {
+      DBG("    Entry %zd : %ls%s\n", idx, MainMenu.Entries.ElementAt(idx).Title.wc_str(), MainMenu.Entries.ElementAt(idx).Hidden ? " (hidden)" : "");
+    }else{
+      DBG("    Entry %zd : %ls%s\n", idx, MainMenu.Entries.ElementAt(idx).Title.wc_str(), MainMenu.Entries.ElementAt(idx).Hidden ? " (hidden)" : "");
     }
   }
 
@@ -1635,40 +2159,36 @@ void ScanLoader(void)
     if ( !loaderEntry1Ptr ) continue;
     LOADER_ENTRY& loaderEntry1 = *loaderEntry1Ptr;
 
-    if ( loaderEntry1.LoaderType == OSTYPE_OSX  &&  loaderEntry1.APFSTargetUUID.notEmpty() )
+    if ( ( loaderEntry1.LoaderType == OSTYPE_OSX || loaderEntry1.LoaderType == OSTYPE_OSX_INSTALLER )  &&  loaderEntry1.APFSTargetUUID.notEmpty() )
     {
-      for ( size_t entryIdx2 = 0 ; entryIdx2 < MainMenu.Entries.sizeIncludingHidden() ; entryIdx2 ++ )
-      {
-        if ( MainMenu.Entries.ElementAt(entryIdx2).getLOADER_ENTRY() ) {
-          LOADER_ENTRY& loaderEntry2 = *MainMenu.Entries.ElementAt(entryIdx2).getLOADER_ENTRY();
-          if ( loaderEntry2.Volume->ApfsContainerUUID == loaderEntry1.Volume->ApfsContainerUUID ) {
-            if ( loaderEntry2.Volume->ApfsFileSystemUUID == loaderEntry1.APFSTargetUUID ) {
-              loaderEntry1.Hidden = true;
-            }
-          }
-        }
+      size_t entryIdx2 = MainMenu.Entries.getApfsLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID, loaderEntry1.LoaderType);
+      if ( entryIdx2 != SIZE_T_MAX ) {
+        DBG("Hiding entry %zd because of entry %zd\n", entryIdx1, entryIdx2);
+        loaderEntry1.Hidden = true;
       }
     }
   }
+
+
 
   typedef struct EntryIdx {
     size_t idx;
     REFIT_ABSTRACT_MENU_ENTRY* entry;
     EntryIdx(size_t _idx, REFIT_ABSTRACT_MENU_ENTRY* _entry) : idx(_idx), entry(_entry) {};
   } EntryIdx;
+
   XObjArray<EntryIdx> EntriesArrayTmp;
+
   for (size_t idx = 0; idx < MainMenu.Entries.sizeIncludingHidden(); idx++) {
     if ( MainMenu.Entries.ElementAt(idx).getLOADER_ENTRY() ) {
       if ( MainMenu.Entries.ElementAt(idx).getLOADER_ENTRY()->APFSTargetUUID.notEmpty() ) {
+//        DBG("Add in EntriesArrayTmp at index %zd  Entry %zd : %ls\n", EntriesArrayTmp.size(), idx, MainMenu.Entries.ElementAt(idx).Title.wc_str());
         EntriesArrayTmp.AddReference(new EntryIdx(idx, &MainMenu.Entries.ElementAt(idx)), true);
       }
     }
   }
 
-
   bool hasMovedSomething;
-
-//MainMenu.Entries.moveBefore(5, 7); // this will move preboot entry just before main
 
   // Re-order preboot partition
   do {
@@ -1686,13 +2206,16 @@ void ScanLoader(void)
       if ( loaderEntry1.LoaderType == OSTYPE_OSX  &&  (loaderEntry1.Volume->ApfsRole & APPLE_APFS_VOLUME_ROLE_PREBOOT) != 0 )
       {
         size_t prebootIdx = MainMenu.Entries.getIdx(loaderEntry1Ptr);
-        if ( prebootIdx == SIZE_T_MAX ) panic ("bug");
-        size_t idxMain = MainMenu.Entries.getApfsLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID);
-        if ( idxMain != SIZE_T_MAX && idxMain != prebootIdx+1 ) {
-          DBG("Move preboot entry %zu before system %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxMain);
-          MainMenu.Entries.moveBefore(prebootIdx, idxMain); // this will move preboot entry just before main
-          EntriesArrayTmp.RemoveAtIndex(idx);
-          hasMovedSomething = true;
+        if ( prebootIdx == SIZE_T_MAX ) {
+        	log_technical_bug("%s : prebootIdx == SIZE_T_MAX", __PRETTY_FUNCTION__);
+        }else{
+          size_t idxMain = MainMenu.Entries.getApfsLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID, OSTYPE_OSX);
+          if ( idxMain != SIZE_T_MAX && idxMain != prebootIdx+1 ) {
+            DBG("Move preboot entry %zu before system %zu\n", prebootIdx, idxMain);
+            MainMenu.Entries.moveBefore(prebootIdx, idxMain); // this will move preboot entry just before main
+            EntriesArrayTmp.RemoveAtIndex(idx);
+            hasMovedSomething = true;
+          }
         }
       }
       ++idx;
@@ -1715,23 +2238,26 @@ void ScanLoader(void)
       if ( loaderEntry1.LoaderType == OSTYPE_OSX_INSTALLER )
       {
         size_t installerIdx = MainMenu.Entries.getIdx(loaderEntry1Ptr);
-        if ( installerIdx == SIZE_T_MAX ) panic ("bug");
-        size_t idxPreboot = MainMenu.Entries.getApfsPrebootLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID);
-        if ( idxPreboot != SIZE_T_MAX ) {
-          if ( idxPreboot != installerIdx + 1 ) {
-            DBG("Move installer entry %zu before preboot %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxPreboot);
-            MainMenu.Entries.moveBefore(installerIdx, idxPreboot); // this will move preboot entry just before main
-            EntriesArrayTmp.RemoveAtIndex(idx);
-            hasMovedSomething = true;
-          }
+        if ( installerIdx == SIZE_T_MAX ) {
+          log_technical_bug("%s : installerIdx == SIZE_T_MAX", __PRETTY_FUNCTION__);
         }else{
-          size_t idxMain = MainMenu.Entries.getApfsLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID);
-          if ( idxMain != SIZE_T_MAX ) {
-            if ( idxMain != installerIdx+1 ) {
-              DBG("Move installer entry %zu before system %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxMain);
-              MainMenu.Entries.moveBefore(installerIdx, idxMain); // this will move preboot entry just before main
+          size_t idxPreboot = MainMenu.Entries.getApfsPrebootLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID, OSTYPE_OSX);
+          if ( idxPreboot != SIZE_T_MAX ) {
+            if ( idxPreboot != installerIdx + 1 ) {
+              DBG("Move installer entry %zu before preboot %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxPreboot);
+              MainMenu.Entries.moveBefore(installerIdx, idxPreboot); // this will move preboot entry just before main
               EntriesArrayTmp.RemoveAtIndex(idx);
               hasMovedSomething = true;
+            }
+          }else{
+            size_t idxMain = MainMenu.Entries.getApfsLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID, OSTYPE_OSX);
+            if ( idxMain != SIZE_T_MAX ) {
+              if ( idxMain != installerIdx+1 ) {
+                DBG("Move installer entry %zu before system %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxMain);
+                MainMenu.Entries.moveBefore(installerIdx, idxMain); // this will move preboot entry just before main
+                EntriesArrayTmp.RemoveAtIndex(idx);
+                hasMovedSomething = true;
+              }
             }
           }
         }
@@ -1756,23 +2282,26 @@ void ScanLoader(void)
       if ( loaderEntry1.LoaderType == OSTYPE_RECOVERY  &&  (loaderEntry1.Volume->ApfsRole & APPLE_APFS_VOLUME_ROLE_RECOVERY) != 0 )
       {
         size_t recoveryIdx = MainMenu.Entries.getIdx(loaderEntry1Ptr);
-        if ( recoveryIdx == SIZE_T_MAX ) panic ("bug");
-        size_t idxMain = MainMenu.Entries.getApfsLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID);
-        if ( idxMain != SIZE_T_MAX ) {
-          if ( idxMain + 1 != recoveryIdx ) {
-            DBG("Move recovery entry %zu after system %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxMain);
-            MainMenu.Entries.moveAfter(recoveryIdx, idxMain); // this will move preboot entry just before main
-            EntriesArrayTmp.RemoveAtIndex(idx);
-            hasMovedSomething = true;
-          }
+        if ( recoveryIdx == SIZE_T_MAX ) {
+          log_technical_bug("%s : recoveryIdx == SIZE_T_MAX", __PRETTY_FUNCTION__);
         }else{
-          size_t idxPreboot = MainMenu.Entries.getApfsPrebootLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID);
-          if ( idxPreboot != SIZE_T_MAX ) {
-            if ( idxPreboot + 1 != recoveryIdx ) {
-              DBG("Move recovery entry %zu after preboot %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxPreboot);
-              MainMenu.Entries.moveAfter(recoveryIdx, idxPreboot); // this will move preboot entry just before main
+          size_t idxMain = MainMenu.Entries.getApfsLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID, OSTYPE_OSX);
+          if ( idxMain != SIZE_T_MAX ) {
+            if ( idxMain + 1 != recoveryIdx ) {
+              DBG("Move recovery entry %zu after system %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxMain);
+              MainMenu.Entries.moveAfter(recoveryIdx, idxMain); // this will move preboot entry just before main
               EntriesArrayTmp.RemoveAtIndex(idx);
               hasMovedSomething = true;
+            }
+          }else{
+            size_t idxPreboot = MainMenu.Entries.getApfsPrebootLoaderIdx(loaderEntry1.Volume->ApfsContainerUUID, loaderEntry1.APFSTargetUUID, OSTYPE_OSX);
+            if ( idxPreboot != SIZE_T_MAX ) {
+              if ( idxPreboot + 1 != recoveryIdx ) {
+                DBG("Move recovery entry %zu after preboot %zu\n", EntriesArrayTmp.ElementAt(idx).idx, idxPreboot);
+                MainMenu.Entries.moveAfter(recoveryIdx, idxPreboot); // this will move preboot entry just before main
+                EntriesArrayTmp.RemoveAtIndex(idx);
+                hasMovedSomething = true;
+              }
             }
           }
         }
@@ -1780,28 +2309,170 @@ void ScanLoader(void)
       ++idx;
     }
   } while ( hasMovedSomething );
+
+
+  DBG("Entries after before ordering\n");
+  for (size_t idx = 0; idx < MainMenu.Entries.sizeIncludingHidden(); idx++) {
+    if ( MainMenu.Entries.ElementAt(idx).getLOADER_ENTRY() ) {
+      DBG("  Entry %zd : %ls%s\n", idx, MainMenu.Entries.ElementAt(idx).Title.wc_str(), MainMenu.Entries.ElementAt(idx).Hidden ? " (hidden)" : "");
+    }else{
+      DBG("  Entry %zd : %ls%s\n", idx, MainMenu.Entries.ElementAt(idx).Title.wc_str(), MainMenu.Entries.ElementAt(idx).Hidden ? " (hidden)" : "");
+    }
+  }
+
 }
 
-STATIC void AddCustomEntry(IN UINTN                CustomIndex,
-                           IN XStringW             CustomPath,
-                           IN CUSTOM_LOADER_ENTRY *Custom,
-                           IN REFIT_MENU_SCREEN   *SubMenu)
+STATIC void AddCustomSubEntry(REFIT_VOLUME   *Volume,
+                           IN UINTN                       CustomIndex,
+                           IN const XStringW&             CustomPath,
+                           UINT8 parentType,
+                           IN const CUSTOM_LOADER_SUBENTRY&  Custom,
+                           IN const XStringW&             DefaultEntrySettings,
+                           IN REFIT_MENU_SCREEN          *SubMenu)
+{
+//  UINTN           VolumeIndex;
+//  REFIT_VOLUME   *Volume;
+//  REFIT_DIR_ITER  SIter;
+//  REFIT_DIR_ITER *Iter = &SIter;
+//  CHAR16          PartUUID[40];
+//  XStringW        CustomPath = _CustomPath;
+
+  if ( CustomPath.isEmpty() ) panic("BUG : CustomPath is empty");
+  if ( SubMenu == NULL ) panic("BUG : this must be a sub entry");
+
+//  if (FindCustomPath && (Custom.settings.Type != OSTYPE_LINEFI) && (Custom.settings.Type != OSTYPE_LIN)) {
+////    DBG("Custom %lsentry %llu skipped because it didn't have a ", IsSubEntry ? L"sub " : L"", CustomIndex);
+////    if (Custom.Type == 0) {
+////      DBG("Type.\n");
+////    } else {
+////      DBG("Path.\n");
+////    }
+//    return;
+//  }
+
+  if ( Custom.settings.Disabled ) {
+//    DBG("Custom %lsentry %llu skipped because it is disabled.\n", IsSubEntry ? L"sub " : L"", CustomIndex);
+    return;
+  }
+
+//  if (!gSettings.ShowHiddenEntries && OSFLAG_ISSET(Custom.settings.Flags, OSFLAG_HIDDEN)) {
+//    DBG("Custom %lsentry %llu skipped because it is hidden.\n", IsSubEntry ? L"sub " : L"", CustomIndex);
+//    return;
+//  }
+
+#if 0  //if someone want to debug this
+  DBG("Custom %lsentry %llu ", IsSubEntry ? L"sub " : L"", CustomIndex);
+  //  if (Custom.settings.Title) {
+  DBG("Title:\"%ls\" ", Custom.settings.Title.wc_str());
+  //  }
+  //  if (Custom.settings.FullTitle) {
+  DBG("FullTitle:\"%ls\" ", Custom.settings.FullTitle.wc_str());
+  //  }
+  if (CustomPath) {
+    DBG("Path:\"%ls\" ", CustomPath);
+  }
+  if (Custom.settings.Options != NULL) {
+    DBG("Options:\"%ls\" ", Custom.settings.Options);
+  }
+  DBG("Type:%d Flags:0x%hhX matching ", Custom.settings.Type, Custom.settings.Flags);
+  if (Custom.settings.Volume) {
+    DBG("Volume:\"%ls\"\n", Custom.settings.Volume);
+  } else {
+    DBG("all volumes\n");
+  }
+#endif
+
+//  for (VolumeIndex = 0; VolumeIndex < Volumes.size(); ++VolumeIndex) {
+    LOADER_ENTRY        *Entry = NULL;
+
+//    EFI_GUID            *Guid = NULL;
+//    UINT64               VolumeSize;
+
+//    Volume = &Volumes[VolumeIndex];
+    if ((Volume == NULL) || (Volume->RootDir == NULL)) {
+      return;
+    }
+    if (Volume->VolName.isEmpty()) {
+      Volume->VolName = L"Unknown"_XSW;
+    }
+
+//    do { // when not scanning for kernels, this loop will execute only once
+      XString8Array CustomOptions = Custom.getLoadOptions();
+
+      UINT8 newCustomFlags = Custom.getFlags(gSettings.SystemParameters.NoCaches);
+
+      // Create an entry for this volume
+      Entry = CreateLoaderEntry(CustomPath, CustomOptions, Custom.getFullTitle(), Custom.getTitle(), Volume,
+                                NULL, NULL,
+                                parentType, newCustomFlags, 0, {0,0,0,0}, 0, NullXImage,
+                                /*(KERNEL_AND_KEXT_PATCHES *)(((UINTN)Custom) + OFFSET_OF(CUSTOM_LOADER_ENTRY, KernelAndKextPatches))*/ NULL, TRUE);
+      if (Entry != NULL) {
+//        if ( Custom.settings.Settings.notEmpty() ) DBG("Custom settings: %ls.plist will %s be applied\n", Custom.settings.Settings.wc_str(), Custom.settings.CommonSettings?"not":"");
+//        if (!Custom.settings.CommonSettings) {
+//          Entry->Settings = DefaultEntrySettings;
+//        }
+        if (OSFLAG_ISUNSET(newCustomFlags, OSFLAG_NODEFAULTMENU)) {
+          Entry->AddDefaultMenu();
+//        } else if (Custom.SubEntries.notEmpty()) {
+//          UINTN CustomSubIndex = 0;
+//          // Add subscreen
+//          REFIT_MENU_SCREEN *SubScreen = new REFIT_MENU_SCREEN;
+//          SubScreen->Title.SWPrintf("Boot Options for %ls on %ls", (Custom.settings.Title.notEmpty()) ? Custom.settings.Title.wc_str() : CustomPath.wc_str(), Entry->DisplayedVolName.wc_str());
+//          SubScreen->TitleImage = Entry->Image;
+//          SubScreen->ID = Custom.settings.Type + 20;
+//          SubScreen->GetAnime();
+//          VolumeSize = RShiftU64(MultU64x32(Volume->BlockIO->Media->LastBlock, Volume->BlockIO->Media->BlockSize), 20);
+//          SubScreen->AddMenuInfoLine_f("Volume size: %lldMb", VolumeSize);
+//          SubScreen->AddMenuInfoLine_f("%ls", FileDevicePathToXStringW(Entry->DevicePath).wc_str());
+//          if (Guid) {
+//            SubScreen->AddMenuInfoLine_f("UUID: %s", strguid(Guid));
+//          }
+//          SubScreen->AddMenuInfoLine_f("Options: %s", Entry->LoadOptions.ConcatAll(" "_XS8).c_str());
+//          DBG("Create sub entries\n");
+//          for (size_t CustomSubEntryIndex = 0 ; CustomSubEntryIndex < Custom.SubEntries.size() ; ++CustomSubEntryIndex ) {
+//            const CUSTOM_LOADER_SUBENTRY& CustomSubEntry = Custom.SubEntries[CustomSubEntryIndex];
+//            if ( CustomSubEntry.settings.Settings.isEmpty() ) {
+//              AddCustomSubEntry(Volume, CustomSubIndex++, CustomSubEntry.settings.Path.notEmpty() ? CustomSubEntry.settings.Path : CustomPath, CustomSubEntry, Custom.settings.Settings, SubScreen);
+//            }else{
+//              AddCustomSubEntry(Volume, CustomSubIndex++, CustomSubEntry.settings.Path.notEmpty() ? CustomSubEntry.settings.Path : CustomPath, CustomSubEntry, CustomSubEntry.settings.Settings, SubScreen);
+//            }
+//          }
+//          SubScreen->AddMenuEntry(&MenuEntryReturn, true);
+//          Entry->SubScreen = SubScreen;
+        }
+        SubMenu->AddMenuEntry(Entry, true);
+//        Entry->Hidden = Custom.settings.Hidden;
+//        if ( Custom.settings.Hidden ) DBG("     hiding entry because Custom.settings.Hidden\n");
+      }
+//    } while (FindCustomPath && Custom.settings.Type == OSTYPE_LINEFI && Custom.settings.KernelScan == KERNEL_SCAN_ALL); // repeat loop only for kernel scanning
+
+//    // Close the kernel boot directory
+//    if (FindCustomPath && Custom.settings.Type == OSTYPE_LINEFI) {
+//      DirIterClose(Iter);
+//    }
+//  }
+
+}
+
+STATIC void AddCustomEntry(IN UINTN                       CustomIndex,
+                           IN const XStringW&             _CustomPath,
+                           IN const CUSTOM_LOADER_ENTRY&  Custom,
+                           IN const XStringW&             DefaultEntrySettings,
+                           IN REFIT_MENU_SCREEN          *SubMenu)
 {
   UINTN           VolumeIndex;
   REFIT_VOLUME   *Volume;
   REFIT_DIR_ITER  SIter;
   REFIT_DIR_ITER *Iter = &SIter;
   CHAR16          PartUUID[40];
-  BOOLEAN         IsSubEntry = (SubMenu != NULL);
+  XStringW        CustomPath = _CustomPath;
   BOOLEAN         FindCustomPath = (CustomPath.isEmpty());
 
-  if (Custom == NULL) {
-    return;
-  }
-
-  if (FindCustomPath && (Custom->Type != OSTYPE_LINEFI) && (Custom->Type != OSTYPE_LIN)) {
+  if ( SubMenu != NULL ) panic("Call AddCustomSubEntry instead");
+  
+  if (FindCustomPath && (Custom.settings.Type != OSTYPE_LINEFI) && (Custom.settings.Type != OSTYPE_LIN)) {
 //    DBG("Custom %lsentry %llu skipped because it didn't have a ", IsSubEntry ? L"sub " : L"", CustomIndex);
-//    if (Custom->Type == 0) {
+//    if (Custom.Type == 0) {
 //      DBG("Type.\n");
 //    } else {
 //      DBG("Path.\n");
@@ -1809,43 +2480,42 @@ STATIC void AddCustomEntry(IN UINTN                CustomIndex,
     return;
   }
 
-  if (OSFLAG_ISSET(Custom->Flags, OSFLAG_DISABLED)) {
+  if (OSFLAG_ISSET(Custom.getFlags(gSettings.SystemParameters.NoCaches), OSFLAG_DISABLED)) {
 //    DBG("Custom %lsentry %llu skipped because it is disabled.\n", IsSubEntry ? L"sub " : L"", CustomIndex);
     return;
   }
 
-//  if (!gSettings.ShowHiddenEntries && OSFLAG_ISSET(Custom->Flags, OSFLAG_HIDDEN)) {
+//  if (!gSettings.ShowHiddenEntries && OSFLAG_ISSET(Custom.settings.Flags, OSFLAG_HIDDEN)) {
 //    DBG("Custom %lsentry %llu skipped because it is hidden.\n", IsSubEntry ? L"sub " : L"", CustomIndex);
 //    return;
 //  }
 
 #if 0  //if someone want to debug this
   DBG("Custom %lsentry %llu ", IsSubEntry ? L"sub " : L"", CustomIndex);
-  //  if (Custom->Title) {
-  DBG("Title:\"%ls\" ", Custom->Title.wc_str());
+  //  if (Custom.settings.Title) {
+  DBG("Title:\"%ls\" ", Custom.settings.Title.wc_str());
   //  }
-  //  if (Custom->FullTitle) {
-  DBG("FullTitle:\"%ls\" ", Custom->FullTitle.wc_str());
+  //  if (Custom.settings.FullTitle) {
+  DBG("FullTitle:\"%ls\" ", Custom.settings.FullTitle.wc_str());
   //  }
   if (CustomPath) {
     DBG("Path:\"%ls\" ", CustomPath);
   }
-  if (Custom->Options != NULL) {
-    DBG("Options:\"%ls\" ", Custom->Options);
+  if (Custom.settings.Options != NULL) {
+    DBG("Options:\"%ls\" ", Custom.settings.Options);
   }
-  DBG("Type:%d Flags:0x%hhX matching ", Custom->Type, Custom->Flags);
-  if (Custom->Volume) {
-    DBG("Volume:\"%ls\"\n", Custom->Volume);
+  DBG("Type:%d Flags:0x%hhX matching ", Custom.settings.Type, Custom.settings.Flags);
+  if (Custom.settings.Volume) {
+    DBG("Volume:\"%ls\"\n", Custom.settings.Volume);
   } else {
     DBG("all volumes\n");
   }
 #endif
 
   for (VolumeIndex = 0; VolumeIndex < Volumes.size(); ++VolumeIndex) {
-    CUSTOM_LOADER_ENTRY *CustomSubEntry;
     LOADER_ENTRY        *Entry = NULL;
-    XIcon Image = Custom->Image;
-    XIcon DriveImage = Custom->DriveImage;
+    XIcon Image = Custom.Image;
+    XIcon DriveImage = Custom.DriveImage;
 
     EFI_GUID            *Guid = NULL;
     UINT64               VolumeSize;
@@ -1866,7 +2536,7 @@ STATIC void AddCustomEntry(IN UINTN                CustomIndex,
       continue;
     }
 
-    if (Custom->VolumeType != 0 && ((1<<Volume->DiskKind) & Custom->VolumeType) == 0) {
+    if (Custom.settings.VolumeType != 0 && ((1<<Volume->DiskKind) & Custom.settings.VolumeType) == 0) {
       DBG("skipped because media is ignored\n");
       continue;
     }
@@ -1884,9 +2554,9 @@ STATIC void AddCustomEntry(IN UINTN                CustomIndex,
 
     
     // Check for exact volume matches (devicepath / volumelabel)
-    if (Custom->Volume.notEmpty()) {
-      if ((StrStr(Volume->DevicePathString.wc_str(), Custom->Volume.wc_str()) == NULL) &&
-          ((Volume->VolName.isEmpty()) || (StrStr(Volume->VolName.wc_str(), Custom->Volume.wc_str()) == NULL))) {
+    if (Custom.settings.Volume.notEmpty()) {
+      if ((StrStr(Volume->DevicePathString.wc_str(), Custom.settings.Volume.wc_str()) == NULL) &&
+          ((Volume->VolName.isEmpty()) || (StrStr(Volume->VolName.wc_str(), Custom.settings.Volume.wc_str()) == NULL))) {
         bool CustomEntryFound = false;
         //..\VenMedia(BE74FCF7-0B7C-49F3-9147-01F4042E6842,E97E25EA28F4DF46AAD44CC3F12E28D3)
         EFI_DEVICE_PATH *MediaPath = Clover_FindDevicePathNodeWithType(Volume->DevicePath, MEDIA_DEVICE_PATH, MEDIA_VENDOR_DP);
@@ -1894,11 +2564,11 @@ STATIC void AddCustomEntry(IN UINTN                CustomIndex,
           EFI_GUID *MediaPathGuid = (EFI_GUID *)&((VENDOR_DEVICE_PATH_WITH_DATA*)MediaPath)->VendorDefinedData;
           XStringW MediaPathGuidStr = GuidLEToXStringW(*MediaPathGuid);
           //       DBG("  checking '%ls'\n", MediaPathGuidStr.wc_str());
-          if (StrStr(Custom->Volume.wc_str(), MediaPathGuidStr.wc_str())) {
-            DBG("   - found entry for volume '%ls', '%ls'\n", Custom->Volume.wc_str(), MediaPathGuidStr.wc_str());
+          if (StrStr(Custom.settings.Volume.wc_str(), MediaPathGuidStr.wc_str())) {
+            DBG("   - found entry for volume '%ls', '%ls'\n", Custom.settings.Volume.wc_str(), MediaPathGuidStr.wc_str());
             CustomEntryFound = true;
           } else {
-            DBG("  - search volume '%ls', but MediaPath '%ls' \n", Custom->Volume.wc_str(), MediaPathGuidStr.wc_str());
+            DBG("  - search volume '%ls', but MediaPath '%ls' \n", Custom.settings.Volume.wc_str(), MediaPathGuidStr.wc_str());
           }
         }
         if (!CustomEntryFound) {
@@ -1920,29 +2590,29 @@ STATIC void AddCustomEntry(IN UINTN                CustomIndex,
       StrToLower(PartUUID);
 
       // search for standard/nonstandard linux uefi paths, and all kernel scan options that != KERNEL_SCAN_ALL
-      if (Custom->Type == OSTYPE_LIN || Custom->KernelScan != KERNEL_SCAN_ALL) {
-        LinuxScan(Volume, Custom->KernelScan, Custom->Type, &CustomPath, &Image);
+      if (Custom.settings.Type == OSTYPE_LIN || Custom.settings.KernelScan != KERNEL_SCAN_ALL) {
+        LinuxScan(Volume, Custom.settings.KernelScan, Custom.settings.Type, &CustomPath, &Image);
       }
-      if (Custom->Type == OSTYPE_LINEFI) {
+      if (Custom.settings.Type == OSTYPE_LINEFI) {
         // Open the boot directory to determine linux loadoptions when found item, or kernels when KERNEL_SCAN_ALL
         DirIterOpen(Volume->RootDir, LINUX_BOOT_PATH, Iter);
       }
     } else if (!FileExists(Volume->RootDir, CustomPath)) {
-      DBG("skipped because path does not exist\n");
+      DBG("skipped because path '%ls' does not exist\n", CustomPath.wc_str());
       continue;
     }
 
     // Change to custom image if needed
-    if (Image.isEmpty() && Custom->ImagePath.notEmpty()) {
-      Image.LoadXImage(&ThemeX.getThemeDir(), Custom->ImagePath);
+    if (Image.isEmpty() && Custom.settings.dgetImagePath().notEmpty()) {
+      Image.LoadXImage(&ThemeX.getThemeDir(), Custom.settings.dgetImagePath());
       if (Image.isEmpty()) {
-        Image.LoadXImage(&ThemeX.getThemeDir(), L"os_"_XSW + Custom->ImagePath);
+        Image.LoadXImage(&ThemeX.getThemeDir(), L"os_"_XSW + Custom.settings.dgetImagePath());
         if (Image.isEmpty()) {
-          Image.LoadXImage(&self.getCloverDir(), Custom->ImagePath);
+          Image.LoadXImage(&self.getCloverDir(), Custom.settings.dgetImagePath());
           if (Image.isEmpty()) {
-            Image.LoadXImage(&self.getSelfVolumeRootDir(), Custom->ImagePath);
+            Image.LoadXImage(&self.getSelfVolumeRootDir(), Custom.settings.dgetImagePath());
             if (Image.isEmpty()) {
-              Image.LoadXImage(Volume->RootDir, Custom->ImagePath);
+              Image.LoadXImage(Volume->RootDir, Custom.settings.dgetImagePath());
             }
           }
         }
@@ -1950,24 +2620,24 @@ STATIC void AddCustomEntry(IN UINTN                CustomIndex,
     }
 
     // Change to custom drive image if needed
-    if (DriveImage.isEmpty() && Custom->DriveImagePath.notEmpty()) {
-      DriveImage.LoadXImage(&ThemeX.getThemeDir(), Custom->DriveImagePath);
+    if (DriveImage.isEmpty() && Custom.settings.dgetDriveImagePath().notEmpty()) {
+      DriveImage.LoadXImage(&ThemeX.getThemeDir(), Custom.settings.dgetDriveImagePath());
       if (DriveImage.isEmpty()) {
-        DriveImage.LoadXImage(&self.getCloverDir(), Custom->ImagePath);
+        DriveImage.LoadXImage(&self.getCloverDir(), Custom.settings.dgetImagePath());
         if (DriveImage.isEmpty()) {
-          DriveImage.LoadXImage(&self.getSelfVolumeRootDir(), Custom->ImagePath);
+          DriveImage.LoadXImage(&self.getSelfVolumeRootDir(), Custom.settings.dgetImagePath());
           if (DriveImage.isEmpty()) {
-            DriveImage.LoadXImage(Volume->RootDir, Custom->ImagePath);
+            DriveImage.LoadXImage(Volume->RootDir, Custom.settings.dgetImagePath());
           }
         }
       }
     }
 
     do { // when not scanning for kernels, this loop will execute only once
-      XString8Array CustomOptions = Custom->LoadOptions;
+      XString8Array CustomOptions = Custom.getLoadOptions();
 
       // for LINEFI with option KERNEL_SCAN_ALL, use this loop to search for kernels
-      if (FindCustomPath && Custom->Type == OSTYPE_LINEFI && Custom->KernelScan == KERNEL_SCAN_ALL) {
+      if (FindCustomPath && Custom.settings.Type == OSTYPE_LINEFI && Custom.settings.KernelScan == KERNEL_SCAN_ALL) {
         EFI_FILE_INFO *FileInfo = NULL;
         // Get the next kernel path or stop looking
         if (!DirIterNext(Iter, 2, LINUX_LOADER_SEARCH_PATH, &FileInfo) || (FileInfo == NULL)) {
@@ -1986,159 +2656,168 @@ STATIC void AddCustomEntry(IN UINTN                CustomIndex,
         break;
       }
 
+      UINT8 newCustomFlags = Custom.getFlags(gSettings.SystemParameters.NoCaches);
+
       // Check to make sure if we should update linux custom options or not
-      if (FindCustomPath && Custom->Type == OSTYPE_LINEFI && OSFLAG_ISUNSET(Custom->Flags, OSFLAG_NODEFAULTARGS)) {
+      if (FindCustomPath && Custom.settings.Type == OSTYPE_LINEFI && OSFLAG_ISUNSET(Custom.getFlags(gSettings.SystemParameters.NoCaches), OSFLAG_NODEFAULTARGS)) {
         // Find the init ram image and select root
-        CustomOptions = LinuxKernelOptions(Iter->DirHandle, Basename(CustomPath.wc_str()) + LINUX_LOADER_PATH.length(), PartUUID, Custom->LoadOptions);
-        Custom->Flags = OSFLAG_SET(Custom->Flags, OSFLAG_NODEFAULTARGS);
+        CustomOptions = LinuxKernelOptions(Iter->DirHandle, Basename(CustomPath.wc_str()) + LINUX_LOADER_PATH.length(), PartUUID, Custom.getLoadOptions());
+        newCustomFlags = OSFLAG_SET(Custom.getFlags(gSettings.SystemParameters.NoCaches), OSFLAG_NODEFAULTARGS);
       }
 
       // Check to make sure that this entry is not hidden or disabled by another custom entry
-      if (!IsSubEntry) {
-        CUSTOM_LOADER_ENTRY *Ptr;
-        UINTN                i = 0;
+      if (true) {
         BOOLEAN              BetterMatch = FALSE;
-        for (Ptr = gSettings.CustomEntries; Ptr != NULL; ++i, Ptr = Ptr->Next) {
+        for (size_t i = 0 ; i < GlobalConfig.CustomEntries.size() ; ++i ) {
+          CUSTOM_LOADER_ENTRY& CustomEntry = GlobalConfig.CustomEntries[i];
+          if ( CustomEntry.settings.Disabled ) continue; // before, disabled entries settings weren't loaded.
           // Don't match against this custom
-          if (Ptr == Custom) {
+          if (&CustomEntry == &Custom) {
             continue;
           }
           // Can only match the same types
-          if (Custom->Type != Ptr->Type) {
+          if (Custom.settings.Type != CustomEntry.settings.Type) {
             continue;
           }
           // Check if the volume string matches
-          if (Custom->Volume != Ptr->Volume) {
-            if (Ptr->Volume.isEmpty()) {
+          if (Custom.settings.Volume != CustomEntry.settings.Volume) {
+            if (CustomEntry.settings.Volume.isEmpty()) {
               // Less precise volume match
-              if (Custom->Path != Ptr->Path) {
+              if (Custom.settings.Path != CustomEntry.settings.Path) {
                 // Better path match
-                BetterMatch = ((Ptr->Path.notEmpty()) && CustomPath.equal(Ptr->Path) &&
-                               ((Custom->VolumeType == Ptr->VolumeType) ||
-                                ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0));
+                BetterMatch = ((CustomEntry.settings.Path.notEmpty()) && CustomPath.isEqual(CustomEntry.settings.Path) &&
+                               ((Custom.settings.VolumeType == CustomEntry.settings.VolumeType) ||
+                                ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0));
               }
-            } else if ((StrStr(Volume->DevicePathString.wc_str(), Custom->Volume.wc_str()) == NULL) &&
-                       ((Volume->VolName.isEmpty()) || (StrStr(Volume->VolName.wc_str(), Custom->Volume.wc_str()) == NULL))) {
-              if (Custom->Volume.isEmpty()) {
+            } else if ((StrStr(Volume->DevicePathString.wc_str(), Custom.settings.Volume.wc_str()) == NULL) &&
+                       ((Volume->VolName.isEmpty()) || (StrStr(Volume->VolName.wc_str(), Custom.settings.Volume.wc_str()) == NULL))) {
+              if (Custom.settings.Volume.isEmpty()) {
                 // More precise volume match
-                if (Custom->Path != Ptr->Path) {
+                if (Custom.settings.Path != CustomEntry.settings.Path) {
                   // Better path match
-                  BetterMatch = ((Ptr->Path.notEmpty()) && CustomPath.equal(Ptr->Path) &&
-                                 ((Custom->VolumeType == Ptr->VolumeType) ||
-                                  ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0));
-                } else if (Custom->VolumeType != Ptr->VolumeType) {
+                  BetterMatch = ((CustomEntry.settings.Path.notEmpty()) && CustomPath.isEqual(CustomEntry.settings.Path) &&
+                                 ((Custom.settings.VolumeType == CustomEntry.settings.VolumeType) ||
+                                  ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0));
+                } else if (Custom.settings.VolumeType != CustomEntry.settings.VolumeType) {
                   // More precise volume type match
-                  BetterMatch = ((Custom->VolumeType == 0) &&
-                                 ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0);
+                  BetterMatch = ((Custom.settings.VolumeType == 0) &&
+                                 ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0);
                 } else {
                   // Better match
                   BetterMatch = TRUE;
                 }
               // Duplicate volume match
-              } else if (Custom->Path != Ptr->Path) {
+              } else if (Custom.settings.Path != CustomEntry.settings.Path) {
                 // Better path match
-                BetterMatch = ((Ptr->Path.notEmpty()) && CustomPath.equal(Ptr->Path) &&
-                               ((Custom->VolumeType == Ptr->VolumeType) ||
-                                ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0));
+                BetterMatch = ((CustomEntry.settings.Path.notEmpty()) && CustomPath.isEqual(CustomEntry.settings.Path) &&
+                               ((Custom.settings.VolumeType == CustomEntry.settings.VolumeType) ||
+                                ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0));
               // Duplicate path match
-              } else if (Custom->VolumeType != Ptr->VolumeType) {
+              } else if (Custom.settings.VolumeType != CustomEntry.settings.VolumeType) {
                 // More precise volume type match
-                BetterMatch = ((Custom->VolumeType == 0) &&
-                               ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0);
+                BetterMatch = ((Custom.settings.VolumeType == 0) &&
+                               ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0);
               } else {
                 // Duplicate entry
                 BetterMatch = (i <= CustomIndex);
               }
             }
           // Duplicate volume match
-          } else if (Custom->Path != Ptr->Path) {
-            if (Ptr->Path.isEmpty()) {
+          } else if (Custom.settings.Path != CustomEntry.settings.Path) {
+            if (CustomEntry.settings.Path.isEmpty()) {
               // Less precise path match
-              BetterMatch = ((Custom->VolumeType != Ptr->VolumeType) &&
-                             ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0);
-            } else if (CustomPath.equal(Ptr->Path)) {
-              if (Custom->Path.isEmpty()) {
+              BetterMatch = ((Custom.settings.VolumeType != CustomEntry.settings.VolumeType) &&
+                             ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0);
+            } else if (CustomPath.isEqual(CustomEntry.settings.Path)) {
+              if (Custom.settings.Path.isEmpty()) {
                 // More precise path and volume type match
-                BetterMatch = ((Custom->VolumeType == Ptr->VolumeType) ||
-                               ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0);
-              } else if (Custom->VolumeType != Ptr->VolumeType) {
+                BetterMatch = ((Custom.settings.VolumeType == CustomEntry.settings.VolumeType) ||
+                               ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0);
+              } else if (Custom.settings.VolumeType != CustomEntry.settings.VolumeType) {
                 // More precise volume type match
-                BetterMatch = ((Custom->VolumeType == 0) &&
-                               ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0);
+                BetterMatch = ((Custom.settings.VolumeType == 0) &&
+                               ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0);
               } else {
                 // Duplicate entry
                 BetterMatch = (i <= CustomIndex);
               }
             }
           // Duplicate path match
-          } else if (Custom->VolumeType != Ptr->VolumeType) {
+          } else if (Custom.settings.VolumeType != CustomEntry.settings.VolumeType) {
             // More precise volume type match
-            BetterMatch = ((Custom->VolumeType == 0) &&
-                           ((1ull<<Volume->DiskKind) & Custom->VolumeType) != 0);
+            BetterMatch = ((Custom.settings.VolumeType == 0) &&
+                           ((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) != 0);
           } else {
             // Duplicate entry
             BetterMatch = (i <= CustomIndex);
           }
           if (BetterMatch) {
+            DBG("skipped because custom entry %zu is a better match and will produce a duplicate entry\n", i);
             break;
           }
         }
         if (BetterMatch) {
-          DBG("skipped because custom entry %llu is a better match and will produce a duplicate entry\n", i);
           continue;
         }
       }
 
       DBG("match!\n");
       // Create an entry for this volume
-      Entry = CreateLoaderEntry(CustomPath, CustomOptions, Custom->FullTitle, Custom->Title, Volume, L""_XSW,
+      Entry = CreateLoaderEntry(CustomPath, CustomOptions, Custom.settings.FullTitle, Custom.settings.dgetTitle(), Volume,
                                 (Image.isEmpty() ? NULL : &Image), (DriveImage.isEmpty() ? NULL : &DriveImage),            
-                                Custom->Type, Custom->Flags, Custom->Hotkey, Custom->BootBgColor, Custom->CustomBoot, &Custom->CustomLogo, 
+                                Custom.settings.Type, newCustomFlags, Custom.settings.Hotkey, Custom.settings.BootBgColor, Custom.CustomLogoType, Custom.CustomLogoImage,
                                 /*(KERNEL_AND_KEXT_PATCHES *)(((UINTN)Custom) + OFFSET_OF(CUSTOM_LOADER_ENTRY, KernelAndKextPatches))*/ NULL, TRUE);
       if (Entry != NULL) {
-        DBG("Custom settings: %ls.plist will %s be applied\n", Custom->Settings.wc_str(), Custom->CommonSettings?"not":"");
-        if (!Custom->CommonSettings) {
-          Entry->Settings = Custom->Settings;
+        if ( Custom.settings.Settings.notEmpty() ) {
+          DBG("Custom settings: %ls.plist will %s be applied\n", Custom.settings.Settings.wc_str(), Custom.settings.CommonSettings?"not":"");
         }
-        if (OSFLAG_ISUNSET(Custom->Flags, OSFLAG_NODEFAULTMENU)) {
+        if (!Custom.settings.CommonSettings) {
+          Entry->Settings = DefaultEntrySettings;
+        }
+        if (Custom.settings.ForceTextMode) {
+          Entry->Flags = OSFLAG_UNSET(Entry->Flags, OSFLAG_USEGRAPHICS);
+        }
+        if (OSFLAG_ISUNSET(newCustomFlags, OSFLAG_NODEFAULTMENU)) {
           Entry->AddDefaultMenu();
-        } else if (Custom->SubEntries != NULL) {
+        } else if (Custom.SubEntries.notEmpty()) {
           UINTN CustomSubIndex = 0;
           // Add subscreen
           REFIT_MENU_SCREEN *SubScreen = new REFIT_MENU_SCREEN;
-          if (SubScreen) {
-            SubScreen->Title.SWPrintf("Boot Options for %ls on %ls", (Custom->Title.notEmpty()) ? Custom->Title.wc_str() : CustomPath.wc_str(), Entry->DisplayedVolName.wc_str());
-            SubScreen->TitleImage = Entry->Image;
-            SubScreen->ID = Custom->Type + 20;
-            SubScreen->GetAnime();
-            VolumeSize = RShiftU64(MultU64x32(Volume->BlockIO->Media->LastBlock, Volume->BlockIO->Media->BlockSize), 20);
-            SubScreen->AddMenuInfoLine_f("Volume size: %lldMb", VolumeSize);
-            SubScreen->AddMenuInfoLine_f("%ls", FileDevicePathToXStringW(Entry->DevicePath).wc_str());
-            if (Guid) {
-              SubScreen->AddMenuInfoLine_f("UUID: %s", strguid(Guid));
-            }
-            SubScreen->AddMenuInfoLine_f("Options: %s", Entry->LoadOptions.ConcatAll(" "_XS8).c_str());
-            DBG("Create sub entries\n");
-            for (CustomSubEntry = Custom->SubEntries; CustomSubEntry; CustomSubEntry = CustomSubEntry->Next) {
-              if ( CustomSubEntry->Settings.isEmpty() ) {
-                CustomSubEntry->Settings = Custom->Settings;
-              }
-              AddCustomEntry(CustomSubIndex++, (CustomSubEntry->Path.notEmpty()) ? CustomSubEntry->Path : CustomPath, CustomSubEntry, SubScreen);
-            }
-            SubScreen->AddMenuEntry(&MenuEntryReturn, true);
-            Entry->SubScreen = SubScreen;
+          SubScreen->Title.SWPrintf("Boot Options for %ls on %ls", (Custom.settings.dgetTitle().notEmpty()) ? XStringW(Custom.settings.dgetTitle()).wc_str() : CustomPath.wc_str(), Entry->DisplayedVolName.wc_str());
+          SubScreen->TitleImage = Entry->Image;
+          SubScreen->ID = Custom.settings.Type + 20;
+          SubScreen->GetAnime();
+          VolumeSize = RShiftU64(MultU64x32(Volume->BlockIO->Media->LastBlock, Volume->BlockIO->Media->BlockSize), 20);
+          SubScreen->AddMenuInfoLine_f("Volume size: %lldMb", VolumeSize);
+          SubScreen->AddMenuInfoLine_f("%ls", FileDevicePathToXStringW(Entry->DevicePath).wc_str());
+          if (Guid) {
+            SubScreen->AddMenuInfoLine_f("UUID: %s", strguid(Guid));
           }
+          SubScreen->AddMenuInfoLine_f("Options: %s", Entry->LoadOptions.ConcatAll(" "_XS8).c_str());
+          DBG("Create sub entries\n");
+          for (size_t CustomSubEntryIndex = 0 ; CustomSubEntryIndex < Custom.SubEntries.size() ; ++CustomSubEntryIndex ) {
+            const CUSTOM_LOADER_SUBENTRY& CustomSubEntry = Custom.SubEntries[CustomSubEntryIndex];
+//            if ( CustomSubEntry.settings.Settings.isEmpty() ) {
+              AddCustomSubEntry(Volume, CustomSubIndex++, Custom.settings.Path.notEmpty() ? Custom.settings.Path : CustomPath, Custom.settings.Type, CustomSubEntry, Custom.settings.Settings, SubScreen);
+//            }else{
+//              AddCustomSubEntry(Volume, CustomSubIndex++, CustomSubEntry.settings.Path.notEmpty() ? CustomSubEntry.settings.Path : CustomPath, CustomSubEntry, CustomSubEntry.settings.Settings, SubScreen);
+//            }
+          }
+          SubScreen->AddMenuEntry(&MenuEntryReturn, true);
+          Entry->SubScreen = SubScreen;
         }
-        if (IsSubEntry)
-          SubMenu->AddMenuEntry(Entry, true);
-        else
+//        if (IsSubEntry)
+//          SubMenu->AddMenuEntry(Entry, true);
+//        else
           MainMenu.AddMenuEntry(Entry, true);
-        Entry->Hidden = Custom->Hidden;
+
+        Entry->Hidden = Custom.settings.Hidden;
+        if ( Custom.settings.Hidden ) DBG("     hiding entry because Custom.settings.Hidden\n");
       }
-    } while (FindCustomPath && Custom->Type == OSTYPE_LINEFI && Custom->KernelScan == KERNEL_SCAN_ALL); // repeat loop only for kernel scanning
+    } while (FindCustomPath && Custom.settings.Type == OSTYPE_LINEFI && Custom.settings.KernelScan == KERNEL_SCAN_ALL); // repeat loop only for kernel scanning
 
     // Close the kernel boot directory
-    if (FindCustomPath && Custom->Type == OSTYPE_LINEFI) {
+    if (FindCustomPath && Custom.settings.Type == OSTYPE_LINEFI) {
       DirIterClose(Iter);
     }
   }
@@ -2148,43 +2827,44 @@ STATIC void AddCustomEntry(IN UINTN                CustomIndex,
 // Add custom entries
 void AddCustomEntries(void)
 {
-  CUSTOM_LOADER_ENTRY *Custom;
-  UINTN                i = 0;
-  
-  if (!gSettings.CustomEntries) {
-    return;
-  }
+  if (GlobalConfig.CustomEntries.isEmpty()) return;
 
   //DBG("Custom entries start\n");
   DbgHeader("AddCustomEntries");
   // Traverse the custom entries
-  for (Custom = gSettings.CustomEntries; Custom; ++i, Custom = Custom->Next) {
-    if ((Custom->Path.isEmpty()) && (Custom->Type != 0)) {
-      if (OSTYPE_IS_OSX(Custom->Type)) {
-        AddCustomEntry(i, MACOSX_LOADER_PATH, Custom, NULL);
-      } else if (OSTYPE_IS_OSX_RECOVERY(Custom->Type)) {
-        AddCustomEntry(i, L"\\com.apple.recovery.boot\\boot.efi"_XSW, Custom, NULL);
-      } else if (OSTYPE_IS_OSX_INSTALLER(Custom->Type)) {
+  for (size_t i = 0 ; i < GlobalConfig.CustomEntries.size(); ++i) {
+    CUSTOM_LOADER_ENTRY& Custom = GlobalConfig.CustomEntries[i];
+    DBG("- [00]: '%s'\n", Custom.settings.FullTitle.isEmpty() ? Custom.settings.dgetTitle().c_str() : Custom.settings.FullTitle.c_str() );
+    if ( Custom.settings.Disabled ) {
+      DBG("  Disabled\n");
+      continue; // before, disabled entries settings weren't loaded.
+    }
+    if ((Custom.settings.Path.isEmpty()) && (Custom.settings.Type != 0)) {
+      if (OSTYPE_IS_OSX(Custom.settings.Type)) {
+        AddCustomEntry(i, MACOSX_LOADER_PATH, Custom, Custom.settings.Settings, NULL);
+      } else if (OSTYPE_IS_OSX_RECOVERY(Custom.settings.Type)) {
+        AddCustomEntry(i, L"\\com.apple.recovery.boot\\boot.efi"_XSW, Custom, Custom.settings.Settings, NULL);
+      } else if (OSTYPE_IS_OSX_INSTALLER(Custom.settings.Type)) {
         UINTN Index = 0;
         while (Index < OSXInstallerPathsCount) {
-          AddCustomEntry(i, OSXInstallerPaths[Index++], Custom, NULL);
+          AddCustomEntry(i, OSXInstallerPaths[Index++], Custom, Custom.settings.Settings, NULL);
         }
-      } else if (OSTYPE_IS_WINDOWS(Custom->Type)) {
-        AddCustomEntry(i, L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"_XSW, Custom, NULL);
-      } else if (OSTYPE_IS_LINUX(Custom->Type)) {
+      } else if (OSTYPE_IS_WINDOWS(Custom.settings.Type)) {
+        AddCustomEntry(i, L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"_XSW, Custom, Custom.settings.Settings, NULL);
+      } else if (OSTYPE_IS_LINUX(Custom.settings.Type)) {
 #if defined(ANDX86)
         for (UINTN Index = 0; Index < AndroidEntryDataCount; ++Index) {
-          AddCustomEntry(i, AndroidEntryData[Index].Path, Custom, NULL);
+          AddCustomEntry(i, AndroidEntryData[Index].Path, Custom, Custom.settings.Settings, NULL);
         }
 #endif
-        AddCustomEntry(i, NullXStringW, Custom, NULL);
-      } else if (Custom->Type == OSTYPE_LINEFI) {
-        AddCustomEntry(i, NullXStringW, Custom, NULL);
+        AddCustomEntry(i, NullXStringW, Custom, Custom.settings.Settings, NULL);
+      } else if (Custom.settings.Type == OSTYPE_LINEFI) {
+        AddCustomEntry(i, NullXStringW, Custom, Custom.settings.Settings, NULL);
       } else {
-        AddCustomEntry(i, BOOT_LOADER_PATH, Custom, NULL);
+        AddCustomEntry(i, BOOT_LOADER_PATH, Custom, Custom.settings.Settings, NULL);
       }
     } else {
-      AddCustomEntry(i, Custom->Path, Custom, NULL);
+      AddCustomEntry(i, Custom.settings.Path, Custom, Custom.settings.Settings, NULL);
     }
   }
   //DBG("Custom entries finish\n");

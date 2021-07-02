@@ -35,15 +35,21 @@
  */
 
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
-#include "../include/OsType.h"
+#include <Efi.h>
+#include "../include/OSTypes.h"
 #include "lib.h"
 #include "screen.h"
+#include "../Platform/BasicIO.h"
+#include "../Platform/BootLog.h"
 #include "../Platform/guid.h"
 #include "../Platform/APFS.h"
 #include "../refit/lib.h"
 #include "../Platform/Settings.h"
-#include "Self.h"
-#include "SelfOem.h"
+#include "../Settings/Self.h"
+#include "../Settings/SelfOem.h"
+#include "../Platform/Volumes.h"
+#include "../libeg/XTheme.h"
+
 #include "../include/OC.h"
 
 #ifndef DEBUG_ALL
@@ -60,23 +66,11 @@
 
 // variables
 
-XTheme ThemeX;
 
 //XStringW         ThemePath;
-BOOLEAN          gThemeChanged = FALSE;
 //BOOLEAN          gBootArgsChanged = FALSE;
-BOOLEAN          gBootChanged = FALSE;
 BOOLEAN          gThemeOptionsChanged = FALSE;
 
-
-REFIT_VOLUME     *SelfVolume = NULL;
-//REFIT_VOLUME     **Volumes = NULL;
-//UINTN            VolumesCount = 0;
-VolumesArrayClass Volumes;
-
-//REFIT_VOLUME* VolumesArrayClass::getApfsPartitionWithUUID(const XString8& ApfsContainerUUID, const XString8& APFSTargetUUID)
-//{
-//}
 
 //
 // Unicode collation protocol interface
@@ -488,37 +482,37 @@ static void ScanVolumeBootcode(IN OUT REFIT_VOLUME *Volume, OUT BOOLEAN *Bootabl
         Volume->LegacyOS->Name = L"FreeDOS"_XSW;
         Volume->LegacyOS->Type = OSTYPE_VAR;
         Volume->BootType = BOOTING_BY_PBR;
-/*
+
       } else if (FindMem(SectorBuffer, 512, "OS2LDR", 6) >= 0 ||
                  FindMem(SectorBuffer, 512, "OS2BOOT", 7) >= 0) {
         Volume->HasBootCode = TRUE;
-        Volume->LegacyOS->IconName = L"ecomstation";
-        Volume->LegacyOS->Name = L"eComStation";
+        Volume->LegacyOS->IconName = L"ecomstation"_XSW;
+        Volume->LegacyOS->Name = L"eComStation"_XSW;
         Volume->LegacyOS->Type = OSTYPE_VAR;
         Volume->BootType = BOOTING_BY_PBR;
         
       } else if (FindMem(SectorBuffer, 512, "Be Boot Loader", 14) >= 0) {
         Volume->HasBootCode = TRUE;
-        Volume->LegacyOS->IconName = L"beos";
-        Volume->LegacyOS->Name = L"BeOS";
+        Volume->LegacyOS->IconName = L"beos"_XSW;
+        Volume->LegacyOS->Name = L"BeOS"_XSW;
         Volume->LegacyOS->Type = OSTYPE_VAR;
         Volume->BootType = BOOTING_BY_PBR;
         
       } else if (FindMem(SectorBuffer, 512, "yT Boot Loader", 14) >= 0) {
         Volume->HasBootCode = TRUE;
-        Volume->LegacyOS->IconName = L"zeta";
-        Volume->LegacyOS->Name = L"ZETA";
+        Volume->LegacyOS->IconName = L"zeta"_XSW;
+        Volume->LegacyOS->Name = L"ZETA"_XSW;
         Volume->LegacyOS->Type = OSTYPE_VAR;
         Volume->BootType = BOOTING_BY_PBR;
         
       } else if (FindMem(SectorBuffer, 512, "\x04" "beos\x06" "system\x05" "zbeos", 18) >= 0 ||
                  FindMem(SectorBuffer, 512, "haiku_loader", 12) >= 0) {
         Volume->HasBootCode = TRUE;
-        Volume->LegacyOS->IconName = L"haiku";
-        Volume->LegacyOS->Name = L"Haiku";
+        Volume->LegacyOS->IconName = L"haiku"_XSW;
+        Volume->LegacyOS->Name = L"Haiku"_XSW;
         Volume->LegacyOS->Type = OSTYPE_VAR;
         Volume->BootType = BOOTING_BY_PBR;
- */
+
       } 
     }
     
@@ -536,10 +530,10 @@ static void ScanVolumeBootcode(IN OUT REFIT_VOLUME *Volume, OUT BOOLEAN *Bootabl
       Volume->HasBootCode = FALSE;
 
 #ifdef JIEF_DEBUG
-//*Bootable = TRUE;
+////*Bootable = TRUE;
 //Volume->HasBootCode = TRUE;
-//Volume->LegacyOS->IconName = L"win";
-//Volume->LegacyOS->Name = L"Windows";
+//Volume->LegacyOS->IconName = L"win"_XSW;
+//Volume->LegacyOS->Name = L"Windows"_XSW;
 //Volume->LegacyOS->Type = OSTYPE_WIN;
 //Volume->BootType = BOOTING_BY_PBR;
 #endif
@@ -763,7 +757,7 @@ static EFI_STATUS ScanVolume(IN OUT REFIT_VOLUME *Volume)
    DBG("HD path is not found\n"); //master volume!
    }*/
   
-  //  if (GlobalConfig.FastBoot) {
+  //  if (GlobalConfig.isFastBoot()) {
   //    return EFI_SUCCESS;
   //  }
   
@@ -856,7 +850,7 @@ static EFI_STATUS ScanVolume(IN OUT REFIT_VOLUME *Volume)
       FreePool(RootInfo);
     }
   }
-  if ( Volume->VolName.isEmpty() || Volume->VolName.equal("\\") || Volume->VolName.equal(L"/") )
+  if ( Volume->VolName.isEmpty() || Volume->VolName.isEqual("\\") || Volume->VolName.isEqual(L"/") )
   {
     void *Instance;
     if (!EFI_ERROR(gBS->HandleProtocol(Volume->DeviceHandle, &gEfiPartTypeSystemPartGuid, &Instance))) {
@@ -889,7 +883,7 @@ static EFI_STATUS ScanVolume(IN OUT REFIT_VOLUME *Volume)
 			  //DBG("Skip dot entries: %ls\n", DirEntry->FileName);
         continue;
 		  }
-		  if ( IsValidGuidAsciiString(LStringW(DirEntry->FileName)) ) {
+		  if ( IsValidGuidString(LStringW(DirEntry->FileName)) ) {
 			  Volume->ApfsTargetUUIDArray.Add(DirEntry->FileName);
 		  }
 		}
@@ -1005,9 +999,9 @@ void ScanVolumes(void)
     Status = ScanVolume(Volume);
     if (!EFI_ERROR(Status)) {
       Volumes.AddReference(Volume, false);
-      for (size_t HVi = 0; HVi < gSettings.HVHideStrings.size(); HVi++) {
-        if ( Volume->DevicePathString.containsIC(gSettings.HVHideStrings[HVi]) ||
-             Volume->VolName.containsIC(gSettings.HVHideStrings[HVi])
+      for (size_t HVi = 0; HVi < gSettings.GUI.HVHideStrings.size(); HVi++) {
+        if ( Volume->DevicePathString.containsIC(gSettings.GUI.HVHideStrings[HVi]) ||
+             Volume->VolName.containsIC(gSettings.GUI.HVHideStrings[HVi])
            ) {
           Volume->Hidden = TRUE;
           DBG("        hiding this volume\n");
@@ -1213,7 +1207,7 @@ REFIT_VOLUME *FindVolumeByName(IN CONST CHAR16 *VolName)
     if (!Volume) {
       continue;
     }
-    if (Volume->VolName.equal(VolName) == 0) {
+    if (Volume->VolName.isEqual(VolName) == 0) {
       return Volume;
     }
   }
@@ -1248,6 +1242,11 @@ BOOLEAN FileExists(const EFI_FILE *Root, const XStringW& RelativePath)
 BOOLEAN FileExists(const EFI_FILE& Root, const XStringW& RelativePath)
 {
   return FileExists(&Root, RelativePath.wc_str());
+}
+
+EFI_DEVICE_PATH_PROTOCOL* FileDevicePath(IN EFI_HANDLE Device, IN CONST XStringW& FileName)
+{
+  return FileDevicePath(Device, FileName.wc_str());
 }
 
 BOOLEAN DeleteFile(const EFI_FILE *Root, IN CONST CHAR16 *RelativePath)
@@ -1622,18 +1621,6 @@ BOOLEAN DumpVariable(CHAR16* Name, EFI_GUID* Guid, INTN DevicePathAt)
     return TRUE;
   }
   return FALSE;
-}
-
-void DbgHeader(CONST CHAR8 *str)
-{
-  CHAR8 strLog[50];
-  INTN len;
-	UINTN end = snprintf(strLog, 50, "=== [ %s ] ", str);
-  len = 50 - end;
-
-  SetMem(&strLog[end], len , '=');
-  strLog[49] = '\0';
-  DebugLog (1, "%s\n", strLog);
 }
 
 // EOF

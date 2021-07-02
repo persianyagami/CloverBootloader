@@ -11,6 +11,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 */
 
 #include <Platform.h>
+#include <Efi.h>
+
 #include "../entry_scan/entry_scan.h"
 //#include "device_tree.h"
 #include "kernel_patcher.h"
@@ -335,7 +337,7 @@ OnExitBootServices(IN EFI_EVENT Event, IN void *Context)
 	}
 #endif
   
-	if (gSettings.USBFixOwnership) {
+	if (gSettings.Devices.USB.USBFixOwnership) {
     FixOwnership();
 	}
 }

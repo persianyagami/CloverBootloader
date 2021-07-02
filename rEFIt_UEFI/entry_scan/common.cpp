@@ -40,7 +40,8 @@
 #include "../Platform/APFS.h"
 #include "../Platform/cpu.h"
 #include "../gui/REFIT_MENU_SCREEN.h"
-#include "../include/OsType.h"
+#include "../include/OSTypes.h"
+#include "../libeg/XTheme.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_COMMON_MENU 1
@@ -72,7 +73,7 @@ const XIcon& ScanVolumeDefaultIcon(REFIT_VOLUME *Volume, IN UINT8 OSType, const 
             DevicePath = NextDevicePathNode(DevicePath);
           }
           if (DevicePathType(DevicePath) == MEDIA_DEVICE_PATH && DevicePathSubType (DevicePath) == MEDIA_VENDOR_DP) {
-            if ( GuidLEToXString8(*(EFI_GUID *)((UINT8 *)DevicePath+0x04)).equalIC(ApfsSignatureUUID) ) {
+            if ( GuidLEToXString8(*(EFI_GUID *)((UINT8 *)DevicePath+0x04)).isEqualIC(ApfsSignatureUUID) ) {
               IconNum = BUILTIN_ICON_VOL_INTERNAL_APFS;
             }
           } else {
@@ -325,7 +326,7 @@ extern REFIT_MENU_ITEM_RETURN MenuEntryReturn;
 // it is not good to use Options menu style for messages and one line dialogs
 // it can be a semitransparent rectangular at the screen centre as it was in Clover v1.0
 STATIC REFIT_MENU_SCREEN  AlertMessageMenu(0, XStringW(), XStringW(), &MenuEntryReturn, NULL);
-void AlertMessage(IN XStringW& Title, IN CONST XStringW& Message)
+void AlertMessage(const XStringW& Title, const XStringW& Message)
 {
   CreateInfoLines(Message, &AlertMessageMenu.InfoLines);
   AlertMessageMenu.Title = Title;
@@ -363,8 +364,8 @@ BOOLEAN YesNoMessage(IN XStringW& Title, IN CONST XStringW& Message)
   return Result;
 }
 // Ask user for file path from directory menu
-BOOLEAN AskUserForFilePathFromDir(IN CHAR16 *Title OPTIONAL, IN REFIT_VOLUME *Volume,
-                                  IN CHAR16 *ParentPath OPTIONAL, const EFI_FILE *Dir,
+BOOLEAN AskUserForFilePathFromDir(const CHAR16 *Title OPTIONAL, IN REFIT_VOLUME *Volume,
+                                  const CHAR16 *ParentPath OPTIONAL, const EFI_FILE *Dir,
                                   OUT EFI_DEVICE_PATH_PROTOCOL **Result)
 {
   //REFIT_MENU_SCREEN   Menu = { 0, L"Please Select File...", NULL, 0, NULL, 0, NULL,
@@ -384,7 +385,7 @@ BOOLEAN AskUserForFilePathFromDir(IN CHAR16 *Title OPTIONAL, IN REFIT_VOLUME *Vo
 //  { 0, 0, 0, 0 }, NULL};
 //STATIC REFIT_MENU_SCREEN  InitialMenu(0, L"Please Select File..."_XSW, XStringW());
 // Ask user for file path from volumes menu
-BOOLEAN AskUserForFilePathFromVolumes(IN CHAR16 *Title OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result)
+BOOLEAN AskUserForFilePathFromVolumes(const CHAR16 *Title OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result)
 {
   REFIT_MENU_SCREEN   Menu(0, L"Please Select File..."_XSW, XStringW());
   UINTN               Index = 0, /*Count = 0,*/ MenuExit;
@@ -455,7 +456,7 @@ BOOLEAN AskUserForFilePath(IN CHAR16 *Title OPTIONAL, IN EFI_DEVICE_PATH_PROTOCO
         // If the path begins with this volumes path it matches
         if (StrniCmp(DevicePathStr.wc_str(), Volume->DevicePathString.wc_str(), Volume->DevicePathString.length())) {
           // Need to
-          CHAR16 *FilePath = DevicePathStr.data(Volume->DevicePathString.length());
+          const CHAR16 *FilePath = DevicePathStr.data(Volume->DevicePathString.length());
           UINTN   FileLength = StrLen(FilePath);
           if (FileLength == 0) {
             // If there is no path left then open the root

@@ -39,6 +39,7 @@
 #include "smbios.h"
 #include "kernel_patcher.h"
 #include "../Platform/Settings.h"
+#include <Register/Intel/ArchitecturalMsr.h>
 
 #ifndef DEBUG_ALL
 #define DEBUG_CPU 1
@@ -65,7 +66,6 @@
 UINT8              gDefaultType; 
 CPU_STRUCTURE      gCPUStructure;
 UINT64            TurboMsr;
-BOOLEAN           NeedPMfix = FALSE;
 
 //this must not be defined at LegacyBios calls
 #define EAX 0
@@ -139,8 +139,8 @@ void GetCPUProperties (void)
   gCPUStructure.MaxRatio = 10; //keep it as K*10
   gCPUStructure.MinRatio = 10; //same
   gCPUStructure.SubDivider = 0;
-  gSettings.CpuFreqMHz = 0;
-  gCPUStructure.FSBFrequency = MultU64x32(gCPUStructure.ExternalClock, kilo); //kHz -> Hz
+  gSettings.CPU.CpuFreqMHz = 0;
+  gCPUStructure.FSBFrequency = MultU64x32(gCPUStructure.ExternalClock, Kilo); //kHz -> Hz
   gCPUStructure.ProcessorInterconnectSpeed = 0;
   gCPUStructure.Mobile = FALSE; //not same as gMobile
   
@@ -287,6 +287,8 @@ void GetCPUProperties (void)
     gCPUStructure.Turbo = ((gCPUStructure.CPUID[CPUID_6][EAX] & BIT1) != 0);
     DBG(" The CPU%s supported turbo\n", gCPUStructure.Turbo?"":" not");
     //get cores and threads
+    BOOLEAN PerfBias = (gCPUStructure.CPUID[CPUID_6][ECX] & BIT3) != 0;
+    DBG(" Energy PerfBias is %s visible:\n", PerfBias?"":" not");
     switch (gCPUStructure.Model)
     {
       case CPU_MODEL_NEHALEM: // Intel Core i7 LGA1366 (45nm)
@@ -324,8 +326,10 @@ void GetCPUProperties (void)
       case CPU_MODEL_COMETLAKE_S:
       case CPU_MODEL_COMETLAKE_Y:
       case CPU_MODEL_COMETLAKE_U:
+      case CPU_MODEL_TIGERLAKE_C:
+      case CPU_MODEL_TIGERLAKE_D:
         msr = AsmReadMsr64(MSR_CORE_THREAD_COUNT);  //0x35
-			DBG("MSR 0x35    %16llX\n", msr);
+        DBG("MSR 0x35    %16llX\n", msr);
         gCPUStructure.Cores   = (UINT8)bitfield((UINT32)msr, 31, 16);
         gCPUStructure.Threads = (UINT8)bitfield((UINT32)msr, 15,  0);
         break;
@@ -356,7 +360,7 @@ void GetCPUProperties (void)
     DoCpuid(7, gCPUStructure.CPUID[CPUID_7]);
     if ((gCPUStructure.CPUID[CPUID_7][EBX] & BIT1) != 0) {
       DBG(" IA32_TSC_ADJUST MSR is supported \n");
-      msr = AsmReadMsr64(IA32_TSC_ADJUST);  //0x3B
+      msr = AsmReadMsr64(MSR_IA32_TSC_ADJUST);  //0x3B
       DBG(" value to adjust = %llu\n", msr);
     }
   }
@@ -515,7 +519,9 @@ void GetCPUProperties (void)
            case CPU_MODEL_COMETLAKE_S:
            case CPU_MODEL_COMETLAKE_Y:
            case CPU_MODEL_COMETLAKE_U:
-             gCPUStructure.TSCFrequency = MultU64x32(gCPUStructure.CurrentSpeed, Mega); //MHz -> Hz
+         case CPU_MODEL_TIGERLAKE_C:
+         case CPU_MODEL_TIGERLAKE_D:
+            gCPUStructure.TSCFrequency = MultU64x32(gCPUStructure.CurrentSpeed, Mega); //MHz -> Hz
              gCPUStructure.CPUFrequency = gCPUStructure.TSCFrequency;
              
              
@@ -524,7 +530,7 @@ void GetCPUProperties (void)
              MsgLog("MSR 0xE2 before patch %08llX\n", msr);
              if (msr & 0x8000) {
                MsgLog("MSR 0xE2 is locked, PM patches will be turned on\n");
-               NeedPMfix = TRUE;
+               GlobalConfig.NeedPMfix = TRUE;
              }
              //   AsmWriteMsr64(MSR_PKG_CST_CONFIG_CONTROL, (msr & 0x8000000ULL));
              //   msr = AsmReadMsr64(MSR_PKG_CST_CONFIG_CONTROL);
@@ -1058,30 +1064,30 @@ void GetCPUProperties (void)
     case CPU_MODEL_NEHALEM_EX:// Core i7, Nehalem-Ex Xeon, "Beckton"
     case CPU_MODEL_WESTMERE_EX:// Core i7, Nehalem-Ex Xeon, "Eagleton"
       ExternalClock = gCPUStructure.ExternalClock;
-      //DBG("Read original ExternalClock: %d MHz\n", (INT32)(DivU64x32(ExternalClock, kilo)));
+      //DBG("Read original ExternalClock: %d MHz\n", (INT32)(DivU64x32(ExternalClock, Kilo)));
       break;
     default:
       ExternalClock = gCPUStructure.ExternalClock;
-      //DBG("Read original ExternalClock: %d MHz\n", (INT32)(DivU64x32(ExternalClock, kilo)));
+      //DBG("Read original ExternalClock: %d MHz\n", (INT32)(DivU64x32(ExternalClock, Kilo)));
 
       // for sandy bridge or newer
       // to match ExternalClock 25 MHz like real mac, divide ExternalClock by 4
       gCPUStructure.ExternalClock = (ExternalClock + 3) / 4;
-      //DBG("Corrected ExternalClock: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.ExternalClock, kilo)));
+      //DBG("Corrected ExternalClock: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.ExternalClock, Kilo)));
       break;
   }
 
   // DBG("take FSB\n");
   tmpU = gCPUStructure.FSBFrequency;
   //  DBG("divide by 1000\n");
-  BusSpeed = (UINT32)DivU64x32(tmpU, kilo); //Hz -> kHz
-	DBG("FSBFrequency = %llu MHz, DMI FSBFrequency = %llu MHz, ", DivU64x32 (tmpU + Mega - 1, Mega), DivU64x32 (ExternalClock + 499, kilo));
+  BusSpeed = (UINT32)DivU64x32(tmpU, Kilo); //Hz -> kHz
+	DBG("FSBFrequency = %llu MHz, DMI FSBFrequency = %llu MHz, ", DivU64x32 (tmpU + Mega - 1, Mega), DivU64x32 (ExternalClock + 499, Kilo));
   //now check if SMBIOS has ExternalClock = 4xBusSpeed
-  if ((BusSpeed > 50*kilo) &&
-      ((ExternalClock > BusSpeed * 3) || (ExternalClock < 50*kilo))) { //khz
+  if ((BusSpeed > 50*Kilo) &&
+      ((ExternalClock > BusSpeed * 3) || (ExternalClock < 50*Kilo))) { //khz
     gCPUStructure.ExternalClock = BusSpeed;
   } else {
-    tmpU = MultU64x32(ExternalClock, kilo); //kHz -> Hz
+    tmpU = MultU64x32(ExternalClock, Kilo); //kHz -> Hz
     gCPUStructure.FSBFrequency = tmpU;
   }
   tmpU = gCPUStructure.FSBFrequency;
@@ -1141,12 +1147,12 @@ void GetCPUProperties (void)
     DBG("qpimult %d\n", qpimult);
     qpibusspeed = MultU64x32(gCPUStructure.ExternalClock, qpimult * 2); //kHz
 	  DBG("qpibusspeed %llukHz\n", qpibusspeed);
-    gCPUStructure.ProcessorInterconnectSpeed = DivU64x32(qpibusspeed, kilo); //kHz->MHz
+    gCPUStructure.ProcessorInterconnectSpeed = DivU64x32(qpibusspeed, Kilo); //kHz->MHz
     // set QPI for Nehalem
-    gSettings.QPI = (UINT16)gCPUStructure.ProcessorInterconnectSpeed;
+    gSettings.CPU.QPI = (UINT16)gCPUStructure.ProcessorInterconnectSpeed;
     
   } else {
-    gCPUStructure.ProcessorInterconnectSpeed = DivU64x32(LShiftU64(gCPUStructure.ExternalClock, 2), kilo); //kHz->MHz
+    gCPUStructure.ProcessorInterconnectSpeed = DivU64x32(LShiftU64(gCPUStructure.ExternalClock, 2), Kilo); //kHz->MHz
   }
   gCPUStructure.MaxSpeed = (UINT32)(DivU64x32(MultU64x64(gCPUStructure.FSBFrequency, gCPUStructure.MaxRatio), Mega * 10)); //kHz->MHz
   
@@ -1161,7 +1167,7 @@ void GetCPUProperties (void)
   DBG("CPU: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.CPUFrequency, Mega)));
   DBG("TSC: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.TSCFrequency, Mega)));
   DBG("PIS: %d MHz\n", (INT32)gCPUStructure.ProcessorInterconnectSpeed);
-  DBG("ExternalClock: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.ExternalClock + 499, kilo)));
+  DBG("ExternalClock: %d MHz\n", (INT32)(DivU64x32(gCPUStructure.ExternalClock + 499, Kilo)));
   //#if DEBUG_PCI
   
   //  WaitForKeyPress("waiting for key press...\n");
@@ -1175,8 +1181,8 @@ void SetCPUProperties (void)
   UINT64    msr = 0;
 
   if ((gCPUStructure.CPUID[CPUID_6][ECX] & (1 << 3)) != 0) {
-    if (gSettings.SavingMode != 0xFF) {
-      msr = gSettings.SavingMode;
+    if (gSettings.CPU.SavingMode != 0xFF) {
+      msr = gSettings.CPU.SavingMode;
       AsmWriteMsr64(IA32_ENERGY_PERF_BIAS, msr);
       msr = AsmReadMsr64(IA32_ENERGY_PERF_BIAS); //0x1B0
 		MsgLog("MSR 0x1B0   set to        %llX\n", msr);
@@ -1270,7 +1276,7 @@ UINT16 GetStandardCpuType()
   return 0x301;   // Core 2 Duo
 }
 
-UINT16 GetAdvancedCpuType ()
+UINT16 GetAdvancedCpuType()
 {  
   if (gCPUStructure.Vendor == CPU_VENDOR_INTEL) {  
     switch (gCPUStructure.Family) {  
@@ -1393,6 +1399,8 @@ UINT16 GetAdvancedCpuType ()
           case CPU_MODEL_COMETLAKE_S:
           case CPU_MODEL_COMETLAKE_Y:
           case CPU_MODEL_COMETLAKE_U:
+        case CPU_MODEL_TIGERLAKE_C:
+        case CPU_MODEL_TIGERLAKE_D:
             if (AsciiStrStr(gCPUStructure.BrandString, "Core(TM) i3"))
               return 0x905; // Core i3 - Apple doesn't use it
             if (AsciiStrStr(gCPUStructure.BrandString, "Core(TM) i5"))
@@ -1401,7 +1409,9 @@ UINT16 GetAdvancedCpuType ()
               return 0x709; // Core i7 CoffeeLake
             if (AsciiStrStr(gCPUStructure.BrandString, "Core(TM) i7-9"))
               return 0x1005; // Core i7 CoffeeLake
-            if (AsciiStrStr(gCPUStructure.BrandString, "Core(TM) i7"))
+          if (AsciiStrStr(gCPUStructure.BrandString, "Core(TM) i7-1"))
+            return 0x070B; // Core i7 IceLake
+           if (AsciiStrStr(gCPUStructure.BrandString, "Core(TM) i7"))
               return 0x705; // Core i7
             if (AsciiStrStr(gCPUStructure.BrandString, "Core(TM) i9"))
               return 0x1009; // Core i7 CoffeeLake
@@ -1428,10 +1438,11 @@ MACHINE_TYPES GetDefaultModel()
 {
   MACHINE_TYPES DefaultType = iMac132;
   if (gCPUStructure.Vendor != CPU_VENDOR_INTEL) {
-    return MacPro31;
+    return MacPro61;
   }
   // TODO: Add more CPU models and configure the correct machines per CPU/GFX model
-  if(gMobile) {
+  bool isMobile = getMobileFromSmbios();
+  if(isMobile) {
     switch (gCPUStructure.Model)
     {
       case CPU_MODEL_ATOM:
@@ -1449,8 +1460,7 @@ MACHINE_TYPES GetDefaultModel()
         DefaultType = MacBook21;
         break;
       case CPU_MODEL_PENRYN:
-        if ((gGraphics[0].Vendor == Nvidia) ||
-            (gGraphics[1].Vendor == Nvidia)) {
+        if ( gConf.GfxPropertiesArray.hasNvidia() ) {
           DefaultType = MacBookPro51;
         } else
           DefaultType = MacBook41;
@@ -1510,8 +1520,7 @@ MACHINE_TYPES GetDefaultModel()
         DefaultType = MacBookPro143;
         break;
       default:
-        if ((gGraphics[0].Vendor == Nvidia) ||
-            (gGraphics[1].Vendor == Nvidia)) {
+        if ( gConf.GfxPropertiesArray.hasNvidia() ) {
           DefaultType = MacBookPro51;
         } else
           DefaultType = MacBookPro83;
@@ -1560,7 +1569,7 @@ MACHINE_TYPES GetDefaultModel()
         DefaultType = MacPro51;
         break;
       case CPU_MODEL_SANDY_BRIDGE:
-        if (gGraphics[0].Vendor == Intel) {
+        if ( gConf.GfxPropertiesArray.isCardAtPosIntel(0) ) {
           DefaultType = MacMini51;
           break;
         }
@@ -1578,7 +1587,7 @@ MACHINE_TYPES GetDefaultModel()
       case CPU_MODEL_IVY_BRIDGE:
       case CPU_MODEL_IVY_BRIDGE_E5:
         DefaultType = iMac132;
-        if (gGraphics[0].Vendor == Intel) {
+        if ( gConf.GfxPropertiesArray.isCardAtPosIntel(0) ) {
           DefaultType = MacMini62;
           break;
         }
@@ -1622,4 +1631,52 @@ MACHINE_TYPES GetDefaultModel()
     }
   }
   return DefaultType;
+}
+
+void FillOCCpuInfo(OC_CPU_INFO* CpuInfo)
+{
+  //take values from gCPUStructure and put into CpuInfo
+  CpuInfo->Vendor[0] = gCPUStructure.Vendor;
+  memcpy(&CpuInfo->BrandString, &gCPUStructure.BrandString, 48);
+  CpuInfo->MicrocodeRevision = (UINT32)gCPUStructure.MicroCode;
+  CpuInfo->Hypervisor = gSettings.CPU.QEMU;
+  CpuInfo->Type = (UINT8)gCPUStructure.Type;
+  CpuInfo->Family = (UINT8)gCPUStructure.Family;
+  CpuInfo->Model = (UINT8)gCPUStructure.Model;
+  CpuInfo->ExtModel = (UINT8)gCPUStructure.Extmodel;
+  CpuInfo->ExtFamily = (UINT8)gCPUStructure.Extfamily;
+  CpuInfo->Stepping = (UINT8)gCPUStructure.Stepping;
+  CpuInfo->Features = gCPUStructure.Features;
+  CpuInfo->ExtFeatures = gCPUStructure.ExtFeatures;
+  CpuInfo->Signature = gCPUStructure.Signature;
+  CpuInfo->CstConfigLock = GlobalConfig.NeedPMfix;
+  CpuInfo->AppleProcessorType = gSettings.CPU.CpuType;
+  CpuInfo->CpuidVerEax.Uint32 = (UINT32)gCPUStructure.CPUID[CPUID_1][EAX];
+  CpuInfo->CpuidVerEbx.Uint32 = (UINT32)gCPUStructure.CPUID[CPUID_1][EBX];
+  CpuInfo->CpuidVerEcx.Uint32 = (UINT32)gCPUStructure.CPUID[CPUID_1][ECX];
+  CpuInfo->CpuidVerEdx.Uint32 = (UINT32)gCPUStructure.CPUID[CPUID_1][EDX];
+  CpuInfo->CpuidExtSigEcx.Uint32 = (UINT32)gCPUStructure.CPUID[CPUID_81][ECX];
+  CpuInfo->CpuidExtSigEdx.Uint32 = (UINT32)gCPUStructure.CPUID[CPUID_81][EDX];
+  CpuInfo->Brand = (UINT8)CpuInfo->CpuidVerEbx.Bits.BrandIndex;
+  CpuInfo->MaxDiv = (UINT8)gCPUStructure.SubDivider;
+  //there is a fault in OC as it can't handle non-integer values. Clover does by *10.
+  CpuInfo->MinBusRatio = (UINT8)(gCPUStructure.MinRatio / 10);
+  CpuInfo->MaxBusRatio = (UINT8)(gCPUStructure.MaxRatio / 10);
+  CpuInfo->TurboBusRatio1 = (UINT8)(gCPUStructure.Turbo1 /10);
+  CpuInfo->TurboBusRatio2 = (UINT8)(gCPUStructure.Turbo2 /10);
+  CpuInfo->TurboBusRatio3 = (UINT8)(gCPUStructure.Turbo3 /10);
+  CpuInfo->TurboBusRatio4 = (UINT8)(gCPUStructure.Turbo4 /10);
+  CpuInfo->PackageCount = 1; //number of started cores. Intel always start with one core.
+  CpuInfo->CoreCount = gCPUStructure.Cores;
+  CpuInfo->ThreadCount = gCPUStructure.Threads;
+  CpuInfo->ExternalClock = (UINT16)(gCPUStructure.ExternalClock / 1000); //kHz -> MHz
+  CpuInfo->ARTFrequency = gCPUStructure.ARTFrequency;  //Hz
+  CpuInfo->CPUFrequency = gCPUStructure.CPUFrequency;
+  CpuInfo->CPUFrequencyFromTSC = gCPUStructure.TSCFrequency;
+  CpuInfo->CPUFrequencyFromART = 0; //not present
+  CpuInfo->TscAdjust = 0;
+  CpuInfo->CPUFrequencyFromVMT = 0;
+  CpuInfo->FSBFrequency = gCPUStructure.FSBFrequency;
+  CpuInfo->MaxId    = (UINT32)gCPUStructure.CPUID[CPUID_0][EAX];
+  CpuInfo->MaxExtId = (UINT32)gCPUStructure.CPUID[CPUID_80][EAX];
 }

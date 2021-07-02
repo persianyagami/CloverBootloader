@@ -12,7 +12,8 @@
 #include "cpu.h"
 #include "../include/Pci.h"
 #include "../include/Devices.h"
-
+#include "Settings.h"
+#include "../Settings/Self.h"
 
 extern "C" {
 #include <IndustryStandard/PciCommand.h>
@@ -793,9 +794,9 @@ void CheckHardware()
       //      if ((Pci.Hdr.VendorId == 0x8086) &&
       //          ((Pci.Hdr.DeviceId & 0xFF00) != 0x0C00)) { //0x0C0C is HDMI sound
               GetPciADR(DevicePath, &HDAADR1, NULL, NULL);
-              if (gSettings.HDALayoutId > 0) {
+              if (gSettings.Devices.Audio.HDALayoutId > 0) {
                 // layoutId is specified - use it
-                layoutId = (UINT32)gSettings.HDALayoutId;
+                layoutId = (UINT32)gSettings.Devices.Audio.HDALayoutId;
                 DBG("Audio HDA (addr:0x%X) setting specified layout-id=%d (0x%X)\n", HDAADR1, layoutId, layoutId);
               }
 
@@ -1349,8 +1350,14 @@ INT32 FindBin (UINT8 *dsdt, UINT32 len, const UINT8* bin, UINT32 N)
   return -1;
 }
 INT32 FindBin (UINT8 *dsdt, size_t len, const XBuffer<UINT8>& bin) {
+#ifdef DEBUG
   if ( len > MAX_INT32 ) panic("FindBin : len > MAX_INT32"); // check against INT32, even though parameter of FindBin is UINT32. Because return value is INT32, parameter should not be > MAX_INT32
   if ( bin.size() > MAX_INT32 ) panic("FindBin : bin.size() > MAX_INT32");
+#else
+  if ( len > MAX_INT32 ) return 0;
+  if ( bin.size() > MAX_INT32 ) return 0;
+
+#endif
   return FindBin(dsdt, (UINT32)len, bin.data(), (UINT32)bin.size());
 }
 
@@ -1575,22 +1582,21 @@ BOOLEAN CustProperties(AML_CHUNK* pack, UINT32 Dev)
 {
   UINTN i;
   BOOLEAN Injected = FALSE;
-  if (gSettings.NrAddProperties == 0xFFFE) {
+  if (gSettings.Devices.AddPropertyArray.size() == 0xFFFE) { // Looks like NrAddProperties == 0xFFFE is not used anymore
     return FALSE; // not do this for Arbitrary properties?
   }
-  for (i = 0; i < gSettings.NrAddProperties; i++) {
-    if (gSettings.AddProperties[i].Device != Dev) {
+  for (i = 0; i < gSettings.Devices.AddPropertyArray.size(); i++) {
+    if (gSettings.Devices.AddPropertyArray[i].Device != Dev) {
       continue;
     }
     Injected = TRUE;
 
-    if (!gSettings.AddProperties[i].MenuItem.BValue) {
-      //DBG("  disabled property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+    if (!gSettings.Devices.AddPropertyArray[i].MenuItem.BValue) {
+      //DBG("  disabled property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
     } else {
-      aml_add_string(pack, gSettings.AddProperties[i].Key);
-      aml_add_byte_buffer(pack, gSettings.AddProperties[i].Value,
-                          (UINT32)gSettings.AddProperties[i].ValueLen);
-      //DBG("  added property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+      aml_add_string(pack, gSettings.Devices.AddPropertyArray[i].Key.c_str());
+      aml_add_byte_buffer(pack, gSettings.Devices.AddPropertyArray[i].Value.data(), (UINT32)gSettings.Devices.AddPropertyArray[i].Value.size()); // unsafe cast
+      //DBG("  added property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
     }
   }
   return Injected;
@@ -1885,7 +1891,7 @@ UINT32 FIXDarwin (UINT8* dsdt, UINT32 len)
   CONST UINT32  adr  = 0x24;
   DBG("Start Darwin Fix\n");
   ReplaceName(dsdt, len, "_OSI", "OOSI");
-  if (gSettings.FixDsdt & FIX_DARWIN) {
+  if (gSettings.ACPI.DSDT.FixDsdt & FIX_DARWIN) {
     darwin[42] = '9';  //windows 2009
   }
   len = move_data(adr, dsdt, len, sizeof(darwin));
@@ -1956,8 +1962,8 @@ UINT32 AddPNLF (UINT8 *dsdt, UINT32 len)
   }
 
   //Slice - add custom UID
-  if (gSettings.PNLF_UID != 0xFF) {
-    ((CHAR8*)pnlf)[39] = gSettings.PNLF_UID;
+  if (gSettings.ACPI.DSDT.PNLF_UID != 0xFF) {
+    ((CHAR8*)pnlf)[39] = gSettings.ACPI.DSDT.PNLF_UID;
   }
 
   // _UID reworked by Sherlocks. 2018.10.08
@@ -2120,7 +2126,7 @@ UINT32 FixRTC (UINT8 *dsdt, UINT32 len)
   for (i=adr+4; i<adr+rtcsize; i++) {
     // IO (Decode16, ((0x0070, 0x0070)) =>> find this
     if (dsdt[i] == 0x70 && dsdt[i+1] == 0x00 && dsdt[i+2] == 0x70 && dsdt[i+3] == 0x00) {
-      if (dsdt[i+5] == 0x08 && gSettings.Rtc8Allowed) {
+      if (dsdt[i+5] == 0x08 && gSettings.ACPI.DSDT.Rtc8Allowed) {
         MsgLog("CMOS reset not will be, patch length is not needed\n");
       } else {
         // First Fix RTC CMOS Reset Problem
@@ -2139,7 +2145,7 @@ UINT32 FixRTC (UINT8 *dsdt, UINT32 len)
       break;
     }
     if ((dsdt[i+1] == 0x5B) && (dsdt[i+2] == 0x82)) {
-      break; //end of RTC device and begin of new Device()
+      break; //end of RTC device and begin of new Device
     }
   }
 
@@ -2246,7 +2252,7 @@ UINT32 FixTMR (UINT8 *dsdt, UINT32 len)
     } // offset if
 
     if ((dsdt[i+1] == 0x5B) && (dsdt[i+2] == 0x82)) {
-      break; //end of TMR device and begin of new Device()
+      break; //end of TMR device and begin of new Device
     }
   } // i loop
 
@@ -2331,7 +2337,7 @@ UINT32 FixPIC (UINT8 *dsdt, UINT32 len)
       sizeoffset = 0;
     } // sizeoffset if
     if ((dsdt[i+1] == 0x5B) && (dsdt[i+2] == 0x82)) {
-      break; //end of PIC device and begin of new Device()
+      break; //end of PIC device and begin of new Device
     }
   } // i loop
 
@@ -2503,7 +2509,7 @@ UINT32 FIXDisplay (UINT8 *dsdt, UINT32 len, INT32 VCard)
   BOOLEAN DISPLAYFIX = FALSE;
   BOOLEAN NonUsable = FALSE;
   BOOLEAN DsmFound = FALSE;
-  BOOLEAN NeedHDMI = !!(gSettings.FixDsdt & FIX_HDMI);
+  BOOLEAN NeedHDMI = !!(gSettings.ACPI.DSDT.FixDsdt & FIX_HDMI);
   AML_CHUNK *root = NULL;
   AML_CHUNK *gfx0, *peg0;
   AML_CHUNK *met, *met2;
@@ -2564,7 +2570,7 @@ UINT32 FIXDisplay (UINT8 *dsdt, UINT32 len, INT32 VCard)
           }
           devsize1 = get_size(dsdt, devadr1); //13
           if (devsize1) {
-            if (gSettings.ReuseFFFF) {
+            if (gSettings.ACPI.DSDT.ReuseFFFF) {
               dsdt[j+10] = 0;
               dsdt[j+11] = 0;
               MsgLog("Found internal video device FFFF@%X, ReUse as 0\n", devadr1);
@@ -2628,9 +2634,9 @@ UINT32 FIXDisplay (UINT8 *dsdt, UINT32 len, INT32 VCard)
     (
       !NeedHDMI &&
       (
-        ((DisplayVendor[VCard] == 0x8086) && (gSettings.InjectIntel   || !gSettings.FakeIntel)) ||
-        ((DisplayVendor[VCard] == 0x10DE) && (gSettings.InjectNVidia  || !gSettings.FakeNVidia)) ||
-        ((DisplayVendor[VCard] == 0x1002) && (gSettings.InjectATI     || !gSettings.FakeATI))
+        ((DisplayVendor[VCard] == 0x8086) && (gSettings.Graphics.InjectAsDict.InjectIntel   || !gSettings.Devices.FakeID.FakeIntel)) ||
+        ((DisplayVendor[VCard] == 0x10DE) && (gSettings.Graphics.InjectAsDict.InjectNVidia  || !gSettings.Devices.FakeID.FakeNVidia)) ||
+        ((DisplayVendor[VCard] == 0x1002) && (gSettings.Graphics.InjectAsDict.InjectATI     || !gSettings.Devices.FakeID.FakeATI))
       )
     )
   ) {
@@ -2645,38 +2651,38 @@ UINT32 FIXDisplay (UINT8 *dsdt, UINT32 len, INT32 VCard)
 
   if (NeedHDMI) {
     aml_add_string(pack, "hda-gfx");
-    aml_add_string_buffer(pack, (gSettings.UseIntelHDMI && DisplayVendor[VCard] !=  0x8086) ? "onboard-2" : "onboard-1");
+    aml_add_string_buffer(pack, (gSettings.Devices.UseIntelHDMI && DisplayVendor[VCard] !=  0x8086) ? "onboard-2" : "onboard-1");
   }
 
   switch (DisplayVendor[VCard]) {
     case 0x8086:
-      if (gSettings.FakeIntel) {
-        FakeID = gSettings.FakeIntel >> 16;
+      if (gSettings.Devices.FakeID.FakeIntel) {
+        FakeID = gSettings.Devices.FakeID.FakeIntel >> 16;
         aml_add_string(pack, "device-id");
         aml_add_byte_buffer(pack, (UINT8*)&FakeID, 4);
-        FakeVen = gSettings.FakeIntel & 0xFFFF;
+        FakeVen = gSettings.Devices.FakeID.FakeIntel & 0xFFFF;
         aml_add_string(pack, "vendor-id");
         aml_add_byte_buffer(pack, (UINT8*)&FakeVen, 4);
       }
       break;
     case 0x10DE:
-      if (gSettings.FakeNVidia) {
-        FakeID = gSettings.FakeNVidia >> 16;
+      if (gSettings.Devices.FakeID.FakeNVidia) {
+        FakeID = gSettings.Devices.FakeID.FakeNVidia >> 16;
         aml_add_string(pack, "device-id");
         aml_add_byte_buffer(pack, (UINT8*)&FakeID, 4);
-        FakeVen = gSettings.FakeNVidia & 0xFFFF;
+        FakeVen = gSettings.Devices.FakeID.FakeNVidia & 0xFFFF;
         aml_add_string(pack, "vendor-id");
         aml_add_byte_buffer(pack, (UINT8*)&FakeVen, 4);
       }
       break;
     case 0x1002:
-      if (gSettings.FakeATI) {
-        FakeID = gSettings.FakeATI >> 16;
+      if (gSettings.Devices.FakeID.FakeATI) {
+        FakeID = gSettings.Devices.FakeID.FakeATI >> 16;
         aml_add_string(pack, "device-id");
         aml_add_byte_buffer(pack, (UINT8*)&FakeID, 4);
         aml_add_string(pack, "ATY,DeviceID");
         aml_add_byte_buffer(pack, (UINT8*)&FakeID, 2);
-        FakeVen = gSettings.FakeATI & 0xFFFF;
+        FakeVen = gSettings.Devices.FakeID.FakeATI & 0xFFFF;
         aml_add_string(pack, "vendor-id");
         aml_add_byte_buffer(pack, (UINT8*)&FakeVen, 4);
         aml_add_string(pack, "ATY,VendorID");
@@ -2705,11 +2711,11 @@ Skip_DSM:
         k = FindName(dsdt + i, Size, "_SUN");
         if (k == 0) {
           aml_add_name(gfx0, "_SUN");
-          aml_add_dword(gfx0, SlotDevices[j].SlotID);
+          aml_add_dword(gfx0, SlotDevices.getSlotForIndexOrNull(j).SlotID);
         } else {
           //we have name sun, set the number
           if (dsdt[k + 4] == 0x0A) {
-            dsdt[k + 5] = SlotDevices[j].SlotID;
+            dsdt[k + 5] = SlotDevices.getSlotForIndexOrNull(j).SlotID;
           }
         }
       } else {
@@ -2896,9 +2902,9 @@ UINT32 AddHDMI (UINT8 *dsdt, UINT32 len)
 
   met2 = aml_add_store(met);
   pack = aml_add_package(met2);
-  if (!gSettings.NoDefaultProperties) {
+  if (!gSettings.Devices.NoDefaultProperties) {
     aml_add_string(pack, "hda-gfx");
-    if (gSettings.UseIntelHDMI) {
+    if (gSettings.Devices.UseIntelHDMI) {
       aml_add_string_buffer(pack, "onboard-2");
     } else {
       aml_add_string_buffer(pack, "onboard-1");
@@ -2967,9 +2973,9 @@ UINT32 FIXNetwork (UINT8 *dsdt, UINT32 len, UINT32 card)
   if (!NetworkADR1[card]) return len;
   DBG("Start NetWork %d Fix\n", card);
 
-  if (gSettings.FakeLAN) {
-    FakeID = gSettings.FakeLAN >> 16;
-    FakeVen = gSettings.FakeLAN & 0xFFFF;
+  if (gSettings.Devices.FakeID.FakeLAN) {
+    FakeID = gSettings.Devices.FakeID.FakeLAN >> 16;
+    FakeVen = gSettings.Devices.FakeID.FakeLAN & 0xFFFF;
     snprintf(NameCard, 32, "pci%x,%x", FakeVen, FakeID);
     Netmodel[card] = get_net_model((FakeVen << 16) + FakeID);
   }
@@ -3066,17 +3072,17 @@ UINT32 FIXNetwork (UINT8 *dsdt, UINT32 len, UINT32 card)
     k = FindName(dsdt + i, Size, "_SUN");
     if (k == 0) {
       aml_add_name(dev, "_SUN");
-      aml_add_dword(dev, SlotDevices[5].SlotID);
+      aml_add_dword(dev, gSettings.Smbios.SlotDevices.getSlotForIndexOrNull(5).SlotID);
     } else {
       //we have name sun, set the number
       if (dsdt[k + 4] == 0x0A) {
-        dsdt[k + 5] = SlotDevices[5].SlotID;
+        dsdt[k + 5] = gSettings.Smbios.SlotDevices.getSlotForIndexOrNull(5).SlotID;
       }
     }
   }
 
   // add Method(_DSM,4,NotSerialized) for network
-  if (gSettings.FakeLAN || !gSettings.NoDefaultProperties) {
+  if (gSettings.Devices.FakeID.FakeLAN || !gSettings.Devices.NoDefaultProperties) {
     met = aml_add_method(dev, "_DSM", 4);
     met2 = aml_add_store(met);
     pack = aml_add_package(met2);
@@ -3087,7 +3093,7 @@ UINT32 FIXNetwork (UINT8 *dsdt, UINT32 len, UINT32 card)
     aml_add_string_buffer(pack, Netmodel[card]);
 //    aml_add_string(pack, "device_type");
 //    aml_add_string_buffer(pack, "Ethernet");
-    if (gSettings.FakeLAN) {
+    if (gSettings.Devices.FakeID.FakeLAN) {
       //    aml_add_string(pack, "model");
       //    aml_add_string_buffer(pack, "Apple LAN card");
       aml_add_string(pack, "device-id");
@@ -3102,8 +3108,8 @@ UINT32 FIXNetwork (UINT8 *dsdt, UINT32 len, UINT32 card)
 
     // Could we just comment this part? (Until remember what was the purposes?)
 /*  if (!CustProperties(pack, DEV_LAN) &&
-        !gSettings.FakeLAN &&
-      !gSettings.NoDefaultProperties) {
+        !gSettings.Devices.FakeID.FakeLAN &&
+      !gSettings.Devices.NoDefaultProperties) {
     aml_add_string(pack, "empty");
     aml_add_byte(pack, 0);
   } */
@@ -3148,6 +3154,12 @@ UINT32 FIXNetwork (UINT8 *dsdt, UINT32 len, UINT32 card)
 
 UINT32 FIXAirport (UINT8 *dsdt, UINT32 len)
 {
+#if DEBUG_FIX > 0
+DBG("FIXAirport dsdt len=%d\n", len);
+//EFI_STATUS Status = egSaveFile(&self.getCloverDir(), L"misc\\DSDT_before_AIRPORT.bin", dsdt, len);
+//DBG("DSDT_before_AIRPORT.bin saved in misc. Status = %s\n", efiStrError(Status));
+#endif
+
   UINT32  i, k;
   UINT32 ArptADR = 0, BridgeSize, Size, BrdADR = 0;
   UINT32 PCIADR, PCISIZE = 0;
@@ -3163,14 +3175,14 @@ UINT32 FIXAirport (UINT8 *dsdt, UINT32 len)
   CHAR8 NameCard[32];
 
   if (!ArptADR1) return len; // no device - no patch
-  if ( gSettings.AirportBridgeDeviceName.notEmpty() && gSettings.AirportBridgeDeviceName.length() != 4 ) {
+  if ( gSettings.Devices.AirportBridgeDeviceName.notEmpty() && gSettings.Devices.AirportBridgeDeviceName.length() != 4 ) {
     MsgLog("AirportBridgeDeviceName must be 4 char long : ignored");
-    gSettings.AirportBridgeDeviceName.setEmpty();
+    gSettings.Devices.AirportBridgeDeviceName.setEmpty();
   }
 
-  if (gSettings.FakeWIFI) {
-    FakeID = gSettings.FakeWIFI >> 16;
-    FakeVen = gSettings.FakeWIFI & 0xFFFF;
+  if (gSettings.Devices.FakeID.FakeWIFI) {
+    FakeID = gSettings.Devices.FakeID.FakeWIFI >> 16;
+    FakeVen = gSettings.Devices.FakeID.FakeWIFI & 0xFFFF;
     snprintf(NameCard, 32, "pci%x,%x", FakeVen, FakeID);
   }
 
@@ -3184,7 +3196,7 @@ UINT32 FIXAirport (UINT8 *dsdt, UINT32 len)
   ArptName = FALSE;
   for (i=0x20; len >= 10 && i < len - 10; i++) {
     // AirPort Address
-    if ( CmpAdr(dsdt, i, ArptADR1)  ||  (gSettings.AirportBridgeDeviceName.notEmpty() && CmpDev(dsdt, i, gSettings.AirportBridgeDeviceName))   ) {
+    if ( CmpAdr(dsdt, i, ArptADR1)  ||  (gSettings.Devices.AirportBridgeDeviceName.notEmpty() && CmpDev(dsdt, i, gSettings.Devices.AirportBridgeDeviceName))   ) {
       BrdADR = devFind(dsdt, i);
       if (!BrdADR) {
         continue;
@@ -3257,11 +3269,11 @@ UINT32 FIXAirport (UINT8 *dsdt, UINT32 len)
     k = FindName(dsdt + i, Size, "_SUN");
     if (k == 0) {
       aml_add_name(dev, "_SUN");
-      aml_add_dword(dev, SlotDevices[6].SlotID);
+      aml_add_dword(dev, gSettings.Smbios.SlotDevices.getSlotForIndexOrNull(6).SlotID);
     } else {
       //we have name sun, set the number
       if (dsdt[k + 4] == 0x0A) {
-        dsdt[k + 5] = SlotDevices[6].SlotID;
+        dsdt[k + 5] = gSettings.Smbios.SlotDevices.getSlotForIndexOrNull(6).SlotID;
       }
     }
   } else {
@@ -3269,11 +3281,11 @@ UINT32 FIXAirport (UINT8 *dsdt, UINT32 len)
   }
 
   // add Method(_DSM,4,NotSerialized) for network
-  if (gSettings.FakeWIFI || !gSettings.NoDefaultProperties) {
+  if (gSettings.Devices.FakeID.FakeWIFI || !gSettings.Devices.NoDefaultProperties) {
     met = aml_add_method(dev, "_DSM", 4);
     met2 = aml_add_store(met);
     pack = aml_add_package(met2);
-    if (!gSettings.NoDefaultProperties) {
+    if (!gSettings.Devices.NoDefaultProperties) {
       aml_add_string(pack, "built-in");
       aml_add_byte_buffer(pack, dataBuiltin, sizeof(dataBuiltin));
       aml_add_string(pack, "model");
@@ -3284,7 +3296,7 @@ UINT32 FIXAirport (UINT8 *dsdt, UINT32 len)
       //    aml_add_string_buffer(pack, "AirPort");
     }
 
-    if (gSettings.FakeWIFI) {
+    if (gSettings.Devices.FakeID.FakeWIFI) {
       //aml_add_string(pack, "device-id");
       //aml_add_byte_buffer(pack, (CHAR8 *)&FakeID, 4);
       //aml_add_string(pack, "vendor-id");
@@ -3295,8 +3307,8 @@ UINT32 FIXAirport (UINT8 *dsdt, UINT32 len)
       aml_add_string_buffer(pack, (CHAR8 *)&NameCard[0]);
     }
     if (!CustProperties(pack, DEV_WIFI) &&
-        !gSettings.NoDefaultProperties &&
-        !gSettings.FakeWIFI) {
+        !gSettings.Devices.NoDefaultProperties &&
+        !gSettings.Devices.FakeID.FakeWIFI) {
       aml_add_string(pack, "empty");
       aml_add_byte(pack, 0);
     }
@@ -3518,9 +3530,9 @@ UINT32 AddIMEI (UINT8 *dsdt, UINT32 len)
   UINT32 FakeID;
   UINT32 FakeVen;
 
-  if (gSettings.FakeIMEI) {
-    FakeID = gSettings.FakeIMEI >> 16;
-    FakeVen = gSettings.FakeIMEI & 0xFFFF;
+  if (gSettings.Devices.FakeID.FakeIMEI) {
+    FakeID = gSettings.Devices.FakeID.FakeIMEI >> 16;
+    FakeVen = gSettings.Devices.FakeID.FakeIMEI & 0xFFFF;
   }
 
   PCIADR = GetPciDevice(dsdt, len);
@@ -3559,7 +3571,7 @@ UINT32 AddIMEI (UINT8 *dsdt, UINT32 len)
   aml_add_name(device, "_ADR");
   aml_add_dword(device, IMEIADR1);
   // add Method(_DSM,4,NotSerialized)
-  if (gSettings.FakeIMEI) {
+  if (gSettings.Devices.FakeID.FakeIMEI) {
     met = aml_add_method(device, "_DSM", 4);
     met2 = aml_add_store(met);
     pack = aml_add_package(met2);
@@ -3695,11 +3707,11 @@ UINT32 FIXFirewire (UINT8 *dsdt, UINT32 len)
     k = FindName(dsdt + i, Size, "_SUN");
     if (k == 0) {
       aml_add_name(device, "_SUN");
-      aml_add_dword(device, SlotDevices[12].SlotID);
+      aml_add_dword(device, gSettings.Smbios.SlotDevices.getSlotForIndexOrNull(12).SlotID);
     } else {
       //we have name sun, set the number
       if (dsdt[k + 4] == 0x0A) {
-         dsdt[k + 5] = SlotDevices[12].SlotID;
+         dsdt[k + 5] = gSettings.Smbios.SlotDevices.getSlotForIndexOrNull(12).SlotID;
       }
     }
   } else {
@@ -3809,18 +3821,18 @@ UINT32 AddHDEF (UINT8 *dsdt, UINT32 len, const MacOsVersion& OSVersion)
         }
         met2 = aml_add_store(met);
         pack = aml_add_package(met2);
-        if (gSettings.UseIntelHDMI) {
+        if (gSettings.Devices.UseIntelHDMI) {
         aml_add_string(pack, "hda-gfx");
         aml_add_string_buffer(pack, "onboard-1");
         }
         if (!CustProperties(pack, DEV_HDA)) {
-        if ( ( OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.8") ) || gSettings.HDALayoutId > 0 ) {
+        if ( ( OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.8") ) || gSettings.Devices.Audio.HDALayoutId > 0 ) {
         aml_add_string(pack, "layout-id");
         aml_add_byte_buffer(pack, (CHAR8*)&HDAlayoutId, 4);
         }
         aml_add_string(pack, "MaximumBootBeepVolume");
         aml_add_byte_buffer(pack, (CHAR8*)&dataBuiltin1[0], 1);
-        if (gSettings.AFGLowPowerState) {
+        if (gSettings.Devices.Audio.AFGLowPowerState) {
         aml_add_string(pack, "AFGLowPowerState");
         aml_add_byte_buffer(pack, Yes, 4);
         }
@@ -3896,7 +3908,7 @@ UINT32 FIXUSB (UINT8 *dsdt, UINT32 len)
     } else if (USBNForce) {
       aml_add_string_buffer(pack, "OHCI");
     }
-    if (gSettings.InjectClockID) {
+    if (gSettings.Devices.USB.InjectClockID) {
       aml_add_string(pack, "AAPL,clock-id");
       aml_add_byte_buffer(pack, dataBuiltin, 1);
     }
@@ -3924,19 +3936,19 @@ UINT32 FIXUSB (UINT8 *dsdt, UINT32 len)
     aml_add_byte_buffer(pack1, dataBuiltin, sizeof(dataBuiltin));
     aml_add_string(pack1, "device_type");
     aml_add_string_buffer(pack1, "EHCI");
-    if (gSettings.InjectClockID) {
+    if (gSettings.Devices.USB.InjectClockID) {
       aml_add_string(pack1, "AAPL,clock-id");
       aml_add_byte_buffer(pack1, dataBuiltin, sizeof(dataBuiltin));
     }
     if (USBIntel) {
       aml_add_string(pack1, "AAPL,current-available");
-      if (gSettings.HighCurrent) {
+      if (gSettings.Devices.USB.HighCurrent) {
         aml_add_word(pack1, 0x0834);
       } else {
         aml_add_word(pack1, 0x05DC);
       }
       aml_add_string(pack1, "AAPL,current-extra");
-      if (gSettings.HighCurrent) {
+      if (gSettings.Devices.USB.HighCurrent) {
         aml_add_word(pack1, 0x0C80);
       } else {
         aml_add_word(pack1, 0x03E8);
@@ -4007,7 +4019,7 @@ UINT32 FIXUSB (UINT8 *dsdt, UINT32 len)
     aml_add_byte_buffer(pack1, dataBuiltin, sizeof(dataBuiltin));
     aml_add_string(pack1, "device_type");
     aml_add_string_buffer(pack1, "XHCI");
-    if (gSettings.InjectClockID) {
+    if (gSettings.Devices.USB.InjectClockID) {
       aml_add_string(pack1, "AAPL,clock-id");
       aml_add_byte_buffer(pack1, dataBuiltin, sizeof(dataBuiltin));
     }
@@ -4066,13 +4078,13 @@ UINT32 FIXUSB (UINT8 *dsdt, UINT32 len)
                 DBG("found USB device [%08X:%X] at %X and Name was %s ->",
                     USBADR[i], USBADR2[i], k, device_name[10]);
                 if (USB30[i]) {
-                  if (gSettings.NameXH00) {
+                  if (gSettings.Devices.USB.NameXH00) {
                     snprintf(UsbName[i], 5, "XH%02x", XhciCount++);
                   } else {
                     snprintf(UsbName[i], 5, "XHC%01x", XhciCount++);
                   }
                 } else if (USB20[i]) {
-                  if (gSettings.NameEH00) {
+                  if (gSettings.Devices.USB.NameEH00) {
                     snprintf(UsbName[i], 5, "EH%02x", EhciCount++);
                   } else {
                     snprintf(UsbName[i], 5, "EHC%01x", EhciCount++);
@@ -4131,8 +4143,8 @@ UINT32 FIXUSB (UINT8 *dsdt, UINT32 len)
             } else {
               continue;
             }
-            if (gSettings.FakeXHCI) {
-              USBID[i] = gSettings.FakeXHCI >> 16;
+            if (gSettings.Devices.FakeID.FakeXHCI) {
+              USBID[i] = gSettings.Devices.FakeID.FakeXHCI >> 16;
             }
             CopyMem(USBDATA3+k, (void*)&USBID[i], 4);
             sizeoffset = size3;
@@ -4419,9 +4431,9 @@ UINT32 FIXSATAAHCI (UINT8 *dsdt, UINT32 len)
   UINT32 FakeID;
   UINT32 FakeVen;
 
-  if (gSettings.FakeSATA) {
-    FakeID = gSettings.FakeSATA >> 16;
-    FakeVen = gSettings.FakeSATA & 0xFFFF;
+  if (gSettings.Devices.FakeID.FakeSATA) {
+    FakeID = gSettings.Devices.FakeID.FakeSATA >> 16;
+    FakeVen = gSettings.Devices.FakeID.FakeSATA & 0xFFFF;
   }
 
   if (!SATAAHCIADR1) return len;
@@ -4459,19 +4471,19 @@ UINT32 FIXSATAAHCI (UINT8 *dsdt, UINT32 len)
   root = aml_create_node(NULL);
 
   // add Method(_DSM,4,NotSerialized)
-  if (gSettings.FakeSATA || !gSettings.NoDefaultProperties) {
+  if (gSettings.Devices.FakeID.FakeSATA || !gSettings.Devices.NoDefaultProperties) {
   met = aml_add_method(root, "_DSM", 4);
   met2 = aml_add_store(met);
   pack = aml_add_package(met2);
-  if (gSettings.FakeSATA) {
+  if (gSettings.Devices.FakeID.FakeSATA) {
     aml_add_string(pack, "device-id");
     aml_add_byte_buffer(pack, (UINT8*)&FakeID, 4);
     aml_add_string(pack, "vendor-id");
     aml_add_byte_buffer(pack, (UINT8*)&FakeVen, 4);
   }
   if (!CustProperties(pack, DEV_SATA) &&
-        !gSettings.NoDefaultProperties &&
-        !gSettings.FakeSATA) {
+        !gSettings.Devices.NoDefaultProperties &&
+        !gSettings.Devices.FakeID.FakeSATA) {
     aml_add_string(pack, "empty");
     aml_add_byte(pack, 0);
   }
@@ -4513,9 +4525,9 @@ UINT32 FIXSATA (UINT8 *dsdt, UINT32 len)
   UINT32 FakeID;
   UINT32 FakeVen;
 
-  if (gSettings.FakeSATA) {
-    FakeID = gSettings.FakeSATA >> 16;
-    FakeVen = gSettings.FakeSATA & 0xFFFF;
+  if (gSettings.Devices.FakeID.FakeSATA) {
+    FakeID = gSettings.Devices.FakeID.FakeSATA >> 16;
+    FakeVen = gSettings.Devices.FakeID.FakeSATA & 0xFFFF;
   }
 
   if (!SATAADR1) return len;
@@ -4550,19 +4562,19 @@ UINT32 FIXSATA (UINT8 *dsdt, UINT32 len)
 
   root = aml_create_node(NULL);
   // add Method(_DSM,4,NotSerialized)
-  if (gSettings.FakeSATA || !gSettings.NoDefaultProperties) {
+  if (gSettings.Devices.FakeID.FakeSATA || !gSettings.Devices.NoDefaultProperties) {
   met = aml_add_method(root, "_DSM", 4);
   met2 = aml_add_store(met);
   pack = aml_add_package(met2);
-  if (gSettings.FakeSATA) {
+  if (gSettings.Devices.FakeID.FakeSATA) {
     aml_add_string(pack, "device-id");
     aml_add_byte_buffer(pack, (UINT8*)&FakeID, 4);
     aml_add_string(pack, "vendor-id");
     aml_add_byte_buffer(pack, (UINT8*)&FakeVen, 4);
   }
   if (!CustProperties(pack, DEV_SATA) &&
-        !gSettings.NoDefaultProperties &&
-        !gSettings.FakeSATA) {
+        !gSettings.Devices.NoDefaultProperties &&
+        !gSettings.Devices.FakeID.FakeSATA) {
     aml_add_string(pack, "empty");
     aml_add_byte(pack, 0);
   }
@@ -4867,7 +4879,7 @@ UINT32 FIXSHUTDOWN_ASUS (UINT8 *dsdt, UINT32 len)
     return len;
   }
 
-  if (gSettings.SuspendOverride) {
+  if (gSettings.ACPI.DSDT.SuspendOverride) {
     shutdown = &shutdown1[0];
     sizeoffset = sizeof(shutdown1);
   } else {
@@ -5213,7 +5225,8 @@ BOOLEAN isACPI_Char(CHAR8 C)
     (C == '_'));
 }
 
-BOOLEAN CmpFullName(UINT8* Table, UINTN Len, ACPI_NAME_LIST *Bridge)
+// all string in Bridge is supposed to be 4 chars long.
+BOOLEAN CmpFullName(UINT8* Table, UINTN Len, const XString8Array& Bridge)
 {
   // "RP02" NameLen=4
   // "_SB_PCI0RP02" NameLen=12
@@ -5229,13 +5242,12 @@ BOOLEAN CmpFullName(UINT8* Table, UINTN Len, ACPI_NAME_LIST *Bridge)
   Name = (__typeof__(Name))AllocateCopyPool(NameLen + 1, Table);
   Name[NameLen] = '\0';
   i = NameLen - 4;
-  while (Bridge && (i >= 0)) {
-    if (AsciiStrStr(Name + i, Bridge->Name) == NULL) { //compare Bridge->Name with RP02, Next->Name with PCI0 then _SB_
+  for (size_t idx = 0 ; idx < Bridge.size() && i >= 0 ; ++idx ) {
+    if (AsciiStrStr(Name + i, Bridge[idx].c_str()) == NULL) { //compare Bridge->Name with RP02, Next->Name with PCI0 then _SB_
       FreePool(Name);
       return FALSE;
     }
     i -= 4;
-    Bridge = Bridge->Next;
   }
   FreePool(Name);
   return TRUE;
@@ -5243,40 +5255,41 @@ BOOLEAN CmpFullName(UINT8* Table, UINTN Len, ACPI_NAME_LIST *Bridge)
 
 void RenameDevices(UINT8* table)
 {
-  ACPI_NAME_LIST *List;
-  ACPI_NAME_LIST *Bridge;
-  CHAR8 *Replace;
-  CHAR8 *Find;
 
-  if ( gSettings.DeviceRenameCount <= 0 ) return; // to avoid message "0 replacement"
+  DBG("RenameDevices %zu\n", gSettings.ACPI.DeviceRename.size());
+  if ( gSettings.ACPI.DeviceRename.size() <= 0 ) return; // to avoid message "0 replacement"
 
   INTN i;
   INTN k=0; // Clang complain about possible use uninitialised. Not true, but I don't like warnings.
-  UINTN index;
   INTN size;
   UINTN len = ((EFI_ACPI_DESCRIPTION_HEADER*)table)->Length;
   INTN adr, shift, Num = 0;
   BOOLEAN found;
-  for (index = 0; index < gSettings.DeviceRenameCount; index++) {
-    List = gSettings.DeviceRename[index].Next;
-    Replace = gSettings.DeviceRename[index].Name;
-    Find = List->Name;
-    Bridge = List->Next;
-    MsgLog("Name: %s, Bridge: %s, Replace: %s\n", Find, Bridge->Name, Replace);
+  for (UINTN index = 0; index < gSettings.ACPI.DeviceRename.size(); index++) {
+    const ACPI_RENAME_DEVICE& deviceRename = gSettings.ACPI.DeviceRename[index];
+    XString8Array FindList = deviceRename.acpiName.getSplittedName();
+    XString8 Replace = deviceRename.getRenameTo();
+    XString8 LastComponentFind;
+    if( FindList.notEmpty() )  LastComponentFind = FindList[0];
+    XString8Array BridgeList = FindList;
+    if( BridgeList.notEmpty() ) BridgeList.removeAtPos(0);
+    XString8 Bridge;
+    if( BridgeList.notEmpty() ) Bridge = BridgeList[0];
+
+    MsgLog("Name: %s, Bridge: %s, Replace: %s\n", LastComponentFind.c_str(), Bridge.c_str(), Replace.c_str());
     adr = 0;
     do
     {
-
-      shift = FindBin(table + adr, (UINT32)(len - adr), (const UINT8*)Find, 4); //next occurence
+      shift = FindBin(table + adr, (UINT32)(len - adr), (const UINT8*)LastComponentFind.c_str(), 4); //next occurence
       if (shift < 0) {
         break; //not found
       }
       adr += shift;
-//      DBG("found Name @ 0x%X\n", adr);
-      if (!Bridge || (FindBin(table + adr - 4, 5, (const UINT8*)(Bridge->Name), 4) == 0)) { // long name like "RP02.PXSX"
-        CopyMem(table + adr, Replace, 4);
+      DBG("found Name @ 0x%llX\n", adr);
+      if (Bridge.isEmpty() || (FindBin(table + adr - 4, 5, (const UINT8*)(Bridge.c_str()), 4) == 0)) { // long name like "RP02.PXSX"
+//        DBG("replace without bridge %.*s by %s at table+%llu\n", 4, table + adr, Replace.c_str(), adr);
+        CopyMem(table + adr, Replace.c_str(), 4);
         adr += 5; //at least, it is impossible to see  PXSXPXSX
-//        DBG("replaced\n");
         Num++;
         continue;
       }
@@ -5284,7 +5297,7 @@ void RenameDevices(UINT8* table)
       i = adr;
       while ((i > 0) && isACPI_Char(table[i])) i--; //skip attached name
       i -= 6;  //skip size and device field
- //     DBG("search for bridge since %d\n", adr);
+ //     DBG("search for bridge since %lld\n", adr);
       while (i > 0x20) {  //find devices that previous to adr
         found = FALSE;
         //check device
@@ -5299,10 +5312,11 @@ void RenameDevices(UINT8* table)
           found = TRUE;
         }
         if (found) {  // i points to Device or Scope
-          size = get_size(table, (UINT32)(UINTN)k); //k points to size  //        DBG("found bridge candidate 0x%X size %d\n", table[i], size);
+          size = get_size(table, (UINT32)(UINTN)k); //k points to size  //
+ //         DBG("found bridge candidate 0x%X size %lld\n", table[i], size);
           if (size) {
             if ((k + size) > (adr + 4)) {  //Yes - it is outer
-     //            DBG("found Bridge device begin=%X end=%X\n", k, k+size);
+  //            DBG("found Bridge device begin=%llX end=%llX\n", k, k+size);
               if (table[k] < 0x40) {
                 k += 1;
               }
@@ -5312,11 +5326,12 @@ void RenameDevices(UINT8* table)
               else if ((table[k] & 0x80) != 0) {
                 k += 3;
               } //now k points to the outer name
-              if (CmpFullName(table + k, len - k, Bridge)) {
-                CopyMem(table + adr, Replace, 4);
+              if (CmpFullName(table + k, len - k, BridgeList)) {
+                DBG("found Bridge device begin=%llX end=%llX\n", k, k+size);
+                DBG("replace with bridge %.*s by %s at table+%llu\n", 4, table + adr, Replace.c_str(), adr);
+                CopyMem(table + adr, Replace.c_str(), 4);
                 adr += 5;
-				  DBG("found Bridge device begin=%llX end=%llX\n", k, k+size);
-    //            DBG("   name copied\n");
+                DBG("   name copied\n");
                 Num++;
                 break; //cancel search outer bridge, we found it.
               }
@@ -5327,7 +5342,7 @@ void RenameDevices(UINT8* table)
       }  //while find outer bridge
       adr += 5;
     } while (1); //next occurence
-  }   //DeviceRenameCount
+  }   //DeviceRename.size()
 	MsgLog("  %lld replacements\n", Num);
 }
 
@@ -5346,7 +5361,8 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
   GFXHDAFIX = TRUE;
   USBIDFIX = TRUE;
 
-  DsdtLen = ((EFI_ACPI_DESCRIPTION_HEADER*)temp)->Length;
+  EFI_ACPI_DESCRIPTION_HEADER* efi_acpi_description_header = (EFI_ACPI_DESCRIPTION_HEADER*)temp;
+  DsdtLen = efi_acpi_description_header->Length;
   if ((DsdtLen < 20) || (DsdtLen > 1000000)) { //fool proof (some ASUS dsdt > 300kb?). Up to 1Mb
     MsgLog("DSDT length out of range\n");
     return;
@@ -5359,26 +5375,26 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
   CheckHardware();
 
   //arbitrary fixes
-  if (gSettings.DSDTPatchArray.size() > 0) {
+  if (gSettings.ACPI.DSDT.DSDTPatchArray.size() > 0) {
     MsgLog("Patching DSDT:\n");
-    for (i = 0; i < gSettings.DSDTPatchArray.size(); i++) {
-      if ( gSettings.DSDTPatchArray[i].PatchDsdtFind.isEmpty() ) {
+    for (i = 0; i < gSettings.ACPI.DSDT.DSDTPatchArray.size(); i++) {
+      if ( gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtFind.isEmpty() ) {
         continue;
       }
 
-      MsgLog(" - [%s]:", gSettings.DSDTPatchArray[i].PatchDsdtLabel.c_str()); //yyyy
-      if (gSettings.DSDTPatchArray[i].PatchDsdtMenuItem.BValue) {
-        if (gSettings.DSDTPatchArray[i].PatchDsdtTgt.isEmpty()) {
+      MsgLog(" - [%s]:", gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtLabel.c_str()); //yyyy
+      if (gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtMenuItem.BValue) {
+        if (gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtTgt.isEmpty()) {
               DsdtLen = FixAny(temp, DsdtLen,
-                           gSettings.DSDTPatchArray[i].PatchDsdtFind,
-                           gSettings.DSDTPatchArray[i].PatchDsdtReplace);
+                           gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtFind,
+                           gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtReplace);
 
         }else{
     //      DBG("Patching: renaming in bridge\n");
           DsdtLen = FixRenameByBridge2(temp, DsdtLen,
-                           gSettings.DSDTPatchArray[i].PatchDsdtTgt,
-                           gSettings.DSDTPatchArray[i].PatchDsdtFind,
-                           gSettings.DSDTPatchArray[i].PatchDsdtReplace);
+                           gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtTgt,
+                           gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtFind,
+                           gSettings.ACPI.DSDT.DSDTPatchArray[i].PatchDsdtReplace);
 
         }
       } else {
@@ -5394,7 +5410,7 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
   findCPU(temp, DsdtLen);
 
   // add Method (DTGP, 5, NotSerialized)
-  if ((gSettings.FixDsdt & FIX_DTGP)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_DTGP)) {
     if (!FindMethod(temp, DsdtLen, "DTGP")) {
       CopyMem((CHAR8 *)temp+DsdtLen, dtgp, sizeof(dtgp));
       DsdtLen += sizeof(dtgp);
@@ -5406,42 +5422,42 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
   findPciRoot(temp, DsdtLen);
 
   // Fix RTC
-  if ((gSettings.FixDsdt & FIX_RTC)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_RTC)) {
  //   DBG("patch RTC in DSDT \n");
     DsdtLen = FixRTC(temp, DsdtLen);
   }
 
   // Fix TMR
-  if ((gSettings.FixDsdt & FIX_TMR))  {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_TMR))  {
 //    DBG("patch TMR in DSDT \n");
     DsdtLen = FixTMR(temp, DsdtLen);
   }
 
   // Fix PIC or IPIC
-  if ((gSettings.FixDsdt & FIX_IPIC) != 0) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_IPIC) != 0) {
 //    DBG("patch IPIC in DSDT \n");
     DsdtLen = FixPIC(temp, DsdtLen);
   }
 
   // Fix HPET
-  if ((gSettings.FixDsdt & FIX_HPET) != 0) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_HPET) != 0) {
 //    DBG("patch HPET in DSDT \n");
     DsdtLen = FixHPET(temp, DsdtLen);
   }
 
   // Fix LPC if don't had HPET don't need to inject LPC??
-  if (LPCBFIX && (gCPUStructure.Family == 0x06)  && (gSettings.FixDsdt & FIX_LPC)) {
+  if (LPCBFIX && (gCPUStructure.Family == 0x06)  && (gSettings.ACPI.DSDT.FixDsdt & FIX_LPC)) {
 //    DBG("patch LPC in DSDT \n");
     DsdtLen = FIXLPCB(temp, DsdtLen);
   }
 
   // Fix Display
-  if ((gSettings.FixDsdt & FIX_DISPLAY) || (gSettings.FixDsdt & FIX_INTELGFX)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_DISPLAY) || (gSettings.ACPI.DSDT.FixDsdt & FIX_INTELGFX)) {
     INT32 j;
     for (j=0; j<4; ++j) {
       if (DisplayADR1[j]) {
-          if (((DisplayVendor[j] != 0x8086) && (gSettings.FixDsdt & FIX_DISPLAY)) ||
-              ((DisplayVendor[j] == 0x8086) && (gSettings.FixDsdt & FIX_INTELGFX))) {
+          if (((DisplayVendor[j] != 0x8086) && (gSettings.ACPI.DSDT.FixDsdt & FIX_DISPLAY)) ||
+              ((DisplayVendor[j] == 0x8086) && (gSettings.ACPI.DSDT.FixDsdt & FIX_INTELGFX))) {
             DsdtLen = FIXDisplay(temp, DsdtLen, j);
             MsgLog("patch Display #%d of Vendor=0x%4X\n", j, DisplayVendor[j]);
           }
@@ -5450,7 +5466,7 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
   }
 
   // Fix Network
-  if ((gSettings.FixDsdt & FIX_LAN)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_LAN)) {
 //    DBG("patch LAN in DSDT \n");
     UINT32 j;
     for (j = 0; j <= net_count; ++j) {
@@ -5462,67 +5478,67 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
   }
 
   // Fix Airport
-  if (ArptADR1 && (gSettings.FixDsdt & FIX_WIFI)) {
+  if (ArptADR1 && (gSettings.ACPI.DSDT.FixDsdt & FIX_WIFI)) {
 //    DBG("patch Airport in DSDT \n");
     DsdtLen = FIXAirport(temp, DsdtLen);
   }
 
   // Fix SBUS
-  if (SBUSADR1  && (gSettings.FixDsdt & FIX_SBUS)) {
+  if (SBUSADR1  && (gSettings.ACPI.DSDT.FixDsdt & FIX_SBUS)) {
 //    DBG("patch SBUS in DSDT \n");
     DsdtLen = FIXSBUS(temp, DsdtLen);
   }
 
   // Fix IDE inject
-  if (IDEFIX && (IDEVENDOR == 0x8086 || IDEVENDOR == 0x11ab)  && (gSettings.FixDsdt & FIX_IDE)) {
+  if (IDEFIX && (IDEVENDOR == 0x8086 || IDEVENDOR == 0x11ab)  && (gSettings.ACPI.DSDT.FixDsdt & FIX_IDE)) {
 //    DBG("patch IDE in DSDT \n");
     DsdtLen = FIXIDE(temp, DsdtLen);
   }
 
   // Fix SATA AHCI orange icon
-  if (SATAAHCIADR1 && (SATAAHCIVENDOR == 0x8086)  && (gSettings.FixDsdt & FIX_SATA)) {
+  if (SATAAHCIADR1 && (SATAAHCIVENDOR == 0x8086)  && (gSettings.ACPI.DSDT.FixDsdt & FIX_SATA)) {
     DBG("patch AHCI in DSDT \n");
     DsdtLen = FIXSATAAHCI(temp, DsdtLen);
   }
 
   // Fix SATA inject
-  if (SATAFIX && (SATAVENDOR == 0x8086)  && (gSettings.FixDsdt & FIX_SATA)) {
+  if (SATAFIX && (SATAVENDOR == 0x8086)  && (gSettings.ACPI.DSDT.FixDsdt & FIX_SATA)) {
     DBG("patch SATA in DSDT \n");
     DsdtLen = FIXSATA(temp, DsdtLen);
   }
 
   // Fix Firewire
-  if (FirewireADR1  && (gSettings.FixDsdt & FIX_FIREWIRE)) {
+  if (FirewireADR1  && (gSettings.ACPI.DSDT.FixDsdt & FIX_FIREWIRE)) {
     DBG("patch FRWR in DSDT \n");
     DsdtLen = FIXFirewire(temp, DsdtLen);
   }
 
   // HDA HDEF
-  if (HDAFIX  && (gSettings.FixDsdt & FIX_HDA)) {
+  if (HDAFIX  && (gSettings.ACPI.DSDT.FixDsdt & FIX_HDA)) {
     DBG("patch HDEF in DSDT \n");
     DsdtLen = AddHDEF(temp, DsdtLen, OSVersion);
   }
 
   //Always add MCHC for PM
-  if ((gCPUStructure.Family == 0x06)  && (gSettings.FixDsdt & FIX_MCHC)) {
+  if ((gCPUStructure.Family == 0x06)  && (gSettings.ACPI.DSDT.FixDsdt & FIX_MCHC)) {
 //    DBG("patch MCHC in DSDT \n");
     DsdtLen = AddMCHC(temp, DsdtLen);
   }
   //add IMEI
-  if ((gSettings.FixDsdt & FIX_IMEI)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_IMEI)) {
     DsdtLen = AddIMEI(temp, DsdtLen);
   }
   //Add HDMI device
-  if ((gSettings.FixDsdt & FIX_HDMI)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_HDMI)) {
     DsdtLen = AddHDMI(temp, DsdtLen);
   }
 
   // Always Fix USB
-  if ((gSettings.FixDsdt & FIX_USB)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_USB)) {
     DsdtLen = FIXUSB(temp, DsdtLen);
   }
 
-  if ((gSettings.FixDsdt & FIX_WAK)){
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_WAK)){
     // Always Fix _WAK Return value
     DsdtLen = FIXWAK(temp, DsdtLen, fadt);
   }
@@ -5535,7 +5551,7 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
 
     // USB Device remove error Fix
    // DsdtLen = FIXGPE(temp, DsdtLen);
-  if ((gSettings.FixDsdt & FIX_UNUSED)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_UNUSED)) {
     //I want these fixes even if no Display fix. We have GraphicsInjector
     DsdtLen = DeleteDevice("CRT_"_XS8, temp, DsdtLen);
     DsdtLen = DeleteDevice("DVI_"_XS8, temp, DsdtLen);
@@ -5548,7 +5564,7 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
     DsdtLen = DeleteDevice("LPT1"_XS8, temp, DsdtLen);
   }
 
-  if ((gSettings.FixDsdt & FIX_ACST)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_ACST)) {
     ReplaceName(temp, DsdtLen, "ACST", "OCST");
     ReplaceName(temp, DsdtLen, "ACSS", "OCSS");
     ReplaceName(temp, DsdtLen, "APSS", "OPSS");
@@ -5556,32 +5572,32 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
     ReplaceName(temp, DsdtLen, "APLF", "OPLF");
   }
 
-  if ((gSettings.FixDsdt & FIX_PNLF)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_PNLF)) {
       DsdtLen = AddPNLF(temp, DsdtLen);
   }
 
-  if ((gSettings.FixDsdt & FIX_S3D)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_S3D)) {
     FixS3D(temp, DsdtLen);
   }
   //Fix OperationRegions
-  if ((gSettings.FixDsdt & FIX_REGIONS)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_REGIONS)) {
     FixRegions(temp, DsdtLen);
   }
 
   //RehabMan: Fix Mutex objects
-  if ((gSettings.FixDsdt & FIX_MUTEX)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_MUTEX)) {
     FixMutex(temp, DsdtLen);
   }
 
 
      // pwrb add _CID sleep button fix
-  if ((gSettings.FixDsdt & FIX_ADP1)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_ADP1)) {
       DsdtLen = FixADP1(temp, DsdtLen);
   }
     // other compiler warning fix _T_X,  MUTE .... USB _PRW value form 0x04 => 0x01
 //     DsdtLen = FIXOTHER(temp, DsdtLen);
 
-  if ((gSettings.FixDsdt & FIX_WARNING) || (gSettings.FixDsdt & FIX_DARWIN)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_WARNING) || (gSettings.ACPI.DSDT.FixDsdt & FIX_DARWIN)) {
     if (!FindMethod(temp, DsdtLen, "GET9") &&
         !FindMethod(temp, DsdtLen, "STR9") &&
         !FindMethod(temp, DsdtLen, "OOSI")) {
@@ -5589,7 +5605,7 @@ void FixBiosDsdt(UINT8* temp, EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE* fadt, c
     }
   }
   // Fix SHUTDOWN For ASUS
-  if ((gSettings.FixDsdt & FIX_SHUTDOWN)) {
+  if ((gSettings.ACPI.DSDT.FixDsdt & FIX_SHUTDOWN)) {
     DsdtLen = FIXSHUTDOWN_ASUS(temp, DsdtLen); //safe to do twice
   }
 

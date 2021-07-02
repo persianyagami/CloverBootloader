@@ -7,8 +7,8 @@
 #include "XPointer.h"
 #include "libegint.h"   //this includes platform.h 
 #include "../refit/screen.h"
-#include "../refit/menu.h"
 #include "../Platform/Settings.h"
+#include "../libeg/XTheme.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_MOUSE 0
@@ -42,7 +42,7 @@ EFI_STATUS XPointer::MouseBirth()
 {
   EFI_STATUS Status = EFI_UNSUPPORTED;
 
-  if (!gSettings.PointerEnabled) {
+  if (!gSettings.GUI.Mouse.PointerEnabled) {
     return EFI_SUCCESS;
   }
 
@@ -68,7 +68,7 @@ EFI_STATUS XPointer::MouseBirth()
     }
     MouseEvent = NoEvents;
     SimplePointerProtocol = NULL;
-    gSettings.PointerEnabled = FALSE;
+    gSettings.GUI.Mouse.PointerEnabled = FALSE;
     return Status;
   }
 
@@ -124,7 +124,7 @@ void XPointer::KillMouse()
   SimplePointerProtocol = NULL;
 }
 
-void XPointer::UpdatePointer(bool daylight)
+void XPointer::UpdatePointer(bool isDaylight) // cannot be called daylight because of a global var on macOS
 {
   UINT64                    Now;
   EFI_STATUS                Status;
@@ -133,7 +133,7 @@ void XPointer::UpdatePointer(bool daylight)
   INTN                      ScreenRelX;
   INTN                      ScreenRelY;
   
-  night = !daylight;
+  night = !isDaylight;
 
   //  Now = gRT->GetTime(&Now, NULL);
   Now = AsmReadTsc();
@@ -145,7 +145,7 @@ void XPointer::UpdatePointer(bool daylight)
       MouseEvent = RightMouseDown;
     else if (State.LeftButton && !tmpState.LeftButton) { //release left
       // time for double click 500ms into menu
-      if (TimeDiff(LastClickTime, Now) < gSettings.DoubleClickTime)
+      if (TimeDiff(LastClickTime, Now) < gSettings.GUI.Mouse.DoubleClickTime)
         MouseEvent = DoubleClick;
       else
         MouseEvent = LeftClick;
@@ -165,8 +165,8 @@ void XPointer::UpdatePointer(bool daylight)
     CopyMem(&State, &tmpState, sizeof(State));
     CurrentMode = SimplePointerProtocol->Mode;
 
-    ScreenRelX = (UGAWidth * State.RelativeMovementX * gSettings.PointerSpeed / (INTN)CurrentMode->ResolutionX) >> 10;
-    if (gSettings.PointerMirror) {
+    ScreenRelX = (UGAWidth * State.RelativeMovementX * gSettings.GUI.Mouse.PointerSpeed / (INTN)CurrentMode->ResolutionX) >> 10;
+    if (gSettings.GUI.Mouse.PointerMirror) {
       newPlace.XPos -= ScreenRelX;
     }
     else {
@@ -176,7 +176,7 @@ void XPointer::UpdatePointer(bool daylight)
     if (newPlace.XPos > UGAWidth - 1) newPlace.XPos = UGAWidth - 1;
 
     //    YPosPrev = newPlace.YPos;
-    ScreenRelY = (UGAHeight * State.RelativeMovementY * gSettings.PointerSpeed / (INTN)CurrentMode->ResolutionY) >> 10;
+    ScreenRelY = (UGAHeight * State.RelativeMovementY * gSettings.GUI.Mouse.PointerSpeed / (INTN)CurrentMode->ResolutionY) >> 10;
     newPlace.YPos += ScreenRelY;
     if (newPlace.YPos < 0) newPlace.YPos = 0;
     if (newPlace.YPos > UGAHeight - 1) newPlace.YPos = UGAHeight - 1;

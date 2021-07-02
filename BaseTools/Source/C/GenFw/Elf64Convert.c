@@ -540,6 +540,7 @@ ScanSections64 (
   // First text sections.
   //
   mCoffOffset = CoffAlign(mCoffOffset);
+  mCoffOffsetMax = MAX(mCoffOffsetMax, mCoffOffset);
   mTextOffset = mCoffOffset;
   FoundSection = FALSE;
   SectionCount = 0;
@@ -552,8 +553,10 @@ ScanSections64 (
         // the alignment field is valid
         if ((shdr->sh_addr & (shdr->sh_addralign - 1)) == 0) {
           // if the section address is aligned we must align PE/COFF
+          UINT32 mCoffOffsetNew = (UINT32) ((shdr->sh_addr + shdr->sh_addralign - 1) & ~(shdr->sh_addralign - 1));
           mCoffOffset = (UINT32) ((mCoffOffset + shdr->sh_addralign - 1) & ~(shdr->sh_addralign - 1));
-          /*debug*/NormalMsg("Text section %d %s size=%llu mCoffOffset=%d(0x%x)", i, sectName, shdr->sh_size, mCoffOffset, mCoffOffset);
+printf("Section %d %s mCoffOffset=%d(0x%x) mCoffOffsetNew=%d(0x%x) diff=%d(0x%x), size=%llu\n", i, sectName, mCoffOffset, mCoffOffset, mCoffOffsetNew, mCoffOffsetNew, mCoffOffsetNew-mCoffOffset, mCoffOffsetNew-mCoffOffset, shdr->sh_size);
+mCoffOffset=mCoffOffsetNew;
         } else {
           Error (NULL, 0, 3000, "Invalid", "Section address not aligned to its own alignment.");
         }
@@ -575,6 +578,7 @@ ScanSections64 (
 
       mCoffSectionsOffset[i] = mCoffOffset;
       mCoffOffset += (UINT32) shdr->sh_size;
+      mCoffOffsetMax = MAX(mCoffOffsetMax, mCoffOffset);
       SectionCount ++;
     }
   }
@@ -606,8 +610,10 @@ ScanSections64 (
         // the alignment field is valid
         if ((shdr->sh_addr & (shdr->sh_addralign - 1)) == 0) {
           // if the section address is aligned we must align PE/COFF
+          UINT32 mCoffOffsetNew = (UINT32) ((shdr->sh_addr + shdr->sh_addralign - 1) & ~(shdr->sh_addralign - 1));
           mCoffOffset = (UINT32) ((mCoffOffset + shdr->sh_addralign - 1) & ~(shdr->sh_addralign - 1));
-          /*debug*/NormalMsg("Data section %d %s size=%llu mCoffOffset=%d(0x%x)", i, sectName, shdr->sh_size, mCoffOffset, mCoffOffset);
+printf("Section %d %s mCoffOffset=%d(0x%x) mCoffOffsetNew=%d(0x%x) diff=%d(0x%x), size=%llu\n", i, sectName, mCoffOffset, mCoffOffset, mCoffOffsetNew, mCoffOffsetNew, mCoffOffsetNew-mCoffOffset, mCoffOffsetNew-mCoffOffset, shdr->sh_size);
+mCoffOffset=mCoffOffsetNew;
         } else {
           Error (NULL, 0, 3000, "Invalid", "Section address not aligned to its own alignment.");
         }
@@ -622,6 +628,7 @@ ScanSections64 (
       }
       mCoffSectionsOffset[i] = mCoffOffset;
       mCoffOffset += (UINT32) shdr->sh_size;
+      mCoffOffsetMax = MAX(mCoffOffsetMax, mCoffOffset);
       SectionCount ++;
     }
   }
@@ -643,6 +650,7 @@ ScanSections64 (
   if (SectionCount == 0) {
     mDataOffset = mCoffOffset;
   }
+  mCoffOffsetMax = MAX(mCoffOffsetMax, mCoffOffset);
 
   if (SectionCount > 1 && mOutImageType == FW_EFI_IMAGE) {
     Warning (NULL, 0, 0, NULL, "Multiple sections in %s are merged into 1 data section. Source level debug might not work correctly.", mInImageName);
@@ -669,6 +677,7 @@ ScanSections64 (
         mCoffSectionsOffset[i] = mCoffOffset;
         mCoffOffset += (UINT32) shdr->sh_size;
         mCoffOffset = CoffAlign(mCoffOffset);
+        mCoffOffsetMax = MAX(mCoffOffsetMax, mCoffOffset);
         SetHiiResourceHeader ((UINT8*) mEhdr + shdr->sh_offset, mHiiRsrcOffset);
       }
       break;
@@ -680,13 +689,13 @@ ScanSections64 (
   //
   // Allocate base Coff file.  Will be expanded later for relocations.
   //
-  NormalMsg("Allocate %d bytes for mCoffFile", mCoffOffset);
-  mCoffFile = (UINT8 *)malloc(mCoffOffset);
+  NormalMsg("Allocate %d bytes for mCoffFile", mCoffOffsetMax);
+  mCoffFile = (UINT8 *)malloc(mCoffOffsetMax);
   if (mCoffFile == NULL) {
     Error (NULL, 0, 4001, "Resource", "memory cannot be allocated!");
   }
   assert (mCoffFile != NULL);
-  memset(mCoffFile, 0, mCoffOffset);
+  memset(mCoffFile, 0, mCoffOffsetMax);
 
   //
   // Fill headers.

@@ -83,6 +83,7 @@ CONST CHAR8* IconsNames[] = {
    "os_clover",  //52 == ICON_CLOVER
    //other oses will be added below
    "os_bigsur",  //53 == ICON_BIGSUR
+   "os_monterey",  //54 == ICON_MONTEREY
   ""
 };
 const INTN IconsNamesSize = sizeof(IconsNames) / sizeof(IconsNames[0]);
@@ -96,6 +97,12 @@ Empty = EFI_ERROR(Image.FromPNG(ACCESS_EMB_DATA(ico), ACCESS_EMB_SIZE(ico))); \
 #define DEC_BUILTIN_ICON2(id, ico, dark) { \
 Empty = EFI_ERROR(Image.FromPNG(ACCESS_EMB_DATA(ico), ACCESS_EMB_SIZE(ico))); \
 ImageNight.FromPNG(ACCESS_EMB_DATA(dark), ACCESS_EMB_SIZE(dark)); \
+}
+
+
+XIcon::~XIcon()
+{
+  // memory leak : we can't free (yet?) ImageSVG and ImageSVGnight because operator might have copied it
 }
 
 XIcon::XIcon(INTN Index, bool TakeEmbedded) : Id(Index), Name(), Image(), ImageNight(), Native(false),
@@ -118,16 +125,13 @@ XIcon& XIcon::operator=(const XIcon& src)
 {
   Id = src.Id;
   Name = src.Name;
-  if (!src.isEmpty()) {
-    Image = src.Image;
-    if (!src.ImageNight.isEmpty()) {
-      ImageNight = src.ImageNight;
-    }
-    setFilled();
-    //this moment we copy pointers. Later it will be class variables
-    ImageSVG = src.ImageSVG;
-    ImageSVGnight = src.ImageSVGnight;
-  }
+  Image = src.Image;
+  ImageNight = src.ImageNight;
+  Native = src.Native;
+  Empty = src.Empty;
+  //this moment we copy pointers. Later it will be class variables
+  ImageSVG = src.ImageSVG;
+  ImageSVGnight = src.ImageSVGnight;
   return *this;
 }
 
@@ -223,8 +227,6 @@ void XIcon::GetEmbedded()
   }
   //something to do else?
 }
-
-XIcon::~XIcon() {}
 
 //copy from XImage for our purpose
 EFI_STATUS XIcon::LoadXImage(const EFI_FILE *BaseDir, const char* IconName)

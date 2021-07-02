@@ -18,6 +18,7 @@ extern "C" {
 
 #include <UefiLoader.h>
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
+#include "Settings.h"
 #include "kernel_patcher.h"
 #include "kext_inject.h"
 #include "../gui/menu_items/menu_items.h"
@@ -383,7 +384,7 @@ const UINT8   Moj4CataSearch[]  = { 0x75, 0x33, 0x0f, 0xb7 };
 const UINT8   Moj4CataReplace[] = { 0xeb, 0x33, 0x0f, 0xb7 };
 #endif
 //
-// We can not rely on OSVersion global variable for OS version detection,
+// We can not rely on macOSVersion global variable for OS version detection,
 // since in some cases it is not correct (install of ML from Lion, for example). -- AppleRTC patch is not needed for installation
 // So, we'll use "brute-force" method - just try to patch.
 // Actually, we'll at least check that if we can find only one instance of code that
@@ -482,20 +483,20 @@ void LOADER_ENTRY::AppleRTCPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *InfoPl
 //
 // not used since 4242
 #if 0
-void LOADER_ENTRY::CheckForFakeSMC(CHAR8 *InfoPlist)
-{
-  if (OSFLAG_ISSET(Flags, OSFLAG_CHECKFAKESMC) &&
-      OSFLAG_ISSET(Flags, OSFLAG_WITHKEXTS)) {
-    if (AsciiStrStr(InfoPlist, "<string>org.netkas.driver.FakeSMC</string>") != NULL
-        || AsciiStrStr(InfoPlist, "<string>org.netkas.FakeSMC</string>") != NULL
-        || AsciiStrStr(InfoPlist, "<string>as.vit9696.VirtualSMC</string>") != NULL)
-    {
-      Flags = OSFLAG_UNSET(Flags, OSFLAG_WITHKEXTS);
-      DBG_RT("\nFakeSMC or VirtualSMC found, UNSET WITHKEXTS\n");
-      Stall(5000000);
-    }
-  }
-}
+//void LOADER_ENTRY::CheckForFakeSMC(CHAR8 *InfoPlist)
+//{
+//  if (OSFLAG_ISSET(Flags, OSFLAG_CHECKFAKESMC) &&
+//      OSFLAG_ISSET(Flags, OSFLAG_WITHKEXTS)) {
+//    if (AsciiStrStr(InfoPlist, "<string>org.netkas.driver.FakeSMC</string>") != NULL
+//        || AsciiStrStr(InfoPlist, "<string>org.netkas.FakeSMC</string>") != NULL
+//        || AsciiStrStr(InfoPlist, "<string>as.vit9696.VirtualSMC</string>") != NULL)
+//    {
+//      Flags = OSFLAG_UNSET(Flags, OSFLAG_WITHKEXTS);
+//      DBG_RT("\nFakeSMC or VirtualSMC found, UNSET WITHKEXTS\n");
+//      Stall(5000000);
+//    }
+//  }
+//}
 #endif
 
 
@@ -559,9 +560,9 @@ void LOADER_ENTRY::DellSMBIOSPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *Info
 void LOADER_ENTRY::SNBE_AICPUPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *InfoPlist, UINT32 InfoPlistSize)
 {
     UINT32 i;
-//    UINT64 os_ver = AsciiOSVersionToUint64(OSVersion);
+//    UINT64 os_ver = AsciiOSVersionToUint64(macOSVersion);
     
-  if ( OSVersion.isEmpty() ) return; // Jief : not 100% sure, but if OSVersion is unknown, it's > 11.0.1
+  if ( macOSVersion.isEmpty() ) return; // Jief : not 100% sure, but if macOSVersion is unknown, it's > 11.0.1
 
 	DBG_RT("\nSNBE_AICPUPatch: driverAddr = %llx, driverSize = %x\n", (UINTN)Driver, DriverSize);
   if (KernelAndKextPatches.KPDebug) {
@@ -571,13 +572,13 @@ void LOADER_ENTRY::SNBE_AICPUPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *Info
 	DBG_RT("Kext: %s\n", gKextBundleIdentifier);
     
     // now let's patch it
-    if (OSVersion < MacOsVersion("10.9"_XS8) || OSVersion >= MacOsVersion("10.14"_XS8)) {
+    if (macOSVersion < MacOsVersion("10.9"_XS8) || macOSVersion >= MacOsVersion("10.14"_XS8)) {
         DBG("Unsupported macOS.\nSandyBridge-E requires macOS 10.9 - 10.13.x, aborted\n");
         DBG("SNBE_AICPUPatch() <===FALSE\n");
         return;
     }
     
-    if (OSVersion < MacOsVersion("10.10"_XS8)) {
+    if (macOSVersion < MacOsVersion("10.10"_XS8)) {
         // 10.9.x
         const UINT8 find[][3] = {
             { 0x84, 0x2F, 0x01 },
@@ -605,7 +606,7 @@ void LOADER_ENTRY::SNBE_AICPUPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *Info
                 DBG("SNBE_AICPUPatch (%d/7) not apply\n", i);
             }
         }
-    } else if (OSVersion < MacOsVersion("10.11"_XS8)) {
+    } else if (macOSVersion < MacOsVersion("10.11"_XS8)) {
         // 10.10.x
         const UINT8 find[][3] = {
             { 0x3E, 0x75, 0x39 },
@@ -657,7 +658,7 @@ void LOADER_ENTRY::SNBE_AICPUPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *Info
         } else {
             DBG("SNBE_AICPUPatch (7/7) not apply\n");
         }
-    } else if (OSVersion < MacOsVersion("10.12"_XS8)) {
+    } else if (macOSVersion < MacOsVersion("10.12"_XS8)) {
         // 10.11
         const UINT8 find[][3] = {
             { 0x3E, 0x75, 0x39 },
@@ -708,7 +709,7 @@ void LOADER_ENTRY::SNBE_AICPUPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *Info
         } else {
             DBG("SNBE_AICPUPatch (7/7) not apply\n");
         }
-    } else if (OSVersion < MacOsVersion("10.13"_XS8)) {
+    } else if (macOSVersion < MacOsVersion("10.13"_XS8)) {
         // 10.12
         const UINT8 find[][3] = {
             { 0x01, 0x74, 0x61 },
@@ -759,7 +760,7 @@ void LOADER_ENTRY::SNBE_AICPUPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *Info
         } else {
             DBG("SNBE_AICPUPatch (7/7) not apply\n");
         }
-    } else if (OSVersion < MacOsVersion("10.15"_XS8)) {
+    } else if (macOSVersion < MacOsVersion("10.15"_XS8)) {
         // 10.13/10.14
         const UINT8 find[][3] = {
             { 0x01, 0x74, 0x61 },
@@ -837,7 +838,7 @@ const UINT8   BroadwellE_IOPCI_Repl_MojCata[] = { 0x48, 0x3D, 0x00, 0x00, 0x00, 
 void LOADER_ENTRY::BDWE_IOPCIPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *InfoPlist, UINT32 InfoPlistSize)
 {
   UINTN count = 0;
-//  UINT64 os_ver = AsciiOSVersionToUint64(OSVersion);
+//  UINT64 os_ver = AsciiOSVersionToUint64(macOSVersion);
     
 	DBG_RT("\nBDWE_IOPCIPatch: driverAddr = %llx, driverSize = %x\n", (UINTN)Driver, DriverSize);
   if (KernelAndKextPatches.KPDebug) {
@@ -849,9 +850,9 @@ void LOADER_ENTRY::BDWE_IOPCIPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *Info
   // now, let's patch it!
   //
 
-  if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.12"_XS8)) {
+  if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12"_XS8)) {
     count = SearchAndReplace(Driver, DriverSize, BroadwellE_IOPCI_Find_El, sizeof(BroadwellE_IOPCI_Find_El), BroadwellE_IOPCI_Repl_El, 0);
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.14"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.14"_XS8)) {
     count = SearchAndReplace(Driver, DriverSize, BroadwellE_IOPCI_Find_SieHS, sizeof(BroadwellE_IOPCI_Find_SieHS), BroadwellE_IOPCI_Repl_SieHS, 0);
   } else {
     count = SearchAndReplace(Driver, DriverSize, BroadwellE_IOPCI_Find_MojCata, sizeof(BroadwellE_IOPCI_Find_MojCata), BroadwellE_IOPCI_Repl_MojCata, 0);
@@ -979,10 +980,10 @@ void LOADER_ENTRY::AnyKextPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *InfoPli
 
         Num = SearchAndReplaceMask(curs,
                                    procLen,
-                                   kextpatch.Data.data(),
+                                   kextpatch.Find.data(),
                                    kextpatch.MaskFind.data(),
-                                   kextpatch.Data.size(),
-                                   kextpatch.Patch.data(),
+                                   kextpatch.Find.size(),
+                                   kextpatch.Replace.data(),
                                    kextpatch.MaskReplace.data(),
                                    kextpatch.Count,
                                    kextpatch.Skip);
@@ -999,21 +1000,21 @@ void LOADER_ENTRY::AnyKextPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *InfoPli
   } else {
     // Info plist patch
     DBG_RT("Info.plist data : '");
-    for (size_t Ind = 0; Ind < kextpatch.Data.size(); Ind++) {
-      DBG_RT("%c", kextpatch.Data[Ind]);
+    for (size_t Ind = 0; Ind < kextpatch.Find.size(); Ind++) {
+      DBG_RT("%c", kextpatch.Find[Ind]);
     }
     DBG_RT("' ->\n");
     DBG_RT("Info.plist patch: '");
-    for (size_t Ind = 0; Ind < kextpatch.Data.size(); Ind++) {
-      DBG_RT("%c", kextpatch.Patch[Ind]);
+    for (size_t Ind = 0; Ind < kextpatch.Find.size(); Ind++) {
+      DBG_RT("%c", kextpatch.Replace[Ind]);
     }
     DBG_RT("' \n");
     
     Num = SearchAndReplaceTxt((UINT8*)InfoPlist,
                            InfoPlistSize,
-                           kextpatch.Data.data(),
-                           kextpatch.Data.size(),
-                           kextpatch.Patch.data(),
+                           kextpatch.Find.data(),
+                           kextpatch.Find.size(),
+                           kextpatch.Replace.data(),
                            -1);
   }
   
@@ -1069,7 +1070,7 @@ void LOADER_ENTRY::PatchKext(UINT8 *Driver, UINT32 DriverSize, CHAR8 *InfoPlist,
   
   ExtractKextBundleIdentifier(InfoPlist);
   
-  if (KernelAndKextPatches.KPAppleIntelCPUPM &&
+  if ( (GlobalConfig.KPAppleIntelCPUPM) &&
       (AsciiStrStr(InfoPlist,
                    "<string>com.apple.driver.AppleIntelCPUPowerManagement</string>") != NULL)) {
     //
@@ -1122,7 +1123,7 @@ void LOADER_ENTRY::PatchKext(UINT8 *Driver, UINT32 DriverSize, CHAR8 *InfoPlist,
     for (size_t i = 0; i < KernelAndKextPatches.KextPatches.size(); i++) {
       XString8& Name = KernelAndKextPatches.KextPatches[i].Name;
       BOOLEAN   isBundle = Name.contains(".");
-      if ((KernelAndKextPatches.KextPatches[i].Data.size() > 0) &&
+      if ((KernelAndKextPatches.KextPatches[i].Find.size() > 0) &&
           isBundle?(AsciiStrCmp(gKextBundleIdentifier, Name.c_str()) == 0):(AsciiStrStr(gKextBundleIdentifier, Name.c_str()) != NULL)) {
       //    (AsciiStrStr(InfoPlist, KernelAndKextPatches.KextPatches[i].Name) != NULL)) {
         DBG_RT("\n\nPatch kext: %s\n", KernelAndKextPatches.KextPatches[i].Name.c_str());
