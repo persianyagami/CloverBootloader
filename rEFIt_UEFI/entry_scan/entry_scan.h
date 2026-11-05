@@ -33,7 +33,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 #include "../gui/menu_items/menu_items.h"
 
 extern REFIT_MENU_ITEM_RETURN MenuEntryReturn;
@@ -43,20 +42,19 @@ extern REFIT_MENU_ITEM_RESET MenuEntryReset;
 extern REFIT_MENU_ITEM_SHUTDOWN MenuEntryShutdown;
 //extern REFIT_MENU_ENTRY MenuEntryHelp;
 //extern REFIT_MENU_ENTRY MenuEntryExit;
-extern REFIT_MENU_SCREEN MainMenu;
 
 // common
 const XIcon& ScanVolumeDefaultIcon(REFIT_VOLUME *Volume, IN UINT8 OSType, const EFI_DEVICE_PATH_PROTOCOL *DevicePath);
 
 
 // Ask user for file path from directory menu
-BOOLEAN AskUserForFilePathFromDir(IN CHAR16 *Title OPTIONAL, IN REFIT_VOLUME *Volume,
-                                  IN CHAR16 *ParentPath, const EFI_FILE *Dir,
+XBool AskUserForFilePathFromDir(const CHAR16 *Title OPTIONAL, IN REFIT_VOLUME *Volume,
+                                  const CHAR16 *ParentPath, const EFI_FILE *Dir,
                                   OUT EFI_DEVICE_PATH_PROTOCOL **Result);
 // Ask user for file path from volumes menu
-BOOLEAN AskUserForFilePathFromVolumes(IN CHAR16 *Title OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result);
+XBool AskUserForFilePathFromVolumes(const CHAR16 *Title OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result);
 // Ask user for file path
-BOOLEAN AskUserForFilePath(IN CHAR16 *Title OPTIONAL, IN EFI_DEVICE_PATH_PROTOCOL *Root OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result);
+XBool AskUserForFilePath(IN CHAR16 *Title OPTIONAL, IN EFI_DEVICE_PATH_PROTOCOL *Root OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result);
 
 // legacy
 void ScanLegacy(void);
@@ -65,14 +63,13 @@ void AddCustomLegacy(void);
 // loader
 void ScanLoader(void);
 void AddCustomEntries(void);
-BOOLEAN IsCustomBootEntry(IN LOADER_ENTRY *Entry);
+XBool IsCustomBootEntry(IN LOADER_ENTRY *Entry);
 
 // tool
 void ScanTool(void);
 void AddCustomTool(void);
 
 // locked graphics
-CONST CHAR8 *CustomBootModeToStr(IN UINT8 Mode);
 EFI_STATUS LockBootScreen(void);
 EFI_STATUS UnlockBootScreen(void);
 
@@ -96,28 +93,27 @@ EFI_STATUS UnlockBootScreen(void);
 #define DEFAULT_UNAUTHORIZED_DATABASE_GUID gEfiGlobalVariableGuid
 
 void AddSecureBootTool(void);
-void InitializeSecureBoot(void);
 EFI_STATUS InstallSecureBoot(void);
 void UninstallSecureBoot(void);
 void EnableSecureBoot(void);
 void DisableSecureBoot(void);
-BOOLEAN ConfigureSecureBoot(void);
+XBool ConfigureSecureBoot(void);
 CONST CHAR16 *SecureBootPolicyToStr(IN UINTN Policy);
 EFI_STATUS VerifySecureBootImage(IN CONST EFI_DEVICE_PATH_PROTOCOL *DevicePath);
 UINTN QuerySecureBootUser(IN CONST EFI_DEVICE_PATH_PROTOCOL *DevicePath);
 EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
                                 IN UINTN    AuthorizedDatabaseSize,
-                                IN BOOLEAN  WantDefaultKeys);
+                                IN XBool    WantDefaultKeys);
 EFI_STATUS ClearSecureBootKeys(void);
 
 // secure boot database
-void *GetSignatureDatabase(IN  CHAR16   *DatabaseName,
-                           IN  EFI_GUID *DatabaseGuid,
-                           OUT UINTN    *DatabaseSize);
-EFI_STATUS SetSignatureDatabase(IN CHAR16   *DatabaseName,
-                                IN EFI_GUID *DatabaseGuid,
-                                IN void     *Database,
-                                IN UINTN     DatabaseSize);
+void *GetSignatureDatabase(const wchar_t* DatabaseName,
+                           const EFI_GUID& DatabaseGuid,
+                           OUT UINTN    * DatabaseSize);
+EFI_STATUS SetSignatureDatabase(const wchar_t* DatabaseName,
+                                const GUID&  DatabaseGuid,
+                                IN void     *  Database,
+                                IN UINTN       DatabaseSize);
 
 // secure boot authorized database
 void *GetAuthorizedDatabase(UINTN *DatabaseSize);
@@ -127,7 +123,7 @@ EFI_STATUS ClearAuthorizedDatabase(void);
 void *GetImageSignatureDatabase(IN void    *FileBuffer,
                                 IN UINT64   FileSize,
                                 IN UINTN   *DatabaseSize,
-                                IN BOOLEAN  HashIfNoDatabase);
+                                IN XBool    HashIfNoDatabase);
 EFI_STATUS AppendImageDatabaseToAuthorizedDatabase(IN void  *Database,
                                                    IN UINTN  DatabaseSize);
 EFI_STATUS RemoveImageDatabaseFromAuthorizedDatabase(IN void  *Database,
@@ -142,9 +138,9 @@ EFI_STATUS AppendSignatureDatabaseToDatabase(IN OUT void  **Database,
                                              IN OUT UINTN  *DatabaseSize,
                                              IN     void   *SignatureDatabase,
                                              IN     UINTN   SignatureDatabaseSize);
-EFI_STATUS AppendSignatureToDatabase(IN OUT void     **Database,
-                                     IN OUT UINTN     *DatabaseSize,
-                                     IN     EFI_GUID  *SignatureType,
-                                     IN     void      *Signature,
+EFI_STATUS AppendSignatureToDatabase(IN OUT void**         Database,
+                                     IN OUT UINTN*         DatabaseSize,
+                                     const EFI_GUID&  SignatureType,
+                                     IN     void*          Signature,
                                      IN     UINTN      SignatureSize);
 #endif //ENABLE_SECURE_BOOT

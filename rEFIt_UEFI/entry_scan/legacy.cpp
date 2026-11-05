@@ -33,10 +33,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 #include "entry_scan.h"
 #include "../refit/screen.h"
 #include "../refit/menu.h"
 #include "../gui/REFIT_MENU_SCREEN.h"
+#include "../gui/REFIT_MAINMENU_SCREEN.h"
+#include "../Platform/Volumes.h"
+#include "../libeg/XTheme.h"
+#include "../include/OSFlags.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_SCAN_LEGACY 1
@@ -52,34 +57,49 @@
 
 //the function is not in the class and deals always with MainMenu
 //I made args as pointers to have an ability to call with NULL
-BOOLEAN AddLegacyEntry(IN const XStringW& FullTitle, IN const XStringW& LoaderTitle, IN REFIT_VOLUME *Volume, IN const XIcon* Image, IN const XIcon* DriveImage, IN CHAR16 Hotkey, IN BOOLEAN CustomEntry)
+XBool AddLegacyEntry(IN const XStringW& FullTitle, IN const XStringW& _LoaderTitle, IN REFIT_VOLUME *Volume,
+    IN const XIcon* Image, IN const XIcon* DriveImage, IN wchar_t Hotkey, IN XBool CustomEntry)
 {
   LEGACY_ENTRY      *Entry, *SubEntry;
   REFIT_MENU_SCREEN *SubScreen;
   XStringW           VolDesc;
-  CHAR16             ShortcutLetter = 0;
+  wchar_t             ShortcutLetter = 0;
 //  INTN               i;
   
-  if (Volume == NULL) {
-    return false;
-  }
+DBG("    AddLegacyEntry:\n");
+	if (Volume == NULL) {
+		DBG("  Volume==0\n");
+		return false;
+	}
+DBG("      FullTitle=%ls\n", FullTitle.wc_str());
+DBG("      LoaderTitle=%ls\n", _LoaderTitle.wc_str());
+DBG("      Volume->LegacyOS.Name=%ls\n", Volume->LegacyOS.Name.wc_str());
+
   // Ignore this loader if it's device path is already present in another loader
-    for (UINTN i = 0; i < MainMenu.Entries.size(); ++i) {
-      REFIT_ABSTRACT_MENU_ENTRY& MainEntry = MainMenu.Entries[i];
+  for (UINTN i = 0; i < MainMenu.Entries.size(); ++i) {
+    REFIT_ABSTRACT_MENU_ENTRY& MainEntry = MainMenu.Entries[i];
 //      DBG("entry %lld\n", i);
-      // Only want legacy
-      if (MainEntry.getLEGACY_ENTRY()) {
-        if ( MainEntry.getLEGACY_ENTRY()->DevicePathString.equalIC(Volume->DevicePathString) ) {
-          return  true;
-        }
+    // Only want legacy
+    if (MainEntry.getLEGACY_ENTRY()) {
+      if ( MainEntry.getLEGACY_ENTRY()->DevicePathString.isEqualIC(Volume->DevicePathString) ) {
+        return  true;
       }
     }
+  }
+
+  XStringW LoaderTitle;
+  if ( _LoaderTitle.isEmpty() ) {
+    LoaderTitle = Volume->LegacyOS.Name;
+  }else{
+    LoaderTitle = _LoaderTitle;
+  }
+
   XStringW LTitle;
   if (LoaderTitle.isEmpty()) {
-    if (Volume->LegacyOS->Name.notEmpty()) {
-      LTitle.takeValueFrom(Volume->LegacyOS->Name);
-      if (Volume->LegacyOS->Name[0] == 'W' || Volume->LegacyOS->Name[0] == 'L')
-        ShortcutLetter = (wchar_t)Volume->LegacyOS->Name[0]; // cast safe because value is 'W' or 'L'
+    if (Volume->LegacyOS.Name.notEmpty()) {
+      LTitle.takeValueFrom(Volume->LegacyOS.Name);
+      if (Volume->LegacyOS.Name[0] == 'W' || Volume->LegacyOS.Name[0] == 'L')
+        ShortcutLetter = (wchar_t)Volume->LegacyOS.Name[0]; // cast safe because value is 'W' or 'L'
     } else
       LTitle = L"Legacy OS"_XSW;
   } else
@@ -91,34 +111,33 @@ BOOLEAN AddLegacyEntry(IN const XStringW& FullTitle, IN const XStringW& LoaderTi
 //DBG("VolDesc=%ls\n", VolDesc);
 
   // prepare the menu entry
-  Entry = new LEGACY_ENTRY();
-  if (!FullTitle.isEmpty()) {
+  Entry = new LEGACY_ENTRY;
+  if ( FullTitle.notEmpty() ) {
     Entry->Title = FullTitle;
   } else {
-    if (ThemeX.BootCampStyle) {
+    if (ThemeX->BootCampStyle) {
       Entry->Title = LTitle;
     } else {
-      Entry->Title = L"Boot "_XSW + LoaderTitle + L" from "_XSW + VolDesc;
-//    Entry->Title.SWPrintf("Boot %ls from %ls", LoaderTitle->wc_str(), VolDesc);
+        Entry->Title.SWPrintf("Boot %ls from %ls", LoaderTitle.wc_str(), VolDesc.wc_str());
     }
   }
+//  DBG("      Entry->Title=%ls\n", Entry->Title.wc_str());
 
-//  DBG("Title=%ls\n", Entry->Title);
   Entry->Row          = 0;
   Entry->ShortcutLetter = (Hotkey == 0) ? ShortcutLetter : Hotkey;
 
-  if (Image) {
+  if ( Image && !Image->isEmpty() ) {
     Entry->Image = *Image;
   } else {
-    Entry->Image = ThemeX.LoadOSIcon(Volume->LegacyOS->IconName);
+    Entry->Image = ThemeX->LoadOSIcon(Volume->LegacyOS.IconName);
     if (Entry->Image.Image.isEmpty()) {
-      Entry->Image = ThemeX.GetIcon("os_win"_XS8); //we have no legacy.png
+      Entry->Image = ThemeX->GetIcon("os_win"_XS8); //we have no legacy.png
     }
   }
 
-//  DBG("IconName=%ls\n", Volume->LegacyOS->IconName);
+//  DBG("IconName=%ls\n", Volume->LegacyOS.IconName);
 
-    Entry->DriveImage = (DriveImage != NULL) ? *DriveImage : ScanVolumeDefaultIcon(Volume, Volume->LegacyOS->Type, Volume->DevicePath);
+    Entry->DriveImage = (DriveImage != NULL) ? *DriveImage : ScanVolumeDefaultIcon(Volume, Volume->LegacyOS.Type, Volume->DevicePath);
 
   //  DBG("HideBadges=%d Volume=%ls\n", GlobalConfig.HideBadges, Volume->VolName);
   //  DBG("Title=%ls OSName=%ls OSIconName=%ls\n", LoaderTitle, Volume->OSName, Volume->OSIconName);
@@ -126,11 +145,11 @@ BOOLEAN AddLegacyEntry(IN const XStringW& FullTitle, IN const XStringW& LoaderTi
   Entry->AtClick = ActionSelect;
   Entry->AtDoubleClick = ActionEnter;
   Entry->AtRightClick = ActionDetails;
-  if (ThemeX.HideBadges & HDBADGES_SHOW) {
-    if (ThemeX.HideBadges & HDBADGES_SWAP) { //will be scaled later
-      Entry->BadgeImage.Image = XImage(Entry->DriveImage.Image, 0); //ThemeX.BadgeScale/16.f); //0 accepted
+  if (ThemeX->HideBadges & HDBADGES_SHOW) {
+    if (ThemeX->HideBadges & HDBADGES_SWAP) { //will be scaled later
+      Entry->BadgeImage.Image = XImage(Entry->DriveImage.Image, 0); //ThemeX->BadgeScale/16.f); //0 accepted
     } else {
-      Entry->BadgeImage.Image = XImage(Entry->Image.Image, 0); //ThemeX.BadgeScale/16.f);
+      Entry->BadgeImage.Image = XImage(Entry->Image.Image, 0); //ThemeX->BadgeScale/16.f);
     }
   }
   Entry->Volume           = Volume;
@@ -141,31 +160,30 @@ BOOLEAN AddLegacyEntry(IN const XStringW& FullTitle, IN const XStringW& LoaderTi
   
   // If this isn't a custom entry make sure it's not hidden by a custom entry
   if (!CustomEntry) {
-    CUSTOM_LEGACY_ENTRY *Custom = gSettings.CustomLegacy;
-    while (Custom) {
-      if ( OSFLAG_ISSET(Custom->Flags, OSFLAG_DISABLED)  ||  Custom->Hidden ) {
-        if (Custom->Volume.notEmpty()) {
-          if ( !Volume->DevicePathString.contains(Custom->Volume)  &&  !Volume->VolName.contains(Custom->Volume) ) {
-            if (Custom->Type != 0) {
-              if (Custom->Type == Volume->LegacyOS->Type) {
+    for (size_t CustomIndex = 0 ; CustomIndex < GlobalConfig.CustomLegacyEntries.size() ; ++CustomIndex ) {
+      CUSTOM_LEGACY_ENTRY& Custom = GlobalConfig.CustomLegacyEntries[CustomIndex];
+      if ( Custom.settings.Disabled  ||  OSFLAG_ISSET(Custom.getFlags(), OSFLAG_DISABLED)  ||  Custom.settings.Hidden ) {
+        if (Custom.settings.Volume.notEmpty()) {
+          if ( !Volume->DevicePathString.contains(Custom.settings.Volume)  &&  !Volume->VolName.contains(Custom.settings.Volume) ) {
+            if (Custom.settings.Type != 0) {
+              if (Custom.settings.Type == Volume->LegacyOS.Type) {
                 Entry->Hidden = true;
               }
             } else {
               Entry->Hidden = true;
             }
           }
-        } else if (Custom->Type != 0) {
-          if (Custom->Type == Volume->LegacyOS->Type) {
+        } else if (Custom.settings.Type != 0) {
+          if (Custom.settings.Type == Volume->LegacyOS.Type) {
             Entry->Hidden = true;
           }
         }
       }
-      Custom = Custom->Next;
     }
   }
   
   // create the submenu
-  SubScreen = new REFIT_MENU_SCREEN();
+  SubScreen = new REFIT_MENU_SCREEN;
 //  SubScreen->Title = L"Boot Options for "_XSW + LoaderTitle + L" on "_XSW + VolDesc;
 	SubScreen->Title.SWPrintf("Boot Options for %ls on %ls", LoaderTitle.wc_str(), VolDesc.wc_str());
 
@@ -173,7 +191,7 @@ BOOLEAN AddLegacyEntry(IN const XStringW& FullTitle, IN const XStringW& LoaderTi
   SubScreen->ID = SCREEN_BOOT;
   SubScreen->GetAnime();
   // default entry
-  SubEntry =  new LEGACY_ENTRY();
+  SubEntry =  new LEGACY_ENTRY;
   SubEntry->Title = L"Boot "_XSW + LoaderTitle;
 //  SubEntry->Tag           = TAG_LEGACY;
   SubEntry->Volume           = Entry->Volume;
@@ -184,21 +202,20 @@ BOOLEAN AddLegacyEntry(IN const XStringW& FullTitle, IN const XStringW& LoaderTi
   SubScreen->AddMenuEntry(&MenuEntryReturn, false);
   Entry->SubScreen = SubScreen;
   MainMenu.AddMenuEntry(Entry, true);
-//  DBG(" added '%ls' OSType=%d Icon=%ls\n", Entry->Title, Volume->LegacyOS->Type, Volume->LegacyOS->IconName);
+//  DBG(" added '%ls' OSType=%d Icon=%ls\n", Entry->Title, Volume->LegacyOS.Type, Volume->LegacyOS.IconName);
   return true;
 }
 
 void ScanLegacy(void)
 {
   UINTN                   VolumeIndex, VolumeIndex2;
-  BOOLEAN                 ShowVolume, HideIfOthersFound;
+  XBool                    ShowVolume, HideIfOthersFound;
   REFIT_VOLUME            *Volume;
   
   DBG("Scanning legacy ...\n");
   
   for (VolumeIndex = 0; VolumeIndex < Volumes.size(); VolumeIndex++) {
     Volume = &Volumes[VolumeIndex];
-//    DBG("test VI=%d\n", VolumeIndex);
     if ((Volume->BootType != BOOTING_BY_PBR) &&
         (Volume->BootType != BOOTING_BY_MBR) &&
         (Volume->BootType != BOOTING_BY_CD)) {
@@ -206,41 +223,23 @@ void ScanLegacy(void)
       continue;
     }
 
-//    DBG("%2d: '%ls' (%ls)", VolumeIndex, Volume->VolName, Volume->LegacyOS->IconName);
-    
-#if 0 // REFIT_DEBUG > 0
-    DBG(" %d %ls\n  %d %d %ls %d %ls\n",
-        VolumeIndex, FileDevicePathToStr(Volume->DevicePath),
-        Volume->DiskKind, Volume->MbrPartitionIndex,
-        Volume->IsAppleLegacy ? L"AL" : L"--", Volume->HasBootCode,
-        Volume->VolName ? Volume->VolName : L"(no name)");
-#endif
-    
-    // skip volume if its kind is configured as disabled
-/*    if ((Volume->DiskKind == DISK_KIND_OPTICAL && (GlobalConfig.DisableFlags & VOLTYPE_OPTICAL)) ||
-        (Volume->DiskKind == DISK_KIND_EXTERNAL && (GlobalConfig.DisableFlags & VOLTYPE_EXTERNAL)) ||
-        (Volume->DiskKind == DISK_KIND_INTERNAL && (GlobalConfig.DisableFlags & VOLTYPE_INTERNAL)) ||
-        (Volume->DiskKind == DISK_KIND_FIREWIRE && (GlobalConfig.DisableFlags & VOLTYPE_FIREWIRE))) */
     if (((1ull<<Volume->DiskKind) & GlobalConfig.DisableFlags) != 0)
     {
 //      DBG(" hidden\n");
       continue;
     }
 //    DBG("not hidden\n");
-    ShowVolume = FALSE;
-    HideIfOthersFound = FALSE;
+    ShowVolume = false;
+    HideIfOthersFound = false;
     if (Volume->IsAppleLegacy) {
-      ShowVolume = TRUE;
-      HideIfOthersFound = TRUE;
+      ShowVolume = true;
+      HideIfOthersFound = true;
     } else if (Volume->HasBootCode) {
-      ShowVolume = TRUE;
-//      DBG("Volume %d will be shown BlockIo=%X WholeIo=%X\n",
-//        VolumeIndex, Volume->BlockIO, Volume->WholeDiskBlockIO);
+      ShowVolume = true;
       if ((Volume->WholeDiskBlockIO == 0) &&
-          Volume->BlockIOOffset == 0 /* &&
-                                      Volume->OSName == NULL */)
+          Volume->BlockIOOffset == 0 )
         // this is a whole disk (MBR) entry; hide if we have entries for partitions
-        HideIfOthersFound = TRUE;
+        HideIfOthersFound = true;
 //      DBG("Hide it!\n");
     }
     if (HideIfOthersFound) {
@@ -251,7 +250,7 @@ void ScanLegacy(void)
         if (VolumeIndex2 != VolumeIndex &&
             Volumes[VolumeIndex2].HasBootCode &&
             Volumes[VolumeIndex2].WholeDiskBlockIO == Volume->BlockIO){
-          ShowVolume = FALSE;
+          ShowVolume = false;
 //         DBG("PBR volume at index %d\n", VolumeIndex2);
           break;
         }
@@ -260,7 +259,7 @@ void ScanLegacy(void)
     
     if (ShowVolume && (!Volume->Hidden)){
 //      DBG(" add legacy\n");
-      if (!AddLegacyEntry(L""_XSW, L""_XSW, Volume, NULL, NULL, 0, FALSE)) {
+      if (!AddLegacyEntry(L""_XSW, L""_XSW, Volume, NULL, NULL, 0, false)) {
         DBG("...entry not added\n");
       };
     } else {
@@ -273,30 +272,29 @@ void ScanLegacy(void)
 void AddCustomLegacy(void)
 {
   UINTN                VolumeIndex, VolumeIndex2;
-  BOOLEAN              ShowVolume, HideIfOthersFound;
+  XBool                ShowVolume, HideIfOthersFound;
   REFIT_VOLUME        *Volume;
-  CUSTOM_LEGACY_ENTRY *Custom;
   XIcon MainIcon;
   XIcon DriveIcon;
-  UINTN                i = 0;
   
 //  DBG("Custom legacy start\n");
-  if (gSettings.CustomLegacy) {
+  if (GlobalConfig.CustomLegacyEntries.notEmpty()) {
     DbgHeader("AddCustomLegacy");
   }
 
   // Traverse the custom entries
-  for (Custom = gSettings.CustomLegacy; Custom; ++i, Custom = Custom->Next) {
-    if (OSFLAG_ISSET(Custom->Flags, OSFLAG_DISABLED)) {
-      DBG("Custom legacy %llu skipped because it is disabled.\n", i);
+  for (size_t i = 0 ; i < GlobalConfig.CustomLegacyEntries.size() ; ++i ) {
+    CUSTOM_LEGACY_ENTRY& Custom = GlobalConfig.CustomLegacyEntries[i];
+    if (Custom.settings.Disabled  ||  OSFLAG_ISSET(Custom.getFlags(), OSFLAG_DISABLED)) {
+      DBG("Custom legacy %zu skipped because it is disabled.\n", i);
       continue;
     }
-//    if (!gSettings.ShowHiddenEntries && OSFLAG_ISSET(Custom->Flags, OSFLAG_HIDDEN)) {
+//    if (!gSettings.ShowHiddenEntries && OSFLAG_ISSET(Custom.Flags, OSFLAG_HIDDEN)) {
 //      DBG("Custom legacy %llu skipped because it is hidden.\n", i);
 //      continue;
 //    }
-    if (Custom->Volume.notEmpty()) {
-      DBG("Custom legacy %llu matching \"%ls\" ...\n", i, Custom->Volume.wc_str());
+    if (Custom.settings.Volume.notEmpty()) {
+      DBG("Custom legacy %zu matching \"%ls\" ...\n", i, Custom.settings.Volume.wc_str());
     }
     for (VolumeIndex = 0; VolumeIndex < Volumes.size(); ++VolumeIndex) {
       Volume = &Volumes[VolumeIndex];
@@ -310,30 +308,30 @@ void AddCustomLegacy(void)
         continue;
       }
       
-      if (Custom->VolumeType != 0) {
-        if (((1ull<<Volume->DiskKind) & Custom->VolumeType) == 0) {
-          DBG("skipped because media is ignored\n");
+      if (Custom.settings.VolumeType != 0) {
+        if (((1ull<<Volume->DiskKind) & Custom.settings.VolumeType) == 0) {
+          DBG("skipped because media is ignored (VolumeType=%d DiskKind=%d)\n", Custom.settings.VolumeType, Volume->DiskKind);
           continue;
         }
       }
-      if (/*(Volume->BootType != BOOTING_BY_PBR) && */
-          (Volume->BootType >= BOOTING_BY_MBR) /*&&
-          (Volume->BootType != BOOTING_BY_CD)*/ ) {
+      if ((Volume->BootType != BOOTING_BY_PBR) &&
+          (Volume->BootType != BOOTING_BY_MBR) &&
+          (Volume->BootType != BOOTING_BY_CD)) {
         DBG("skipped because volume is not legacy bootable\n");
         continue;
       }
       
-      ShowVolume = FALSE;
-      HideIfOthersFound = FALSE;
+      ShowVolume = false;
+      HideIfOthersFound = false;
       if (Volume->IsAppleLegacy) {
-        ShowVolume = TRUE;
-        HideIfOthersFound = TRUE;
+        ShowVolume = true;
+        HideIfOthersFound = true;
       } else if (Volume->HasBootCode) {
-        ShowVolume = TRUE;
+        ShowVolume = true;
         if ((Volume->WholeDiskBlockIO == 0) &&
             Volume->BlockIOOffset == 0) {
           // this is a whole disk (MBR) entry; hide if we have entries for partitions
-          HideIfOthersFound = TRUE;
+          HideIfOthersFound = true;
         }
       }
       if (HideIfOthersFound) {
@@ -343,48 +341,53 @@ void AddCustomLegacy(void)
           if (VolumeIndex2 != VolumeIndex &&
               Volumes[VolumeIndex2].HasBootCode &&
               Volumes[VolumeIndex2].WholeDiskBlockIO == Volume->BlockIO) {
-            ShowVolume = FALSE;
+            ShowVolume = false;
             break;
           }
         }
       }
       
-      if (!ShowVolume || (Volume->Hidden)) {
+      if ( !ShowVolume ) {
+        DBG("skipped because volume ShowVolume==false\n");
+        continue;
+      }
+      if ( Volume->Hidden ) {
         DBG("skipped because volume is hidden\n");
         continue;
       }
-      
+
       // Check for exact volume matches
-      if (Custom->Volume.notEmpty()) {
-        if ((StrStr(Volume->DevicePathString.wc_str(), Custom->Volume.wc_str()) == NULL) &&
-            ((Volume->VolName.isEmpty()) || (StrStr(Volume->VolName.wc_str(), Custom->Volume.wc_str()) == NULL))) {
+      if (Custom.settings.Volume.notEmpty()) {
+        if ((StrStr(Volume->DevicePathString.wc_str(), Custom.settings.Volume.wc_str()) == NULL) &&
+            ((Volume->VolName.isEmpty()) || (StrStr(Volume->VolName.wc_str(), Custom.settings.Volume.wc_str()) == NULL))) {
           DBG("skipped\n");
           continue;
         }
         // Check if the volume should be of certain os type
-        if ((Custom->Type != 0) && (Custom->Type != Volume->LegacyOS->Type)) {
+        if ((Custom.settings.Type != 0) && (Custom.settings.Type != Volume->LegacyOS.Type)) {
           DBG("skipped because wrong type\n");
           continue;
         }
-      } else if ((Custom->Type != 0) && (Custom->Type != Volume->LegacyOS->Type)) {
+      } else if ((Custom.settings.Type != 0) && (Custom.settings.Type != Volume->LegacyOS.Type)) {
         DBG("skipped because wrong type\n");
         continue;
       }
       // Change to custom image if needed
-      MainIcon = Custom->Image;
+      MainIcon = Custom.Image;
       if (MainIcon.Image.isEmpty()) {
-        MainIcon.Image.LoadXImage(&ThemeX.getThemeDir(), Custom->ImagePath);
+        MainIcon.Image.LoadXImage(&ThemeX->getThemeDir(), Custom.settings.ImagePath);
       }
 
       // Change to custom drive image if needed
-      DriveIcon = Custom->DriveImage;
+      DriveIcon = Custom.DriveImage;
       if (DriveIcon.Image.isEmpty()) {
-        DriveIcon.Image.LoadXImage(&ThemeX.getThemeDir(), Custom->DriveImagePath);
+        DriveIcon.Image.LoadXImage(&ThemeX->getThemeDir(), Custom.settings.DriveImagePath);
       }
       // Create a legacy entry for this volume
-      if (AddLegacyEntry(Custom->FullTitle, Custom->Title, Volume, &MainIcon, &DriveIcon, Custom->Hotkey, TRUE))
+      DBG("\n");
+      if (AddLegacyEntry(XStringW(Custom.settings.FullTitle), Custom.settings.Title, Volume, &MainIcon, &DriveIcon, Custom.settings.Hotkey, true))
       {
-        DBG("match!\n");
+//        DBG("match!\n");
       }
     }
   }

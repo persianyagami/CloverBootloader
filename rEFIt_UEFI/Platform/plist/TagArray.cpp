@@ -44,9 +44,11 @@
 
 #include "TagArray.h"
 
+#ifdef TagStruct_USE_CACHE
 XObjArray<TagArray> TagArray::tagsFree;
+#endif
 
-bool TagArray::operator == (const TagStruct& other) const
+XBool TagArray::operator == (const TagStruct& other) const
 {
   if ( !other.isArray() ) return false;
   if ( _arrayContent.size() != other.getArray()->arrayContent().size() ) {
@@ -60,7 +62,7 @@ bool TagArray::operator == (const TagStruct& other) const
   return true;
 }
 
-bool TagArray::debugIsEqual(const TagStruct& other, const XString8& label) const
+XBool TagArray::debugIsEqual(const TagStruct& other, const XString8& label) const
 {
   if ( !other.isArray() ) {
     MsgLog("counterpart of '%s' is not an array\n", label.c_str());
@@ -79,26 +81,28 @@ bool TagArray::debugIsEqual(const TagStruct& other, const XString8& label) const
 }
 
 
-//UINTN newtagcount = 0;
-//UINTN tagcachehit = 0;
 TagArray* TagArray::getEmptyTag()
 {
   TagArray* tag;
 
+#ifdef TagStruct_USE_CACHE
   if ( tagsFree.size() > 0 ) {
     tag = &tagsFree[0];
     tagsFree.RemoveWithoutFreeingAtIndex(0);
-//tagcachehit++;
-//DBG("tagcachehit=%lld\n", tagcachehit);
+    #ifdef TagStruct_COUNT_CACHEHITMISS
+      cachehit++;
+     #endif
     return tag;
   }
-  tag = new TagArray();
-//newtagcount += 1;
-//DBG("newtagcount=%lld\n", newtagcount);
+#endif
+  tag = new TagArray;
+  #ifdef TagStruct_COUNT_CACHEHITMISS
+    cachemiss++;
+   #endif
   return tag;
 }
 
-void TagArray::FreeTag()
+void TagArray::ReleaseTag()
 {
   //while ( tagIdx < _dictOrArrayContent.notEmpty() ) {
   //  _dictOrArrayContent[0].FreeTag();
@@ -107,16 +111,25 @@ void TagArray::FreeTag()
   // this loop is better because removing objects from the end don't do any memory copying.
   for (size_t tagIdx = _arrayContent.size() ; tagIdx > 0  ; ) {
     tagIdx--;
-    _arrayContent[tagIdx].FreeTag();
+#ifdef TagStruct_USE_CACHE
+    _arrayContent[tagIdx].ReleaseTag();
     _arrayContent.RemoveWithoutFreeingAtIndex(tagIdx);
+#else
+    _arrayContent.RemoveAtIndex(tagIdx);
+#endif
   }
+#ifdef TagStruct_USE_CACHE
   tagsFree.AddReference(this, true);
+#else
+  delete this;
+#endif
 }
 
 const TagStruct* TagArray::elementAt(size_t idx) const
 {
   if ( idx >= _arrayContent.size() ) {
-    panic("TagArray::elementAt(%zu) -> trying to access element at %zu, but array has only %zu element(s)\n", idx, idx, _arrayContent.size());
+    log_technical_bug("TagArray::elementAt(%zu) -> trying to access element at %zu, but array has only %zu element(s)\n", idx, idx, _arrayContent.size());
+    return 0;
   }
   return &_arrayContent[idx];
 }
@@ -126,7 +139,10 @@ const TagDict* TagArray::dictElementAt(size_t idx, const XString8& currentTag) c
 {
   const TagStruct* tag = elementAt(idx);
   if ( !tag->isDict() ) {
-    panic("MALFORMED PLIST in '%s' : TagArray::dictElementAt(%zu) -> trying to get a dict element at %zu, but element is %s\n", currentTag.c_str(), idx, idx, tag->getTypeAsXString8().c_str());
+    // At first, I though it was a mistake, but it's easier to use if this method returns NULL is the element exists but is not a dict.
+    // That way, no need to test before calling that the element is a dict.
+    //panic("MALFORMED PLIST in '%s' : TagArray::dictElementAt(%zu) -> trying to get a dict element at %zu, but element is %s\n", currentTag.c_str(), idx, idx, tag->getTypeAsXString8().c_str());
+    return 0;
   }
   return _arrayContent[idx].getDict();
 }
@@ -135,7 +151,10 @@ const TagArray* TagArray::arrayElementAt(size_t idx, const XString8& currentTag)
 {
   const TagStruct* tag = elementAt(idx);
   if ( !tag->isArray() ) {
-    panic("MALFORMED PLIST in '%s' : TagArray::dictElementAt(%zu) -> trying to get a array element at %zu, but element is %s\n", currentTag.c_str(), idx, idx, tag->getTypeAsXString8().c_str());
+    // At first, I though it was a mistake, but it's easier to use if this method returns NULL is the element exists but is not an array.
+    // That way, no need to test before calling that the element is an array.
+    //panic("MALFORMED PLIST in '%s' : TagArray::arrayElementAt(%zu) -> trying to get a array element at %zu, but element is %s\n", currentTag.c_str(), idx, idx, tag->getTypeAsXString8().c_str());
+    return 0;
   }
   return _arrayContent[idx].getArray();
 }
@@ -144,7 +163,11 @@ const TagDict* TagArray::dictElementAt(size_t idx) const
 {
   const TagStruct* tag = elementAt(idx);
   if ( !tag->isDict() ) {
+#ifdef JIEF_DEBUG
     panic("MALFORMED PLIST : TagArray::dictElementAt(%zu) -> trying to get a dict element at %zu, but element is %s\n", idx, idx, tag->getTypeAsXString8().c_str());
+#else
+    return 0;
+#endif
   }
   return _arrayContent[idx].getDict();
 }
@@ -153,7 +176,11 @@ const TagArray* TagArray::arrayElementAt(size_t idx) const
 {
   const TagStruct* tag = elementAt(idx);
   if ( !tag->isArray() ) {
+#ifdef JIEF_DEBUG
     panic("MALFORMED PLIST : TagArray::dictElementAt(%zu) -> trying to get a array element at %zu, but element is %s\n", idx, idx, tag->getTypeAsXString8().c_str());
+#else
+    return 0;
+#endif
   }
   return _arrayContent[idx].getArray();
 }

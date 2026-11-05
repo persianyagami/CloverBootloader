@@ -40,7 +40,8 @@
 #include "../Platform/APFS.h"
 #include "../Platform/cpu.h"
 #include "../gui/REFIT_MENU_SCREEN.h"
-#include "../include/OsType.h"
+#include "../include/OSTypes.h"
+#include "../libeg/XTheme.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_COMMON_MENU 1
@@ -53,8 +54,6 @@
 #else
 #define DBG(...) DebugLog(DEBUG_COMMON_MENU, __VA_ARGS__)
 #endif
-
-extern CONST CHAR8* IconsNames[];
 
 const XIcon& ScanVolumeDefaultIcon(REFIT_VOLUME *Volume, IN UINT8 OSType, const EFI_DEVICE_PATH_PROTOCOL *DevicePath)
 
@@ -72,7 +71,7 @@ const XIcon& ScanVolumeDefaultIcon(REFIT_VOLUME *Volume, IN UINT8 OSType, const 
             DevicePath = NextDevicePathNode(DevicePath);
           }
           if (DevicePathType(DevicePath) == MEDIA_DEVICE_PATH && DevicePathSubType (DevicePath) == MEDIA_VENDOR_DP) {
-            if ( GuidLEToXString8(*(EFI_GUID *)((UINT8 *)DevicePath+0x04)).equalIC(ApfsSignatureUUID) ) {
+            if ( ApfsSignatureUUID == *(EFI_GUID *)((UINT8 *)DevicePath+0x04) ) {
               IconNum = BUILTIN_ICON_VOL_INTERNAL_APFS;
             }
           } else {
@@ -112,91 +111,14 @@ const XIcon& ScanVolumeDefaultIcon(REFIT_VOLUME *Volume, IN UINT8 OSType, const 
       break;
   }
 //  DBG("asked IconNum = %llu Volume->DiskKind=%d OSType=%d\n", IconNum, Volume->DiskKind, OSType);
-  IconX = &ThemeX.GetIcon(IconNum); //asked IconNum = BUILTIN_ICON_VOL_INTERNAL_HFS, got day icon
+  IconX = &ThemeX->GetIcon(IconNum); //asked IconNum = BUILTIN_ICON_VOL_INTERNAL_HFS, got day icon
   if (IconX->Image.isEmpty()) {
-    DBG("asked Icon %s not found, took internal\n", IconsNames[IconNum]);
-    IconX = &ThemeX.GetIcon(BUILTIN_ICON_VOL_INTERNAL); //including embedded which is really present
+    DBG("asked Icon %s not found, took internal\n", IconsNames[IconNum].c_str());
+    IconX = &ThemeX->GetIcon(BUILTIN_ICON_VOL_INTERNAL); //including embedded which is really present
   }
 
   return *IconX;
 }
-
-//
-//XString AddLoadOption(IN CONST XString& LoadOptions, IN CONST XString& LoadOption)
-//{
-//  // LoadOptions assumed out
-//  // If either option strings are null nothing to do
-//  if (LoadOptions.isEmpty()) //initially empty so return new option even if empty
-//  {
-//    // return LoadOption
-//    return LoadOption;
-//  }
-//  // If there is no option or it is already present duplicate original
-//  else {
-//	  if ( LoadOptions.contains(LoadOption) ) return LoadOptions; //good
-//	  // Otherwise add option
-////	  return SPrintf("%s %s", LoadOptions.c_str(), LoadOption.c_str()); //LoadOptions + LoadOption
-//    return LoadOptions + " "_XS8 + LoadOption; //why not?
-//  }
-//}
-//
-//XString RemoveLoadOption(IN const XString& LoadOptions, IN const XString& LoadOption)
-//{
-////  CONST CHAR16 *Placement;
-////  CHAR16 *NewLoadOptions;
-////  UINTN   Length, Offset, OptionLength;
-//
-//  //DBG("LoadOptions: '%ls', remove LoadOption: '%ls'\n", LoadOptions, LoadOption);
-//  // If there are no options then nothing to do
-//  if (LoadOptions.isEmpty()) return ""_XS8;
-//  // If there is no option to remove then duplicate original
-//  if (LoadOption.isEmpty()) return LoadOptions;
-//  // If not present duplicate original
-//  xsize Offset = LoadOptions.indexOf(LoadOption);
-//  if ( Offset == MAX_XSIZE ) return LoadOptions;
-//
-//  // Get placement of option in original options
-////  Offset = (Placement - LoadOptions);
-//  xsize Length = LoadOptions.length();
-//  xsize OptionLength = LoadOption.length();
-//
-//  // If this is just part of some larger option (contains non-space at the beginning or end)
-//  if ((Offset > 0 && LoadOptions[Offset - 1] != ' ') ||
-//      ((Offset + OptionLength) < Length && LoadOptions[Offset + OptionLength] != ' ')) {
-//    return LoadOptions;
-//  }
-//
-//  // Consume preceeding spaces
-//  while (Offset > 0 && LoadOptions[Offset - 1] == ' ') {
-//    OptionLength++;
-//    Offset--;
-//  }
-//
-//  // Consume following spaces
-//  while (LoadOptions[Offset + OptionLength] == ' ') {
-//   OptionLength++;
-//  }
-//
-//  // If it's the whole string return NULL
-//  if (OptionLength == Length) return ""_XS8;
-//
-//  XString NewLoadOptions;
-//  if (Offset == 0) {
-//    // Simple case - we just need substring after OptionLength position
-//    NewLoadOptions = LoadOptions.subString(OptionLength, MAX_XSIZE);
-//  } else {
-//    // Copy preceeding substring
-//	NewLoadOptions = LoadOptions.subString(0, Offset);
-////    CopyMem(NewLoadOptions, LoadOptions, Offset * sizeof(CHAR16));
-//    if ((Offset + OptionLength) < Length) {
-//      // Copy following substring, but include one space also
-//      OptionLength--;
-//	  NewLoadOptions += LoadOptions.subString(Offset + OptionLength, MAX_XSIZE);
-////      CopyMem(NewLoadOptions + Offset, LoadOptions + Offset + OptionLength, (Length - OptionLength - Offset) * sizeof(CHAR16));
-//    }
-//  }
-//  return NewLoadOptions;
-//}
 
 #define TO_LOWER(ch) (((ch >= L'A') && (ch <= L'Z')) ? ((ch - L'A') + L'a') : ch)
 INTN StrniCmp(IN CONST CHAR16 *Str1,
@@ -325,7 +247,7 @@ extern REFIT_MENU_ITEM_RETURN MenuEntryReturn;
 // it is not good to use Options menu style for messages and one line dialogs
 // it can be a semitransparent rectangular at the screen centre as it was in Clover v1.0
 STATIC REFIT_MENU_SCREEN  AlertMessageMenu(0, XStringW(), XStringW(), &MenuEntryReturn, NULL);
-void AlertMessage(IN XStringW& Title, IN CONST XStringW& Message)
+void AlertMessage(const XStringW& Title, const XStringW& Message)
 {
   CreateInfoLines(Message, &AlertMessageMenu.InfoLines);
   AlertMessageMenu.Title = Title;
@@ -343,9 +265,9 @@ STATIC REFIT_SIMPLE_MENU_ENTRY_TAG   NoMessageEntry(XStringW().takeValueFrom(L"N
 //REFIT_MENU_SCREEN(UINTN ID, CONST CHAR16* Title, CONST CHAR16* TimeoutText, REFIT_ABSTRACT_MENU_ENTRY* entry1, REFIT_ABSTRACT_MENU_ENTRY* entry2)
 STATIC REFIT_MENU_SCREEN  YesNoMessageMenu(0, XStringW(), XStringW(), &YesMessageEntry, &NoMessageEntry);
 // Display a yes/no prompt
-BOOLEAN YesNoMessage(IN XStringW& Title, IN CONST XStringW& Message)
+XBool YesNoMessage(IN XStringW& Title, IN CONST XStringW& Message)
 {
-  BOOLEAN            Result = FALSE;
+  XBool              Result = false;
   UINTN              MenuExit;
   CreateInfoLines(Message, &YesNoMessageMenu.InfoLines);
   YesNoMessageMenu.Title = Title;
@@ -355,7 +277,7 @@ BOOLEAN YesNoMessage(IN XStringW& Title, IN CONST XStringW& Message)
     MenuExit = YesNoMessageMenu.RunMenu(&ChosenEntry);
     if ( ChosenEntry != NULL  &&  ChosenEntry->getREFIT_SIMPLE_MENU_ENTRY_TAG()  &&  ChosenEntry->getREFIT_SIMPLE_MENU_ENTRY_TAG()->Tag == TAG_YES  &&
         ((MenuExit == MENU_EXIT_ENTER) || (MenuExit == MENU_EXIT_DETAILS))) {
-      Result = TRUE;
+      Result = true;
       MenuExit = MENU_EXIT_ENTER;
     }
   } while (MenuExit != MENU_EXIT_ENTER);
@@ -363,34 +285,34 @@ BOOLEAN YesNoMessage(IN XStringW& Title, IN CONST XStringW& Message)
   return Result;
 }
 // Ask user for file path from directory menu
-BOOLEAN AskUserForFilePathFromDir(IN CHAR16 *Title OPTIONAL, IN REFIT_VOLUME *Volume,
-                                  IN CHAR16 *ParentPath OPTIONAL, const EFI_FILE *Dir,
+XBool AskUserForFilePathFromDir(const CHAR16 *Title OPTIONAL, IN REFIT_VOLUME *Volume,
+                                  const CHAR16 *ParentPath OPTIONAL, const EFI_FILE *Dir,
                                   OUT EFI_DEVICE_PATH_PROTOCOL **Result)
 {
   //REFIT_MENU_SCREEN   Menu = { 0, L"Please Select File...", NULL, 0, NULL, 0, NULL,
-  //                             0, NULL, FALSE, FALSE, 0, 0, 0, 0, { 0, 0, 0, 0 }, NULL};
+  //                             0, NULL, false, false, 0, 0, 0, 0, { 0, 0, 0, 0 }, NULL};
   // Check parameters
   if ((Volume == NULL) || (Dir == NULL) || (Result == NULL)) {
-    return FALSE;
+    return false;
   }
   // TODO: Generate directory menu
-  return FALSE;
+  return false;
 }
 
 #define TAG_OFFSET 1000
 
 //STATIC REFIT_MENU_SCREEN InitialMenu = {0, L"Please Select File...", NULL, 0, NULL,
-//  0, NULL, NULL, FALSE, FALSE, 0, 0, 0, 0,
+//  0, NULL, NULL, false, false, 0, 0, 0, 0,
 //  { 0, 0, 0, 0 }, NULL};
 //STATIC REFIT_MENU_SCREEN  InitialMenu(0, L"Please Select File..."_XSW, XStringW());
 // Ask user for file path from volumes menu
-BOOLEAN AskUserForFilePathFromVolumes(IN CHAR16 *Title OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result)
+XBool AskUserForFilePathFromVolumes(const CHAR16 *Title OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result)
 {
   REFIT_MENU_SCREEN   Menu(0, L"Please Select File..."_XSW, XStringW());
   UINTN               Index = 0, /*Count = 0,*/ MenuExit;
-  BOOLEAN             Responded = FALSE;
+  XBool               Responded = false;
   if (Result == NULL) {
-    return FALSE;
+    return false;
   }
   // Create volume entries
   for (Index = 0; Index < Volumes.size(); ++Index) {
@@ -420,7 +342,7 @@ BOOLEAN AskUserForFilePathFromVolumes(IN CHAR16 *Title OPTIONAL, OUT EFI_DEVICE_
           if (!AskUserForFilePathFromDir(Title, &Volumes[Index], NULL, Volumes[Index].RootDir, Result)) {
             continue;
           }
-          Responded = TRUE;
+          Responded = true;
         }
       }
       break;
@@ -431,11 +353,11 @@ BOOLEAN AskUserForFilePathFromVolumes(IN CHAR16 *Title OPTIONAL, OUT EFI_DEVICE_
 }
 
 // Ask user for file path
-BOOLEAN AskUserForFilePath(IN CHAR16 *Title OPTIONAL, IN EFI_DEVICE_PATH_PROTOCOL *Root OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result)
+XBool AskUserForFilePath(IN CHAR16 *Title OPTIONAL, IN EFI_DEVICE_PATH_PROTOCOL *Root OPTIONAL, OUT EFI_DEVICE_PATH_PROTOCOL **Result)
 {
   EFI_FILE *Dir = NULL;
   if (Result == NULL) {
-    return FALSE;
+    return false;
   }
   if (Root != NULL) {
     // Get the file path
@@ -455,7 +377,7 @@ BOOLEAN AskUserForFilePath(IN CHAR16 *Title OPTIONAL, IN EFI_DEVICE_PATH_PROTOCO
         // If the path begins with this volumes path it matches
         if (StrniCmp(DevicePathStr.wc_str(), Volume->DevicePathString.wc_str(), Volume->DevicePathString.length())) {
           // Need to
-          CHAR16 *FilePath = DevicePathStr.data(Volume->DevicePathString.length());
+          const CHAR16 *FilePath = DevicePathStr.data(Volume->DevicePathString.length());
           UINTN   FileLength = StrLen(FilePath);
           if (FileLength == 0) {
             // If there is no path left then open the root
@@ -473,10 +395,10 @@ BOOLEAN AskUserForFilePath(IN CHAR16 *Title OPTIONAL, IN EFI_DEVICE_PATH_PROTOCO
                   FreePool(Info);
                   Dir->Close(Dir);
                   *Result = Root;
-                  return TRUE;
+                  return true;
                 } else {
                   // Ask user other wise
-                  BOOLEAN Success = AskUserForFilePathFromDir(Title, Volume, FilePath, Dir, Result);
+                  XBool Success = AskUserForFilePathFromDir(Title, Volume, FilePath, Dir, Result);
                   FreePool(Info);
                   Dir->Close(Dir);
                   return Success;

@@ -37,10 +37,17 @@
 
 #ifdef ENABLE_SECURE_BOOT
 
+#include <Platform.h>
+#include "../Platform/Settings.h"
+#include "../Settings/Self.h"
 #include "entry_scan.h"
+#include "secureboot.h"
 
+extern "C" {
 #include <Protocol/Security.h>
 #include <Protocol/Security2.h>
+#include <Library/DxeServicesLib.h>
+}
 
 #ifndef DEBUG_ALL
 #define DEBUG_SECURE_BOOT 1
@@ -58,12 +65,12 @@
 void EnableSecureBoot(void)
 {
   EFI_STATUS  Status = EFI_NOT_FOUND;
-  BOOLEAN     WantDefaultKeys;
+  XBool WantDefaultKeys;
   CONST CHAR16     *ErrorString = NULL;
   UINTN       CloverSignatureSize = 0;
   void       *CloverSignature = NULL;
   // Check in setup mode
-  if (gSettings.SecureBoot || !gSettings.SecureBootSetupMode) {
+  if (GlobalConfig.SecureBoot || !GlobalConfig.SecureBootSetupMode) {
     return;
   }
   // Ask user if they want to use default keys
@@ -73,11 +80,11 @@ void EnableSecureBoot(void)
   UINT32 AuthenticationStatus = 0;
   UINTN  FileSize = 0;
   // Open the file buffer
-  void  *FileBuffer = GetFileBufferByFilePath(FALSE, &self.getSelfFullPath(), &FileSize, &AuthenticationStatus);
+  void  *FileBuffer = GetFileBufferByFilePath(false, &self.getCloverDirFullDevicePath(), &FileSize, &AuthenticationStatus);
   if (FileBuffer != NULL) {
     if (FileSize > 0) {
       // Retrieve the certificates
-      CloverSignature = GetImageSignatureDatabase(FileBuffer, FileSize, &CloverSignatureSize, FALSE);
+      CloverSignature = GetImageSignatureDatabase(FileBuffer, FileSize, &CloverSignatureSize, false);
       if (CloverSignature != NULL) {
         if (CloverSignatureSize > 0) {
           // Found signature
@@ -92,10 +99,9 @@ void EnableSecureBoot(void)
   }
   // Check and alert about image not found
   if ((FileBuffer == NULL) || (FileSize == 0)) {
-    CHAR16 *FilePath = FileDevicePathToStr(&self.getSelfFullPath());
-    if (FilePath != NULL) {
-      DBG("Failed to load Clover image from %ls\n", FilePath);
-      FreePool(FilePath);
+    XStringW FilePath = FileDevicePathToXStringW(&self.getCloverDirFullDevicePath());
+    if (FilePath.notEmpty()) {
+      DBG("Failed to load Clover image from %ls\n", FilePath.wc_str());
     } else {
       DBG("Failed to load Clover image\n");
     }
@@ -121,8 +127,8 @@ void EnableSecureBoot(void)
   }
   if (EFI_ERROR(Status)) {
     XStringW Str = SWPrintf("Enabling secure boot failed because\n%ls", ErrorString);
-    AlertMessage(L"Enable Secure Boot", Str);
-    DBG("Enabling secure boot failed because %ls! Status: %s\n", ErrorString.wc_str(), efiStrError(Status));
+    AlertMessage(L"Enable Secure Boot"_XSW, Str);
+    DBG("Enabling secure boot failed because %ls! Status: %s\n", ErrorString, efiStrError(Status));
     DisableSecureBoot();
   }
 }
@@ -148,37 +154,37 @@ CONST CHAR16 *SecureBootPolicyToStr(IN UINTN Policy)
 STATIC void PrintSecureBootInfo(void)
 {
   // Nothing to do if secure boot is disabled or in setup mode
-  if (!gSettings.SecureBoot) {
-    DBG("Secure Boot: %s\n", (gSettings.SecureBootSetupMode ? "Setup" : "Disabled"));
+  if (!GlobalConfig.SecureBoot) {
+    DBG("Secure Boot: %s\n", (GlobalConfig.SecureBootSetupMode ? "Setup" : "Disabled"));
   } else {
     // Secure boot is enabled
-    DBG("Secure Boot: %s\n", (gSettings.SecureBootSetupMode ? "Forced" : "Enabled"));
-    DBG("Boot Policy: %ls\n", SecureBootPolicyToStr(gSettings.SecureBootPolicy));
+    DBG("Secure Boot: %s\n", (GlobalConfig.SecureBootSetupMode ? "Forced" : "Enabled"));
+    DBG("Boot Policy: %ls\n", SecureBootPolicyToStr(gSettings.Boot.SecureBootPolicy));
   }
 }
 
 // Alert message for disable failure
-STATIC void DisableMessage(IN EFI_STATUS  Status,
-                           IN CHAR16     *String,
-                           IN CHAR16     *ErrorString)
+STATIC void DisableMessage(const EFI_STATUS  Status,
+                           const CHAR16     *String,
+                           const CHAR16     *ErrorString)
 {
   XStringW Str;
   if (ErrorString != NULL) {
-    Str = SWPrintf(L"%ls\n%ls\n%ls", String, ErrorString, efiStrError(Status));
+    Str = SWPrintf("%ls\n%ls\n%s", String, ErrorString, efiStrError(Status));
   } else {
-    Str = SWPrintf(L"%s\n%s", String, efiStrError(Status));
+    Str = SWPrintf("%ls\n%s", String, efiStrError(Status));
   }
   DBG("Secure Boot: %ls", Str.wc_str());
-  AlertMessage(L"Disable Secure Boot", Str);
+  AlertMessage(L"Disable Secure Boot"_XSW, Str);
 }
 
 // Disable secure boot
 void DisableSecureBoot(void)
 {
   EFI_STATUS  Status;
-  CHAR16     *ErrorString = NULL;
+  const CHAR16     *ErrorString = NULL;
   // Check in user mode
-  if (gSettings.SecureBootSetupMode || !gSettings.SecureBoot) {
+  if (GlobalConfig.SecureBootSetupMode || !GlobalConfig.SecureBoot) {
     return;
   }
   UninstallSecureBoot();
@@ -188,7 +194,7 @@ void DisableSecureBoot(void)
     ErrorString = L"Failed to clear platform database!\nIs Clover platform database owner?";
   } else if (YesNoMessage(L"Disable Secure Boot", L"Do you want to clear all databases (suggested)?")) {
     // Clear all databases if wanted
-    Status = SetSignatureDatabase(EXCHANGE_DATABASE_NAME, &EXCHANGE_DATABASE_GUID, NULL, 0);
+    Status = SetSignatureDatabase(EXCHANGE_DATABASE_NAME, EXCHANGE_DATABASE_GUID, NULL, 0);
     if (EFI_ERROR(Status)) {
       DisableMessage(Status, L"Failed to disable secure boot!", L"Failed to clear exchange database!");
     }
@@ -212,89 +218,89 @@ STATIC EFI_SECURITY_FILE_AUTHENTICATION_STATE gSecurityFileAuthentication;
 STATIC EFI_SECURITY2_FILE_AUTHENTICATION      gSecurity2FileAuthentication;
 
 // Pre check the secure boot policy
-STATIC BOOLEAN EFIAPI
+STATIC XBool EFIAPI
 PrecheckSecureBootPolicy(IN OUT EFI_STATUS                     *AuthenticationStatus,
                          IN     CONST EFI_DEVICE_PATH_PROTOCOL *DevicePath)
 {
-  CHAR16 *DevicePathStr;
+  XStringW DevicePathStr;
   UINTN   Index;
   if ((AuthenticationStatus == NULL) || (DevicePath == NULL)) {
-    return FALSE;
+    return false;
   }
-  switch (gSettings.SecureBootPolicy) {
+  switch (gSettings.Boot.SecureBootPolicy) {
   case SECURE_BOOT_POLICY_ALLOW:
     // Allow all images
     *AuthenticationStatus = EFI_SUCCESS;
-    return TRUE;
+    return true;
 
   case SECURE_BOOT_POLICY_WHITELIST:
     // Check the white list for this image
-    DevicePathStr = FileDevicePathToStr((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
-    if (DevicePathStr == NULL) {
-      return FALSE;
+    DevicePathStr = FileDevicePathToXStringW((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
+    if ( DevicePathStr.isEmpty() ) {
+      return false;
     }
-    for (Index = 0; Index < gSettings.SecureBootWhiteListCount; ++Index) {
-      if ((gSettings.SecureBootWhiteList[Index] != NULL) &&
-          (StriStr(DevicePathStr, gSettings.SecureBootWhiteList[Index]) != NULL)) {
+    for (Index = 0; Index < gSettings.Boot.SecureBootWhiteList.size(); ++Index) {
+      if ( gSettings.Boot.SecureBootWhiteList[Index].notEmpty() &&
+          DevicePathStr.contains(gSettings.Boot.SecureBootWhiteList[Index]) ) {
         // White listed
         *AuthenticationStatus = EFI_SUCCESS;
-        return TRUE;
+        return true;
       }
     }
-    return TRUE;
+    return true;
 
   case SECURE_BOOT_POLICY_BLACKLIST:
     // Check the black list for this image
-    DevicePathStr = FileDevicePathToStr((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
-    if (DevicePathStr == NULL) {
-      return FALSE;
+    DevicePathStr = FileDevicePathToXStringW((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
+    if ( DevicePathStr.isEmpty() ) {
+      return false;
     }
-    for (Index = 0; Index < gSettings.SecureBootBlackListCount; ++Index) {
-      if ((gSettings.SecureBootBlackList[Index] != NULL) &&
-          (StriStr(DevicePathStr, gSettings.SecureBootBlackList[Index]) != NULL)) {
+    for (Index = 0; Index < gSettings.Boot.SecureBootBlackList.size(); ++Index) {
+      if ( gSettings.Boot.SecureBootBlackList[Index].notEmpty() &&
+          DevicePathStr.contains(gSettings.Boot.SecureBootBlackList[Index]) ) {
         // Black listed
-        return TRUE;
+        return true;
       }
     }
     *AuthenticationStatus = EFI_SUCCESS;
-    return TRUE;
+    return true;
 
   case SECURE_BOOT_POLICY_USER:
-    DevicePathStr = FileDevicePathToStr((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
-    if (DevicePathStr == NULL) {
-      return FALSE;
+    DevicePathStr = FileDevicePathToXStringW((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
+    if ( DevicePathStr.isEmpty() ) {
+      return false;
     }
     // Check the black list for this image
-    for (Index = 0; Index < gSettings.SecureBootBlackListCount; ++Index) {
-      if ((gSettings.SecureBootBlackList[Index] != NULL) &&
-          (StriStr(DevicePathStr, gSettings.SecureBootBlackList[Index]) != NULL)) {
+    for (Index = 0; Index < gSettings.Boot.SecureBootBlackList.size(); ++Index) {
+      if ( gSettings.Boot.SecureBootBlackList[Index].notEmpty() &&
+          DevicePathStr.contains(gSettings.Boot.SecureBootBlackList[Index]) ) {
         // Black listed
-        return TRUE;
+        return true;
       }
     }
     // Check the white list for this image
-    for (Index = 0; Index < gSettings.SecureBootWhiteListCount; ++Index) {
-      if ((gSettings.SecureBootWhiteList[Index] != NULL) &&
-          (StriStr(DevicePathStr, gSettings.SecureBootWhiteList[Index]) != NULL)) {
+    for (Index = 0; Index < gSettings.Boot.SecureBootWhiteList.size(); ++Index) {
+      if ( gSettings.Boot.SecureBootWhiteList[Index].notEmpty() &&
+          DevicePathStr.contains(gSettings.Boot.SecureBootWhiteList[Index]) ) {
         // White listed
         *AuthenticationStatus = EFI_SUCCESS;
-        return TRUE;
+        return true;
       }
     }
     break;
   }
-  return FALSE;
+  return false;
 }
 
 // Check the secure boot policy
-STATIC BOOLEAN EFIAPI
+STATIC XBool EFIAPI
 CheckSecureBootPolicy(IN OUT EFI_STATUS                     *AuthenticationStatus,
                       IN     CONST EFI_DEVICE_PATH_PROTOCOL *DevicePath,
                       IN     void                           *FileBuffer,
                       IN     UINTN                           FileSize)
 {
   UINTN UserResponse = SECURE_BOOT_POLICY_DENY;
-  switch (gSettings.SecureBootPolicy) {
+  switch (gSettings.Boot.SecureBootPolicy) {
   case SECURE_BOOT_POLICY_QUERY:
   case SECURE_BOOT_POLICY_USER:
     // Query user to allow image or deny image or insert image signature
@@ -307,12 +313,12 @@ CheckSecureBootPolicy(IN OUT EFI_STATUS                     *AuthenticationStatu
 
     case SECURE_BOOT_POLICY_DENY:
     default:
-      return TRUE;
+      return true;
 
     case SECURE_BOOT_POLICY_INSERT:
       // If this is forced mode then no insert
-      if (gSettings.SecureBootSetupMode) {
-        return TRUE;
+      if (GlobalConfig.SecureBootSetupMode) {
+        return true;
       }
       break;
     }
@@ -322,18 +328,18 @@ CheckSecureBootPolicy(IN OUT EFI_STATUS                     *AuthenticationStatu
     // Insert image signature
     AppendImageToAuthorizedDatabase(DevicePath, FileBuffer, FileSize);
     *AuthenticationStatus = EFI_SUCCESS;
-    return TRUE;
+    return true;
 
   case SECURE_BOOT_POLICY_ALLOW:
     // Allow all images
     *AuthenticationStatus = EFI_SUCCESS;
-    return TRUE;
+    return true;
 
   case SECURE_BOOT_POLICY_DENY:
      // Deny all images
-     return TRUE;
+     return true;
   }
-  return FALSE;
+  return false;
 }
 
 
@@ -354,10 +360,9 @@ InternalFileAuthentication(IN CONST EFI_SECURITY_ARCH_PROTOCOL *This,
     }
   }
   if (EFI_ERROR(Status)) {
-    CHAR16 *DevicePathStr = FileDevicePathToStr((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
-    if (DevicePathStr) {
-      DBG("VerifySecureBootImage(1): %s %ls\n", efiStrError(Status), DevicePathStr);
-      FreePool(DevicePathStr);
+    XStringW DevicePathStr = FileDevicePathToXStringW((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
+    if ( DevicePathStr.notEmpty() ) {
+      DBG("VerifySecureBootImage(1): %s %ls\n", efiStrError(Status), DevicePathStr.wc_str());
     }
   }
   return Status;
@@ -381,10 +386,9 @@ Internal2FileAuthentication(IN CONST EFI_SECURITY2_ARCH_PROTOCOL *This,
     }
   }
   if (EFI_ERROR(Status)) {
-    CHAR16 *DevicePathStr = FileDevicePathToStr((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
-    if (DevicePathStr) {
-      DBG("VerifySecureBootImage(2): %s %ls\n", efiStrError(Status), DevicePathStr);
-      FreePool(DevicePathStr);
+    XStringW DevicePathStr = FileDevicePathToXStringW((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
+    if ( DevicePathStr.notEmpty() ) {
+      DBG("VerifySecureBootImage(2): %s %ls\n", efiStrError(Status), DevicePathStr.wc_str());
     }
   }
   return Status;
@@ -400,10 +404,9 @@ EFI_STATUS VerifySecureBootImage(IN CONST EFI_DEVICE_PATH_PROTOCOL *DevicePath)
     }
   }
   if (EFI_ERROR(Status)) {
-    CHAR16 *DevicePathStr = FileDevicePathToStr((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
-    if (DevicePathStr) {
-      DBG("VerifySecureBootImage: %s %ls\n", efiStrError(Status), DevicePathStr);
-      FreePool(DevicePathStr);
+    XStringW DevicePathStr = FileDevicePathToXStringW((EFI_DEVICE_PATH_PROTOCOL *)DevicePath);
+    if ( DevicePathStr.notEmpty() ) {
+      DBG("VerifySecureBootImage: %s %ls\n", efiStrError(Status), DevicePathStr.wc_str());
     }
   }
   return Status;
@@ -421,12 +424,12 @@ EFI_STATUS InstallSecureBoot(void)
   }
   PrintSecureBootInfo();
   // Nothing to do if secure boot is disabled or in setup mode
-  if (!gSettings.SecureBoot || gSettings.SecureBootSetupMode) {
+  if (!GlobalConfig.SecureBoot || GlobalConfig.SecureBootSetupMode) {
     return EFI_SUCCESS;
   }
   // Locate security protocols
-  gBS->LocateProtocol(&gEfiSecurity2ArchProtocolGuid, NULL, (void **)&Security2);
-  Status = gBS->LocateProtocol(&gEfiSecurityArchProtocolGuid, NULL, (void **)&Security);
+  gBS->LocateProtocol(gEfiSecurity2ArchProtocolGuid, NULL, (void **)&Security2);
+  Status = gBS->LocateProtocol(gEfiSecurityArchProtocolGuid, NULL, (void **)&Security);
   if (EFI_ERROR(Status)) {
     return Status;
   }
@@ -450,7 +453,7 @@ void UninstallSecureBoot(void)
   if (gSecurityFileAuthentication) {
     EFI_SECURITY_ARCH_PROTOCOL  *Security = NULL;
     // Restore the security protocol function
-    gBS->LocateProtocol(&gEfiSecurityArchProtocolGuid, NULL, (void **)&Security);
+    gBS->LocateProtocol(gEfiSecurityArchProtocolGuid, NULL, (void **)&Security);
     if (Security) {
       Security->FileAuthenticationState = gSecurityFileAuthentication;
     }
@@ -459,7 +462,7 @@ void UninstallSecureBoot(void)
   if (gSecurity2FileAuthentication) {
     EFI_SECURITY2_ARCH_PROTOCOL *Security2 = NULL;
     // Restory the security 2 protocol function
-    gBS->LocateProtocol(&gEfiSecurity2ArchProtocolGuid, NULL, (void **)&Security2);
+    gBS->LocateProtocol(gEfiSecurity2ArchProtocolGuid, NULL, (void **)&Security2);
     if (Security2) {
       Security2->FileAuthentication = gSecurity2FileAuthentication;
     }
@@ -471,16 +474,16 @@ void UninstallSecureBoot(void)
 void InitializeSecureBoot(void)
 {
   // Set secure boot variables to firmware values
-  UINTN Size = sizeof(gSettings.SecureBootSetupMode);
-  gRT->GetVariable(L"SetupMode", &gEfiGlobalVariableGuid, NULL, &Size, &gSettings.SecureBootSetupMode);
-  Size = sizeof(gSettings.SecureBoot);
-  gRT->GetVariable(L"SecureBoot", &gEfiGlobalVariableGuid, NULL, &Size, &gSettings.SecureBoot);
+  UINTN Size = sizeof(GlobalConfig.SecureBootSetupMode);
+  gRT->GetVariable(L"SetupMode", gEfiGlobalVariableGuid, NULL, &Size, &GlobalConfig.SecureBootSetupMode);
+  Size = sizeof(GlobalConfig.SecureBoot);
+  gRT->GetVariable(L"SecureBoot", gEfiGlobalVariableGuid, NULL, &Size, &GlobalConfig.SecureBoot);
   // Make sure that secure boot is disabled if in setup mode, this will
   //  allow us to specify later in settings that we want to override
   //  setup mode and pretend like we are in secure boot mode to enforce
   //  secure boot policy even when secure boot is not present/disabled.
-  if (gSettings.SecureBootSetupMode) {
-    gSettings.SecureBoot = 0;
+  if (GlobalConfig.SecureBootSetupMode) {
+    GlobalConfig.SecureBoot = 0;
   }
 }
 

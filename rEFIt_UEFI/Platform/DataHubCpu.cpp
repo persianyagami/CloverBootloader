@@ -21,7 +21,7 @@
 //
 // 2019/06/08
 // vector sigma
-// don't inject REV, RBr and EPCI keys if gSettings.REV is zeroed
+// don't inject REV, RBr and EPCI keys if gSettings.Smbios.REV is zeroed
 //
 
 #ifndef DEBUG_ALL
@@ -38,16 +38,22 @@
 
 
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
-#include "../include/OsType.h"
+#include "../cpp_lib/MemoryTracker.h"
+#include "../include/OSTypes.h"
 #include "Nvram.h"
 #include "platformdata.h"
 #include "smbios.h"
 #include "cpu.h"
 #include "DataHubCpu.h"
+#include "../Platform/CloverVersion.h"
 
 #include <Guid/DataHubRecords.h>
+#include <Protocol/AppleSystemInfo.h>
+#include <Protocol/AppleImageCodecProtocol.h>
 
 #define EFI_CPU_DATA_MAXIMUM_LENGTH 0x100
+//const char CDM[16] = "sha2-384";
+//const char HW[16] = "x86legacyap";
 
 // gDataHub
 /// A pointer to the DataHubProtocol
@@ -62,13 +68,14 @@ EFI_SUBCLASS_TYPE1_HEADER mCpuDataRecordHeader = {
 };
 
 // gDataHubPlatformGuid
-/// The GUID of the DataHubProtocol
-EFI_GUID gDataHubPlatformGuid = {
+/// The EFI_GUID of the DataHubProtocol
+constexpr const EFI_GUID gDataHubPlatformGuid = {
   0x64517cc8, 0x6561, 0x4051, { 0xb0, 0x3c, 0x59, 0x64, 0xb6, 0x0f, 0x4c, 0x7a }
 };
 
-extern EFI_GUID                     gDataHubPlatformGuid;
 extern APPLE_SMC_IO_PROTOCOL        *gAppleSmc;
+extern UINT32      mCurrentColor;
+extern APPLE_IMAGE_CODEC_PROTOCOL gAppleImageCodec;
 
 
 typedef union {
@@ -114,7 +121,7 @@ CopyRecord(IN        PLATFORM_DATA_RECORD *Rec,
 // LogDataHub
 /// Adds a key-value-pair to the DataHubProtocol
 EFI_STATUS EFIAPI
-LogDataHub(IN  EFI_GUID *TypeGuid,
+LogDataHub(const EFI_GUID& TypeGuid,
            IN  CONST CHAR16   *Name,
            IN  const void     *Data,
            IN  UINT32    DataSize)
@@ -131,7 +138,7 @@ LogDataHub(IN  EFI_GUID *TypeGuid,
   RecordSize = CopyRecord(platform_data_record, Name, Data, DataSize);
   Status     = gDataHub->LogData(gDataHub,
                                  TypeGuid,                   // DataRecordGuid
-                                 &gDataHubPlatformGuid,      // ProducerName (always)
+                                 gDataHubPlatformGuid,      // ProducerName (always)
                                  EFI_DATA_RECORD_CLASS_DATA,
                                  platform_data_record,
                                  RecordSize);
@@ -141,20 +148,28 @@ LogDataHub(IN  EFI_GUID *TypeGuid,
 }
 
 EFI_STATUS EFIAPI
-LogDataHubXString8(IN  EFI_GUID *TypeGuid,
+LogDataHubXString8(const EFI_GUID& TypeGuid,
            IN  CONST CHAR16   *Name,
            const XString8& s)
 {
+#ifdef JIEF_DEBUG
   if ( s.sizeInBytesIncludingTerminator() > MAX_UINT32 ) panic("LogDataHub s.length > MAX_UINT32");
+#else
+  if ( s.sizeInBytesIncludingTerminator() > MAX_UINT32 ) return EFI_OUT_OF_RESOURCES;
+#endif
   return LogDataHub(TypeGuid, Name, (void*)s.c_str(), (UINT32)s.sizeInBytesIncludingTerminator());
 }
 
 EFI_STATUS EFIAPI
-LogDataHubXStringW(IN  EFI_GUID *TypeGuid,
+LogDataHubXStringW(const EFI_GUID& TypeGuid,
            IN  CONST CHAR16   *Name,
            const XStringW& s)
 {
+#ifdef JIEF_DEBUG
   if ( s.sizeInBytesIncludingTerminator() > MAX_UINT32 ) panic("LogDataHub s.length > MAX_UINT32");
+#else
+  if ( s.sizeInBytesIncludingTerminator() > MAX_UINT32 ) return EFI_OUT_OF_RESOURCES;
+#endif
   return LogDataHub(TypeGuid, Name, (void*)s.wc_str(), (UINT32)s.sizeInBytesIncludingTerminator());
 }
 
@@ -167,7 +182,7 @@ EFI_RUNTIME_SERVICES gOrgRS;
 EFI_STATUS EFIAPI
 OvrSetVariable(
   IN CHAR16			*VariableName,
-  IN EFI_GUID		*VendorGuid,
+  const EFI_GUID& VendorGuid,
   IN UINT32			Attributes,
   IN UINTN			DataSize,
   IN void				*Data
@@ -176,11 +191,14 @@ OvrSetVariable(
   EFI_STATUS			Status;
   UINTN i;
 
-  for (i = 0; i < BlockRtVariableArray.size(); i++) {
-    if (!CompareGuid(&BlockRtVariableArray[i].VarGuid, VendorGuid)) {
+  for (i = 0; i < gSettings.RtVariables.BlockRtVariableArray.size(); i++) {
+    if ( gSettings.RtVariables.BlockRtVariableArray[i].Disabled ) {
       continue;
     }
-    if (BlockRtVariableArray[i].Name.isEmpty() || BlockRtVariableArray[i].Name[0] == L'*' || BlockRtVariableArray[i].Name == LStringW(VariableName) ) {
+    if ( gSettings.RtVariables.BlockRtVariableArray[i].Guid != VendorGuid ) {
+      continue;
+    }
+    if (gSettings.RtVariables.BlockRtVariableArray[i].Name.isEmpty() || gSettings.RtVariables.BlockRtVariableArray[i].Name[0] == L'*' || gSettings.RtVariables.BlockRtVariableArray[i].Name == LStringW(VariableName) ) {
       return EFI_SUCCESS;
     }
   }
@@ -204,7 +222,6 @@ EFI_STATUS EFIAPI
 SetVariablesForOSX(LOADER_ENTRY *Entry)
 {
   // The variable names used should be made global constants to prevent them being allocated multiple times
-
   UINT32  Attributes;
   UINT32  Color;
   CONST CHAR8   *None;
@@ -216,59 +233,69 @@ SetVariablesForOSX(LOADER_ENTRY *Entry)
 //  UINT64  os_version = AsciiOSVersionToUint64(Entry->OSVersion);
   CHAR8   *PlatformLang;
 
-  EFI_GUID uuid;
-  gSettings.getUUID(&uuid);
+  EFI_GUID uuid = gSettings.getUUID();
 
   //
   // firmware Variables
   //
-  if (BlockRtVariableArray.size() > 0) {
+  if (gSettings.RtVariables.BlockRtVariableArray.size() > 0) {
     OvrRuntimeServices(gRT);
   }
   
   // As found on a real Mac, the system-id variable solely has the BS flag
   SetNvramVariable(L"system-id",
-                   &gEfiAppleNvramGuid,
+                   gEfiAppleNvramGuid,
                    EFI_VARIABLE_BOOTSERVICE_ACCESS,
                    sizeof(uuid),
                    &uuid);
 
   Attributes     = EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS;
 
-  if (gSettings.RtMLB.notEmpty()) {
-    if ( gSettings.RtMLB.length() != 17 ) {
+  if (GlobalConfig.RtMLB.notEmpty()) {
+    if ( GlobalConfig.RtMLB.length() != 17 ) {
       DBG("** Warning: Your MLB is not suitable for iMessage(must be 17 chars long) !\n");
     }
 
     SetNvramXString8(L"MLB",
-                     &gEfiAppleNvramGuid,
+                     gEfiAppleNvramGuid,
                      Attributes,
-                     gSettings.RtMLB);
+                     GlobalConfig.RtMLB);
   }
 
-  if (gSettings.RtROM.notEmpty()) {
+  if (GlobalConfig.RtROM.notEmpty()) {
     SetNvramVariable(L"ROM",
-                     &gEfiAppleNvramGuid,
+                     gEfiAppleNvramGuid,
                      Attributes,
-                     gSettings.RtROM.size(),
-                     gSettings.RtROM.vdata());
+                     GlobalConfig.RtROM.size(),
+                     GlobalConfig.RtROM.vdata());
   }
 
   SetNvramVariable(L"FirmwareFeatures",
-                   &gEfiAppleNvramGuid,
+                   gEfiAppleNvramGuid,
                    Attributes,
-                   sizeof(gFwFeatures),
-                   &gFwFeatures);
+                   sizeof(gSettings.Smbios.FirmwareFeatures),
+                   &gSettings.Smbios.FirmwareFeatures);
 
-  // Download-Fritz: Should be added to SMBIOS or at least to some other config section
-  AddNvramVariable(L"FirmwareFeaturesMask",
-                   &gEfiAppleNvramGuid,
+  SetNvramVariable(L"FirmwareFeaturesMask",
+                   gEfiAppleNvramGuid,
                    Attributes,
-                   sizeof(gFwFeaturesMask),
-                   &gFwFeaturesMask);
+                   sizeof(gSettings.Smbios.FirmwareFeaturesMask),
+                   &gSettings.Smbios.FirmwareFeaturesMask);
+
+  SetNvramVariable(L"ExtendedFirmwareFeatures",
+                   gEfiAppleNvramGuid,
+                   Attributes,
+                   sizeof(gSettings.Smbios.ExtendedFirmwareFeatures),
+                   &gSettings.Smbios.ExtendedFirmwareFeatures);
+
+  SetNvramVariable(L"ExtendedFirmwareFeaturesMask",
+                   gEfiAppleNvramGuid,
+                   Attributes,
+                   sizeof(gSettings.Smbios.ExtendedFirmwareFeaturesMask),
+                   &gSettings.Smbios.ExtendedFirmwareFeaturesMask);
 
   // HW_MLB and HW_ROM are also around on some Macs with the same values as MLB and ROM
-  AddNvramXString8(L"HW_BID", &gEfiAppleNvramGuid, Attributes, gSettings.BoardNumber);
+  AddNvramXString8(L"HW_BID", gEfiAppleNvramGuid, Attributes, gSettings.Smbios.BoardNumber);
 
 
   //
@@ -278,14 +305,14 @@ SetVariablesForOSX(LOADER_ENTRY *Entry)
   // note: some gEfiAppleBootGuid vars present in nvram.plist are already set by PutNvramPlistToRtVars()
   // we should think how to handle those vars from nvram.plist and ones set here from gSettings
 
-  if ((gFirmwareClover && gDriversFlags.EmuVariableLoaded) || gSettings.KbdPrevLang) {
+  if ((gFirmwareClover && gDriversFlags.EmuVariableLoaded) || gSettings.GUI.KbdPrevLang) {
     // using AddNvramVariable content instead of calling the function to do LangLen calculation only when necessary
     // Do not mess with prev-lang:kbd on UEFI systems without NVRAM emulation; it's OS X's business
     KbdPrevLang = L"prev-lang:kbd";
-    OldData = (__typeof__(OldData))GetNvramVariable(KbdPrevLang, &gEfiAppleBootGuid, NULL, NULL);
+    OldData = (__typeof__(OldData))GetNvramVariable(KbdPrevLang, gEfiAppleBootGuid, NULL, NULL);
     if (OldData == NULL) {
-      gSettings.Language.trim();
-      SetNvramXString8(KbdPrevLang, &gEfiAppleBootGuid, Attributes, gSettings.Language);
+      gSettings.GUI.Language.trim();
+      SetNvramXString8(KbdPrevLang, gEfiAppleBootGuid, Attributes, gSettings.GUI.Language);
     } else {
       FreePool(OldData);
     }
@@ -294,7 +321,7 @@ SetVariablesForOSX(LOADER_ENTRY *Entry)
   }
 
 //#define EFI_PLATFORM_LANG_VARIABLE_NAME             L"PlatformLang"
-  PlatformLang = (__typeof__(PlatformLang))GetNvramVariable(EFI_PLATFORM_LANG_VARIABLE_NAME, &gEfiGlobalVariableGuid, NULL, NULL);
+  PlatformLang = (__typeof__(PlatformLang))GetNvramVariable(EFI_PLATFORM_LANG_VARIABLE_NAME, gEfiGlobalVariableGuid, NULL, NULL);
   //
   // On some platforms with missing gEfiUnicodeCollation2ProtocolGuid EFI_PLATFORM_LANG_VARIABLE_NAME is set
   // to the value different from "en-...". This is not going to work with our driver UEFI Shell load failures.
@@ -302,7 +329,7 @@ SetVariablesForOSX(LOADER_ENTRY *Entry)
   //
 //  if (!PlatformLang || AsciiStrnCmp (PlatformLang, "en-", 3)) {
   if (!PlatformLang) {
-    SetNvramVariable(EFI_PLATFORM_LANG_VARIABLE_NAME, &gEfiGlobalVariableGuid,
+    SetNvramVariable(EFI_PLATFORM_LANG_VARIABLE_NAME, gEfiGlobalVariableGuid,
                      Attributes,
                      6, "en-US");
   }
@@ -311,86 +338,109 @@ SetVariablesForOSX(LOADER_ENTRY *Entry)
   }
 
   None           = "none";
-  AddNvramVariable(L"security-mode", &gEfiAppleBootGuid, Attributes, 5, (void*)None);
+  AddNvramVariable(L"security-mode", gEfiAppleBootGuid, Attributes, 5, (void*)None);
 
   // we should have two UUID: platform and system
   // NO! Only Platform is the best solution
   if (!gSettings.ShouldInjectSystemID()) {
-    if (gSettings.SmUUID.notEmpty()) {
-      SetNvramVariable(L"platform-uuid", &gEfiAppleBootGuid, Attributes, sizeof(uuid), &uuid);
+    if (gSettings.Smbios.SmUUID.notNull()) {
+      SetNvramVariable(L"platform-uuid", gEfiAppleBootGuid, Attributes, sizeof(uuid), &uuid);
     } else {
-      AddNvramVariable(L"platform-uuid", &gEfiAppleBootGuid, Attributes, sizeof(uuid), &uuid);
+      AddNvramVariable(L"platform-uuid", gEfiAppleBootGuid, Attributes, sizeof(uuid), &uuid);
     }
   }
 
   // Download-Fritz: Do not mess with BacklightLevel; it's OS X's business
   if (gMobile) {
-    if (gSettings.BacklightLevelConfig) {
-      SetNvramVariable(L"backlight-level", &gEfiAppleBootGuid, Attributes, sizeof(gSettings.BacklightLevel), &gSettings.BacklightLevel);
+    if (gSettings.SystemParameters.BacklightLevelConfig) {
+      SetNvramVariable(L"backlight-level", gEfiAppleBootGuid, Attributes, sizeof(gSettings.SystemParameters.BacklightLevel), &gSettings.SystemParameters.BacklightLevel);
     } else {
-      AddNvramVariable(L"backlight-level", &gEfiAppleBootGuid, Attributes, sizeof(gSettings.BacklightLevel), &gSettings.BacklightLevel);
+      AddNvramVariable(L"backlight-level", gEfiAppleBootGuid, Attributes, sizeof(gSettings.SystemParameters.BacklightLevel), &gSettings.SystemParameters.BacklightLevel);
     }
   }
 
-  if (gSettings.DefaultBackgroundColor == 0x80000000) {
-    DeleteNvramVariable(L"DefaultBackgroundColor", &gEfiAppleNvramGuid);
+  if (gSettings.BootGraphics.DefaultBackgroundColor == 0x80000000) {
+    DeleteNvramVariable(L"DefaultBackgroundColor", gEfiAppleNvramGuid);
   } else {
     UINT16 ActualDensity = 0xE1;
     UINT16 DensityThreshold = 0x96;
     UINT64 ConfigStatus = 0;
-    Color = gSettings.DefaultBackgroundColor;
+    Color = gSettings.BootGraphics.DefaultBackgroundColor;
+    mCurrentColor = Color;
     DBG("set DefaultBackgroundColor=0x%x\n", Color);
-    SetNvramVariable(L"DefaultBackgroundColor", &gEfiAppleNvramGuid, Attributes, 4, &Color);
+    SetNvramVariable(L"DefaultBackgroundColor", gEfiAppleNvramGuid, Attributes, 4, &Color);
     // add some UI variables
-    SetNvramVariable(L"ActualDensity", &gEfiAppleBootGuid, Attributes, 2, &ActualDensity);
-    SetNvramVariable(L"DensityThreshold", &gEfiAppleBootGuid, Attributes, 2, &DensityThreshold);
-    SetNvramVariable(L"gfx-saved-config-restore-status", &gEfiAppleNvramGuid, Attributes, 8, &ConfigStatus);
+    SetNvramVariable(L"ActualDensity", gEfiAppleBootGuid, Attributes, 2, &ActualDensity);
+    SetNvramVariable(L"DensityThreshold", gEfiAppleBootGuid, Attributes, 2, &DensityThreshold);
+    SetNvramVariable(L"gfx-saved-config-restore-status", gEfiAppleNvramGuid, Attributes, 8, &ConfigStatus);
   }
 
-  if (gSettings.UIScale == 0x80000000) {
-    DeleteNvramVariable(L"UIScale", &gEfiAppleNvramGuid);
+  if (gSettings.BootGraphics.UIScale == 0x80000000) {
+    DeleteNvramVariable(L"UIScale", gEfiAppleNvramGuid);
   } else {
-    SetNvramVariable(L"UIScale", &gEfiAppleNvramGuid, Attributes, 1, &gSettings.UIScale);
+    SetNvramVariable(L"UIScale", gEfiAppleNvramGuid, Attributes, 1, &gSettings.BootGraphics.UIScale);
   }
 
-  if (gSettings.EFILoginHiDPI == 0x80000000) {
-    DeleteNvramVariable(L"EFILoginHiDPI", &gEfiAppleBootGuid);
+  if (gSettings.BootGraphics.EFILoginHiDPI == 0x80000000) {
+    DeleteNvramVariable(L"EFILoginHiDPI", gEfiAppleBootGuid);
   } else {
-    SetNvramVariable(L"EFILoginHiDPI", &gEfiAppleBootGuid, Attributes, 4, &gSettings.EFILoginHiDPI);
+    SetNvramVariable(L"EFILoginHiDPI", gEfiAppleBootGuid, Attributes, 4, &gSettings.BootGraphics.EFILoginHiDPI);
   }
 
   // ->GetVariable(flagstate, gEfiAppleBootGuid, 0/0, 20, 10FE110) = Not Found
-  if (gSettings.flagstate[3] == 0x80) {
-    DeleteNvramVariable(L"flagstate", &gEfiAppleBootGuid);
+  if (GlobalConfig.flagstate[3] == 0x80) {
+    DeleteNvramVariable(L"flagstate", gEfiAppleBootGuid);
   } else {
-    SetNvramVariable(L"flagstate", &gEfiAppleBootGuid, Attributes, 32, &gSettings.flagstate);
+    SetNvramVariable(L"flagstate", gEfiAppleBootGuid, Attributes, 32, &GlobalConfig.flagstate);
   }
 
-  // Hack for recovery by Asgorath
-  if (gSettings.CsrActiveConfig != 0xFFFF) {
-    SetNvramVariable(L"csr-active-config", &gEfiAppleBootGuid, Attributes, sizeof(gSettings.CsrActiveConfig), &gSettings.CsrActiveConfig);
+  if (gSettings.RtVariables.CsrActiveConfig != 0xFFFF) {
+    SetNvramVariable(L"csr-active-config", gEfiAppleBootGuid, Attributes, sizeof(gSettings.RtVariables.CsrActiveConfig), &gSettings.RtVariables.CsrActiveConfig);
   }
-/*
-  if (gSettings.BooterConfig != 0) {
-    SetNvramVariable(L"bootercfg", &gEfiAppleBootGuid, Attributes, sizeof(gSettings.BooterConfig), &gSettings.BooterConfig);
+
+  if (gSettings.RtVariables.HWTarget.isEmpty()) {
+//    if (Entry->macOSVersion >= MacOsVersion("13"_XS8)) {
+      //test legacy model
+//      GlobalConfig.CurrentModel = iMac183;
+//    }
+    gSettings.RtVariables.HWTarget = GetHWTarget(GlobalConfig.CurrentModel);
   }
-*/
-  if ( gSettings.BooterCfgStr.notEmpty() ) {
-    SetNvramXString8(L"bootercfg", &gEfiAppleBootGuid, Attributes, gSettings.BooterCfgStr);
+
+  extern APPLE_SYSTEM_INFO_PROTOCOL mSystemInfo;
+  if (gSettings.RtVariables.HWTarget.notEmpty()) {
+	//install gibraltar
+	/*Status=*/gBS->InstallProtocolInterface (&gImageHandle,
+			  	                                          &gAppleSystemInfoProtocolGuid,
+				EFI_NATIVE_INTERFACE,
+				&mSystemInfo);
+  }
+
+
+  if (gSettings.RtVariables.HWTarget.notEmpty() && (Entry->LoaderType != OSTYPE_OSX_INSTALLER) &&
+      (Entry->macOSVersion < MacOsVersion("13"_XS8)) ) { //test legacy model
+    SetNvramXString8(L"BridgeOSHardwareModel", gEfiAppleNvramGuid, Attributes, gSettings.RtVariables.HWTarget);
+//    SetNvramVariable(L"BridgeOSBootSessionUUID", gEfiAppleBootGuid, Attributes, sizeof(uuid), &uuid);
   } else {
-    DeleteNvramVariable(L"bootercfg", &gEfiAppleBootGuid);
+    DeleteNvramVariable(L"BridgeOSHardwareModel", gEfiAppleNvramGuid);
+//    DeleteNvramVariable(L"BridgeOSBootSessionUUID", gEfiAppleBootGuid);
   }
-  if (gSettings.NvidiaWeb) {
+
+  if ( gSettings.RtVariables.BooterCfgStr.notEmpty() ) {
+    SetNvramXString8(L"bootercfg", gEfiAppleBootGuid, Attributes, gSettings.RtVariables.BooterCfgStr);
+  } else {
+    DeleteNvramVariable(L"bootercfg", gEfiAppleBootGuid);
+  }
+  if (gSettings.SystemParameters.NvidiaWeb) {
     NvidiaWebValue = "1";
-    SetNvramVariable(L"nvda_drv", &gEfiAppleBootGuid, Attributes, 2, (void*)NvidiaWebValue);
+    SetNvramVariable(L"nvda_drv", gEfiAppleBootGuid, Attributes, 2, (void*)NvidiaWebValue);
   } else {
-    DeleteNvramVariable(L"nvda_drv", &gEfiAppleBootGuid);
+    DeleteNvramVariable(L"nvda_drv", gEfiAppleBootGuid);
   }
   
   if (!gDriversFlags.AptioMemFixLoaded) {
-    DeleteNvramVariable(L"recovery-boot-mode", &gEfiAppleBootGuid);
+    DeleteNvramVariable(L"recovery-boot-mode", gEfiAppleBootGuid);
   }
-  
+/*
   // Check for AptioFix2Drv loaded to store efi-boot-device for special boot
     if (gDriversFlags.AptioFix2Loaded || gDriversFlags.AptioFixLoaded ||
         gDriversFlags.AptioFix3Loaded || gDriversFlags.AptioMemFixLoaded)  {
@@ -398,26 +448,53 @@ SetVariablesForOSX(LOADER_ENTRY *Entry)
       REFIT_VOLUME *Volume = Entry->Volume;
       const EFI_DEVICE_PATH_PROTOCOL    *DevicePath = Volume->DevicePath;
       // We need to remember from which device we boot, to make silence boot while special recovery boot
-      Status = gRT->SetVariable(L"specialbootdevice", &gEfiAppleBootGuid,
+      Status = gRT->SetVariable(L"specialbootdevice", gEfiAppleBootGuid,
                                 EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
                                 GetDevicePathSize(DevicePath), (UINT8 *)DevicePath);
       if (EFI_ERROR(Status)) {
         DBG("can't set  specialbootdevice!\n");
       }
     }
-
+*/
   // Sherlocks: to fix "OSInstall.mpkg appears to be missing or damaged" in 10.13+, we should remove this variables.
   if (Entry->LoaderType == OSTYPE_OSX_INSTALLER) {
-    if (Entry->OSVersion.isEmpty() || Entry->OSVersion > MacOsVersion("10.12"_XS8)) {
-      DeleteNvramVariable(L"install-product-url",  &gEfiAppleBootGuid);
-      DeleteNvramVariable(L"previous-system-uuid", &gEfiAppleBootGuid);
+    if (Entry->macOSVersion.isEmpty() || Entry->macOSVersion > MacOsVersion("10.12"_XS8)) {
+      DeleteNvramVariable(L"install-product-url",  gEfiAppleBootGuid);
+      DeleteNvramVariable(L"previous-system-uuid", gEfiAppleBootGuid);
     }
   }
   
   //one more variable can be set for 10.15.4
   //sudo nvram wake-failure=%00%00%00%00%00
   LangLen = 0;
-  AddNvramVariable(L"wake-failure", &gEfiAppleBootGuid, Attributes, 5, &LangLen);
+  AddNvramVariable(L"wake-failure", gEfiAppleBootGuid, Attributes, 5, &LangLen);
+  // for a bluetooth
+  AddNvramVariable(L"bluetoothInternalControllerInfo", gEfiAppleBootGuid, Attributes, 14, &LangLen);
+  AddNvramVariable(L"bluetoothExternalDongleFailed", gEfiAppleBootGuid, Attributes, 1, &LangLen);
+
+  //clear OC garbage
+  DeleteNvramVariable(L"opencore-version", gEfiAppleBootGuid);
+  DeleteNvramVariable(L"ApBoardID", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"ApSecurityDomain", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"ApProductionStatus", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"ApSecurityMode", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"EffectiveProductionStatus", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"EffectiveSecurityMode", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"CertificateEpoch", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"MixNMatchPreventionStatus", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"CryptoDigestMethod", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"InternalUseOnlyUnit", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"ApECID", gAppleSecureBootVariableGuid);
+  DeleteNvramVariable(L"HardwareModel", gAppleSecureBootVariableGuid);
+
+
+  //Now we want manually install some SecureBoot Variables while boot.efi do this automatically.
+  //set same values
+  //test legacy model
+//  UINT64 ecid = 0;
+//  CopyMem(&ecid, &uuid, 8);
+//  SetNvramVariable(L"ApECID", gAppleSecureBootVariableGuid, Attributes, 8, &ecid);
+//  SetNvramVariable(L"HardwareModel", gAppleSecureBootVariableGuid, Attributes, 16, HW);
 
   return EFI_SUCCESS;
 }
@@ -425,7 +502,8 @@ SetVariablesForOSX(LOADER_ENTRY *Entry)
 void
 AddSMCkey(SMC_KEY Key, SMC_DATA_SIZE Size, SMC_KEY_TYPE Type, SMC_DATA *Data)
 {
-  if (gAppleSmc && (gAppleSmc->Signature == NON_APPLE_SMC_SIGNATURE)) {
+  if (gAppleSmc && (gAppleSmc->Signature == NON_APPLE_SMC_SIGNATURE))
+  {
     gAppleSmc->SmcAddKey(gAppleSmc,     Key, Size, Type, 0xC0);
     gAppleSmc->SmcWriteValue(gAppleSmc, Key, Size, Data);
   }
@@ -434,7 +512,7 @@ AddSMCkey(SMC_KEY Key, SMC_DATA_SIZE Size, SMC_KEY_TYPE Type, SMC_DATA *Data)
 // SetupDataForOSX
 /// Sets the DataHub data used by OS X
 void EFIAPI
-SetupDataForOSX(BOOLEAN Hibernate)
+SetupDataForOSX(XBool Hibernate)
 {
   EFI_STATUS Status;
 
@@ -445,12 +523,12 @@ SetupDataForOSX(BOOLEAN Hibernate)
   UINT64     ARTFrequency;
   UINTN      Revision;
   UINT16     Zero = 0;
-  BOOLEAN    isRevLess = (gSettings.REV[0] == 0 &&
-                          gSettings.REV[1] == 0 &&
-                          gSettings.REV[2] == 0 &&
-                          gSettings.REV[3] == 0 &&
-                          gSettings.REV[4] == 0 &&
-                          gSettings.REV[5] == 0);
+  XBool      isRevLess = (ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision[0] == 0 &&
+                          ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision[1] == 0 &&
+                          ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision[2] == 0 &&
+                          ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision[3] == 0 &&
+                          ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision[4] == 0 &&
+                          ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision[5] == 0);
 
   Revision = StrDecimalToUintn(gFirmwareRevision);
 
@@ -461,7 +539,7 @@ SetupDataForOSX(BOOLEAN Hibernate)
     FrontSideBus = 100 * Mega;
   }
 
-  if (gSettings.QEMU) {
+  if (gSettings.CPU.QEMU) {
     FrontSideBus = gCPUStructure.TSCFrequency;
     switch (gCPUStructure.Model) {
       case CPU_MODEL_DOTHAN:
@@ -477,66 +555,71 @@ SetupDataForOSX(BOOLEAN Hibernate)
   }
 
   // Save values into gSettings for the genconfig aim
-  gSettings.BusSpeed   = (UINT32)DivU64x32(FrontSideBus, kilo);
+  gSettings.CPU.BusSpeed   = (UINT32)DivU64x32(FrontSideBus, Kilo);
 
   CpuSpeed = gCPUStructure.CPUFrequency;
-  gSettings.CpuFreqMHz = (UINT32)DivU64x32(CpuSpeed,     Mega);
+  gSettings.CPU.CpuFreqMHz = (UINT32)DivU64x32(CpuSpeed,     Mega);
+
+  char RBr[8];
+  getRBr(GlobalConfig.CurrentModel, gCPUStructure.Model, gSettings.Smbios.Mobile, RBr);
+  char RPlt[8];
+  getRPlt(GlobalConfig.CurrentModel, gCPUStructure.Model, gSettings.Smbios.Mobile, RPlt);
 
   // Locate DataHub Protocol
-  Status = gBS->LocateProtocol(&gEfiDataHubProtocolGuid, NULL, (void**)&gDataHub);
+  Status = gBS->LocateProtocol(gEfiDataHubProtocolGuid, NULL, (void**)&gDataHub);
   if (!EFI_ERROR(Status)) {
     XStringW ProductName;
-    ProductName.takeValueFrom(gSettings.ProductName);
+    ProductName.takeValueFrom(gSettings.Smbios.ProductName);
 
     XStringW SerialNumber;
-    SerialNumber.takeValueFrom(gSettings.SerialNr);
+    SerialNumber.takeValueFrom(gSettings.Smbios.SerialNr);
 
-    LogDataHub(&gEfiProcessorSubClassGuid, L"FSBFrequency",     &FrontSideBus,        sizeof(UINT64));
+    LogDataHub(gEfiProcessorSubClassGuid, L"FSBFrequency",     &FrontSideBus,        sizeof(UINT64));
 
-    if (gCPUStructure.ARTFrequency && gSettings.UseARTFreq) {
+    if (gCPUStructure.ARTFrequency && gSettings.CPU.UseARTFreq) {
       ARTFrequency = gCPUStructure.ARTFrequency;
-      LogDataHub(&gEfiProcessorSubClassGuid, L"ARTFrequency",   &ARTFrequency,        sizeof(UINT64));
+      LogDataHub(gEfiProcessorSubClassGuid, L"ARTFrequency",   &ARTFrequency,        sizeof(UINT64));
     }
 
     TscFrequency        = 0; //gCPUStructure.TSCFrequency;
-    LogDataHub(&gEfiProcessorSubClassGuid, L"InitialTSC",       &TscFrequency,        sizeof(UINT64));
-    LogDataHub(&gEfiProcessorSubClassGuid, L"CPUFrequency",     &CpuSpeed,            sizeof(UINT64));
+    LogDataHub(gEfiProcessorSubClassGuid, L"InitialTSC",       &TscFrequency,        sizeof(UINT64));
+    LogDataHub(gEfiProcessorSubClassGuid, L"CPUFrequency",     &CpuSpeed,            sizeof(UINT64));
 
-    //gSettings.BoardNumber
-    LogDataHubXString8(&gEfiMiscSubClassGuid,      L"board-id",         gSettings.BoardNumber);
+    //gSettings.Smbios.BoardNumber
+    LogDataHubXString8(gEfiMiscSubClassGuid,      L"board-id",         gSettings.Smbios.BoardNumber);
     TscFrequency++;
-    LogDataHub(&gEfiProcessorSubClassGuid, L"board-rev",       &TscFrequency,        1);
+    LogDataHub(gEfiProcessorSubClassGuid, L"board-rev",       &TscFrequency,        1);
 
     DevPathSupportedVal = 1;
-    LogDataHub(&gEfiMiscSubClassGuid,      L"DevicePathsSupported", &DevPathSupportedVal, sizeof(UINT32));
-    LogDataHubXStringW(&gEfiMiscSubClassGuid,      L"Model",                ProductName);
-    LogDataHubXStringW(&gEfiMiscSubClassGuid,      L"SystemSerialNumber",   SerialNumber);
+    LogDataHub(gEfiMiscSubClassGuid,      L"DevicePathsSupported", &DevPathSupportedVal, sizeof(UINT32));
+    LogDataHubXStringW(gEfiMiscSubClassGuid,      L"Model",                ProductName);
+    LogDataHubXStringW(gEfiMiscSubClassGuid,      L"SystemSerialNumber",   SerialNumber);
 
     if (gSettings.ShouldInjectSystemID()) {
-      EFI_GUID uuid;
-      gSettings.getUUID(&uuid);
-      LogDataHub(&gEfiMiscSubClassGuid, L"system-id", &uuid, sizeof(uuid));
+      EFI_GUID uuid = gSettings.getUUID();
+      LogDataHub(gEfiMiscSubClassGuid, L"system-id", &uuid, sizeof(uuid));
     }
 
-    LogDataHub(&gEfiProcessorSubClassGuid, L"clovergui-revision", &Revision, sizeof(UINT32));
+    LogDataHub(gEfiProcessorSubClassGuid, L"clovergui-revision", &Revision, sizeof(UINT32));
 
     // collect info about real hardware
-    LogDataHubXString8(&gEfiMiscSubClassGuid, L"OEMVendor",  gSettings.OEMVendor);
-    LogDataHubXString8(&gEfiMiscSubClassGuid, L"OEMProduct", gSettings.OEMProduct);
-    LogDataHubXString8(&gEfiMiscSubClassGuid, L"OEMBoard",   gSettings.OEMBoard);
+    LogDataHubXString8(gEfiMiscSubClassGuid, L"OEMVendor",  GlobalConfig.OEMVendorFromSmbios);
+    LogDataHubXString8(gEfiMiscSubClassGuid, L"OEMProduct", GlobalConfig.OEMProductFromSmbios);
+    LogDataHubXString8(gEfiMiscSubClassGuid, L"OEMBoard",   GlobalConfig.OEMBoardFromSmbios);
 
     // SMC helper
     if (!isRevLess) {
-      LogDataHub(&gEfiMiscSubClassGuid, L"RBr",  &gSettings.RBr,    8);
-      LogDataHub(&gEfiMiscSubClassGuid, L"EPCI", &gSettings.EPCI,   4);
-      LogDataHub(&gEfiMiscSubClassGuid, L"REV",  &gSettings.REV,    6);
+      LogDataHub(gEfiMiscSubClassGuid, L"RBr",  &RBr,    8);
+      LogDataHub(gEfiMiscSubClassGuid, L"EPCI", &ApplePlatformDataArray[GlobalConfig.CurrentModel].smcConfig,   4);
+      LogDataHub(gEfiMiscSubClassGuid, L"REV",  &ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision, 6);
+      LogDataHub(gEfiMiscSubClassGuid, L"RVBF",  &ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision, 6);
     }
-    LogDataHub(&gEfiMiscSubClassGuid, L"RPlt", &gSettings.RPlt,   8);
-    LogDataHub(&gEfiMiscSubClassGuid, L"BEMB", &gSettings.Mobile, 1);
+    LogDataHub(gEfiMiscSubClassGuid, L"RPlt", RPlt,   8);
+    LogDataHub(gEfiMiscSubClassGuid, L"BEMB", &gSettings.Smbios.Mobile, 1);
 
     // all current settings
-    XBuffer<UINT8> xb = gSettings.serialize();
-    LogDataHub(&gEfiMiscSubClassGuid, L"Settings", xb.data(), (UINT32)xb.size());
+//    XBuffer<UINT8> xb = gSettings.serialize();
+//    LogDataHub(&gEfiMiscSubClassGuid, L"Settings", xb.data(), (UINT32)xb.size());
   }else{
     MsgLog("DataHub protocol not located. Smbios not send to datahub\n");
   }
@@ -544,23 +627,24 @@ SetupDataForOSX(BOOLEAN Hibernate)
     return;
   }
   if (!isRevLess) {
-    AddSMCkey(SMC_MAKE_KEY('R','B','r',' '), 8, SmcKeyTypeCh8, (SMC_DATA *)&gSettings.RBr);
-    AddSMCkey(SMC_MAKE_KEY('E','P','C','I'), 4, SmcKeyTypeUint32, (SMC_DATA *)&gSettings.EPCI);
-    AddSMCkey(SMC_MAKE_KEY('R','E','V',' '), 6, SmcKeyTypeCh8, (SMC_DATA *)&gSettings.REV);
+    AddSMCkey(SMC_MAKE_KEY('R','B','r',' '), 8, SmcKeyTypeCh8, (SMC_DATA *)&RBr);
+    AddSMCkey(SMC_MAKE_KEY('E','P','C','I'), 4, SmcKeyTypeUint32, (SMC_DATA *)&ApplePlatformDataArray[GlobalConfig.CurrentModel].smcConfig);
+    AddSMCkey(SMC_MAKE_KEY('R','E','V',' '), 6, SmcKeyTypeCh8, (SMC_DATA *)&ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision);
+    AddSMCkey(SMC_MAKE_KEY('R','V','B','F'), 6, SmcKeyTypeCh8, (SMC_DATA *)&ApplePlatformDataArray[GlobalConfig.CurrentModel].smcRevision);
   }
-  AddSMCkey(SMC_MAKE_KEY('R','P','l','t'), 8, SmcKeyTypeCh8, (SMC_DATA *)&gSettings.RPlt);
-  AddSMCkey(SMC_MAKE_KEY('B','E','M','B'), 1, SmcKeyTypeFlag, (SMC_DATA *)&gSettings.Mobile);
+  AddSMCkey(SMC_MAKE_KEY('R','P','l','t'), 8, SmcKeyTypeCh8, (SMC_DATA *)&RPlt);
+  AddSMCkey(SMC_MAKE_KEY('B','E','M','B'), 1, SmcKeyTypeFlag, (SMC_DATA *)&gSettings.Smbios.Mobile);
   //laptop battery keys will be better to import from nvram.plist or read from ACPI(?)
   //they are needed for FileVault2 who want to draw battery status
   AddSMCkey(SMC_MAKE_KEY('B','A','T','P'), 1, SmcKeyTypeFlag, (SMC_DATA *)&Zero); //isBatteryPowered
-  AddSMCkey(SMC_MAKE_KEY('B','N','u','m'), 1, SmcKeyTypeUint8, (SMC_DATA *)&gSettings.Mobile); // Num Batteries
-  if (gSettings.Mobile) {
-    AddSMCkey(SMC_MAKE_KEY('B','B','I','N'), 1, SmcKeyTypeUint8, (SMC_DATA *)&gSettings.Mobile); //Battery inserted
+  AddSMCkey(SMC_MAKE_KEY('B','N','u','m'), 1, SmcKeyTypeUint8, (SMC_DATA *)&gSettings.Smbios.Mobile); // Num Batteries
+  if (gSettings.Smbios.Mobile) {
+    AddSMCkey(SMC_MAKE_KEY('B','B','I','N'), 1, SmcKeyTypeUint8, (SMC_DATA *)&gSettings.Smbios.Mobile); //Battery inserted
   }
   AddSMCkey(SMC_MAKE_KEY('M','S','T','c'), 1, SmcKeyTypeUint8, (SMC_DATA *)&Zero); // CPU Plimit
   AddSMCkey(SMC_MAKE_KEY('M','S','A','c'), 2, SmcKeyTypeUint16, (SMC_DATA *)&Zero);// GPU Plimit
 //  AddSMCkey(SMC_MAKE_KEY('M','S','L','D'), 1, SmcKeyTypeUint8, (SMC_DATA *)&Zero);   //isLidClosed
-  Zero = Hibernate?((ResumeFromCoreStorage||GlobalConfig.HibernationFixup)?25:29):0;
+  Zero = Hibernate?((ResumeFromCoreStorage||gSettings.Boot.HibernationFixup)?25:29):0;
 
   AddSMCkey(SMC_MAKE_KEY('M','S','W','r'), 1, SmcKeyTypeUint8, (SMC_DATA *)&Zero);
   Zero = 1;

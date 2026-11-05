@@ -30,6 +30,7 @@
 
 
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
+#include <Efi.h>
 #include "StartupSound.h"
 #include "Settings.h"
 #include "Nvram.h"
@@ -51,9 +52,6 @@ extern UINTN EmbeddedSoundLength;
 #endif
 
 
-//EFI_GUID gBootChimeVendorVariableGuid = {0x89D4F995, 0x67E3, 0x4895, { 0x8F, 0x18, 0x45, 0x4B, 0x65, 0x1D, 0x92, 0x15 }};
-
-extern EFI_GUID gBootChimeVendorVariableGuid;
 
 EFI_AUDIO_IO_PROTOCOL *AudioIo = NULL;
 
@@ -215,7 +213,7 @@ StartupSoundPlay(const EFI_FILE* Dir, CONST CHAR16* SoundFile)
   }
 //  DBG("playback set\n");
   // Start playback.
-  if (gSettings.PlayAsync) {
+  if (gSettings.GUI.PlayAsync) {
     Status = AudioIo->StartPlaybackAsync(AudioIo, WaveData.Samples, WaveData.SamplesLength, 0, NULL, NULL);
 //    DBG("async started, status=%s\n", efiStrError(Status));
   } else {
@@ -235,13 +233,13 @@ DONE_ERROR:
 //    DBG("free sound\n");
     FreePool(FileData);
   }
-  if (!gSettings.PlayAsync && WaveData.Samples) {
+  if (!gSettings.GUI.PlayAsync && WaveData.Samples) {
     //dont free sound when async play
     // here we have memory leak with WaveData.Samples
     // and we can't free memory up to stop AsyncPlay
     FreeAlignedPages(WaveData.Samples, EFI_SIZE_TO_PAGES(WaveData.SamplesLength + 4095));
   }
-  DBG("sound play end with status=%s\n", efiStrError(Status));
+//  DBG("sound play end with status=%s\n", efiStrError(Status));
   return Status;
 }
 
@@ -276,10 +274,10 @@ GetStoredOutput()
   }
 	DBG("found %llu handles with audio\n", AudioIoHandleCount);
   // Get stored device path size. First from AppleBootGuid
-  StoredDevicePath = (__typeof__(StoredDevicePath))GetNvramVariable(L"Clover.SoundDevice", &gEfiAppleBootGuid, NULL, &StoredDevicePathSize);
+  StoredDevicePath = (__typeof__(StoredDevicePath))GetNvramVariable(L"Clover.SoundDevice", gEfiAppleBootGuid, NULL, &StoredDevicePathSize);
   if (!StoredDevicePath) {
     // second attempt with BootChimeGuid
-    StoredDevicePath = (__typeof__(StoredDevicePath))GetNvramVariable(BOOT_CHIME_VAR_DEVICE, &gBootChimeVendorVariableGuid, NULL, &StoredDevicePathSize);
+    StoredDevicePath = (__typeof__(StoredDevicePath))GetNvramVariable(BOOT_CHIME_VAR_DEVICE, gBootChimeVendorVariableGuid, NULL, &StoredDevicePathSize);
     if (!StoredDevicePath) {
       MsgLog("No AudioIoDevice stored\n");
       Status = EFI_NOT_FOUND;
@@ -326,10 +324,10 @@ GetStoredOutput()
 
   // Get stored device index.
   OutputPortIndex = 0;
-  Status = gRT->GetVariable(L"Clover.SoundIndex", &gEfiAppleBootGuid, NULL,
+  Status = gRT->GetVariable(L"Clover.SoundIndex", gEfiAppleBootGuid, NULL,
                             &OutputPortIndexSize, &OutputPortIndex);
   if (EFI_ERROR(Status)) {
-    Status = gRT->GetVariable(BOOT_CHIME_VAR_INDEX, &gBootChimeVendorVariableGuid, NULL,
+    Status = gRT->GetVariable(BOOT_CHIME_VAR_INDEX, gBootChimeVendorVariableGuid, NULL,
                               &OutputPortIndexSize, &OutputPortIndex);
     if (EFI_ERROR(Status)) {
       MsgLog("Bad output index, status=%s, set 0\n", efiStrError(Status));
@@ -344,10 +342,10 @@ GetStoredOutput()
   }
   // Get stored volume. If this fails, just use the max.
   OutputVolume = DefaultAudioVolume;
-  Status = gRT->GetVariable(L"Clover.SoundVolume", &gEfiAppleBootGuid, NULL,
+  Status = gRT->GetVariable(L"Clover.SoundVolume", gEfiAppleBootGuid, NULL,
                             &OutputVolumeSize, &OutputVolume);
   if (EFI_ERROR(Status)) {
-    Status = gRT->GetVariable(BOOT_CHIME_VAR_VOLUME, &gBootChimeVendorVariableGuid, NULL,
+    Status = gRT->GetVariable(BOOT_CHIME_VAR_VOLUME, gBootChimeVendorVariableGuid, NULL,
                               &OutputVolumeSize, &OutputVolume);
     if (EFI_ERROR(Status)) {
       OutputVolume = DefaultAudioVolume; //EFI_AUDIO_IO_PROTOCOL_MAX_VOLUME;
@@ -368,12 +366,12 @@ DONE:
   return Status;
 }
 
-EFI_STATUS CheckSyncSound(BOOLEAN Stop)
+EFI_STATUS CheckSyncSound(XBool Stop)
 {
   EFI_STATUS Status;
   AUDIO_IO_PRIVATE_DATA *AudioIoPrivateData;
   EFI_HDA_IO_PROTOCOL *HdaIo;
-  BOOLEAN StreamRunning = FALSE;
+  BOOLEAN StreamRunning = false;
   if (!AudioIo) {
     return EFI_NOT_STARTED;
   }
@@ -448,7 +446,7 @@ void GetOutputs()
     }
     HdaCodecDev = AudioIoPrivateData->HdaCodecDev;
     for (i = 0; i < OutputPortsCount; i++) {
-      HDA_OUTPUTS* hdaOutputPtr = new HDA_OUTPUTS();
+      HDA_OUTPUTS* hdaOutputPtr = new HDA_OUTPUTS;
       HDA_OUTPUTS& hdaOutput = *hdaOutputPtr;
       //    HdaCodecDev->OutputPorts[i];
       hdaOutput.Name.takeValueFrom(HdaCodecDev->Name);

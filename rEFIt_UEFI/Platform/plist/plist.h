@@ -24,20 +24,14 @@
 #define kXMLTagIDREF     "IDREF="
 #define kXMLTagFloat     "real"
 
+#include "../../include/TagTypes.h"
 
-typedef enum {
-  kTagTypeNone,
-  kTagTypeDict,   // 1
-  kTagTypeKey,    // 2
-  kTagTypeString, // 3
-  kTagTypeInteger,// 4
-  kTagTypeData,   // 5
-  kTagTypeDate,   // 6
-  kTagTypeFalse,  // 7
-  kTagTypeTrue,   // 8
-  kTagTypeArray,  // 9
-  kTagTypeFloat   // 10
-} TAG_TYPE;
+#define TagStruct_USE_CACHE
+//#define TagStruct_COUNT_CACHEHITMISS
+
+#ifdef JIEF_DEBUG
+#undef TagStruct_USE_CACHE
+#endif
 
 class TagDict;
 class TagKey;
@@ -53,63 +47,66 @@ class TagStruct
 {
 public:
 
+#ifdef TagStruct_COUNT_CACHEHITMISS
+  static size_t cachemiss;
+  static size_t cachehit;
+#endif
+  static void EmptyCache();
+
   TagStruct() {}
   TagStruct(const TagStruct& other) = delete; // Can be defined if needed
   const TagStruct& operator = ( const TagStruct & ) = delete; // Can be defined if needed
   virtual ~TagStruct() { }
 
-//  static TagStruct* getEmptyTag();
-//  static TagStruct* getEmptyDictTag();
-//  static TagStruct* getEmptyArrayTag();
-  virtual void FreeTag() = 0;
+  virtual void ReleaseTag() = 0;
   
-  virtual bool operator == (const TagStruct& other) const = 0;
-  virtual bool operator != (const TagStruct& other) const { return !(*this == other); };
-  virtual bool debugIsEqual(const TagStruct& other, const XString8& label) const;
+  virtual XBool operator == (const TagStruct& other) const = 0;
+  virtual XBool operator != (const TagStruct& other) const { return !(*this == other); };
+  virtual XBool debugIsEqual(const TagStruct& other, const XString8& label) const;
 
   virtual void sprintf(unsigned int ident, XString8* s) const = 0;
   void printf(unsigned int ident) const;
   virtual void printf() const { printf(0); }
 
-  virtual const TagDict* getDict() const { panic("getDict() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual const TagKey* getKey() const { panic("getKey() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual const TagString* getString() const { panic("getString() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual const TagInt64* getInt64() const { panic("getInt64() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual const TagFloat* getFloat() const { panic("getFloat() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual const TagBool* getBool() const { panic("getBool() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual const TagData* getData() const { panic("getData() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual const TagDate* getDate() const { panic("getDate() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual const TagArray* getArray() const { panic("getArray() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
+  virtual const TagDict* getDict() const { panic("getDict() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual const TagKey* getKey() const { log_technical_bug("getKey() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual const TagString* getString() const { log_technical_bug("getString() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual const TagInt64* getInt64() const { log_technical_bug("getInt64() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual const TagFloat* getFloat() const { log_technical_bug("getFloat() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual const TagBool* getBool() const { log_technical_bug("getBool() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual const TagData* getData() const { log_technical_bug("getData() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual const TagDate* getDate() const { log_technical_bug("getDate() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual const TagArray* getArray() const { log_technical_bug("getArray() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
 
-  virtual TagDict* getDict() { panic("getDict() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual TagKey* getKey() { panic("getKey() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual TagString* getString() { panic("getString() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual TagInt64* getInt64() { panic("getInt64() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual TagFloat* getFloat() { panic("getFloat() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual TagBool* getBool() { panic("getBool() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual TagData* getData() { panic("getData() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual TagDate* getDate() { panic("getDate() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
-  virtual TagArray* getArray() { panic("getArray() called on a tag of type %s.", this->getTypeAsXString8().c_str()); }
+  virtual TagDict* getDict() { log_technical_bug("getDict() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual TagKey* getKey() { log_technical_bug("getKey() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual TagString* getString() { log_technical_bug("getString() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual TagInt64* getInt64() { log_technical_bug("getInt64() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual TagFloat* getFloat() { log_technical_bug("getFloat() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual TagBool* getBool() { log_technical_bug("getBool() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual TagData* getData() { log_technical_bug("getData() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual TagDate* getDate() { log_technical_bug("getDate() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
+  virtual TagArray* getArray() { log_technical_bug("getArray() called on a tag of type %s.", this->getTypeAsXString8().c_str()); return NULL; }
 
-  virtual bool isDict() const { return false; }
-  virtual bool isKey() const { return false; }
-  virtual bool isString() const { return false; }
-  virtual bool isInt64() const { return false; }
-  virtual bool isFloat() const { return false; }
-  virtual bool isBool() const { return false; }
-  virtual bool isData() const { return false; }
-  virtual bool isDate() const { return false; }
-  virtual bool isArray() const { return false; }
+  virtual XBool isDict() const { return false; }
+  virtual XBool isKey() const { return false; }
+  virtual XBool isString() const { return false; }
+  virtual XBool isInt64() const { return false; }
+  virtual XBool isFloat() const { return false; }
+  virtual XBool isBool() const { return false; }
+  virtual XBool isData() const { return false; }
+  virtual XBool isDate() const { return false; }
+  virtual XBool isArray() const { return false; }
 
   virtual const XString8 getTypeAsXString8() const = 0;
 
 
   // Convenience method
-  bool isTrue() const;
-  bool isFalse() const;
-  bool isTrueOrYy() const;
-  bool isTrueOrYes() const;
-  bool isFalseOrNn() const;
+  XBool isTrue() const;
+  XBool isFalse() const;
+  XBool isTrueOrYy() const;
+  XBool isTrueOrYes() const;
+  XBool isFalseOrNn() const;
 };
 
 #include "TagDict.h"
@@ -130,12 +127,12 @@ GetNextTag (
   UINT32 *length
   );
 
-BOOLEAN
+XBool
 IsPropertyNotNullAndTrue(
   const TagStruct* Prop
   );
 
-BOOLEAN
+XBool
 IsPropertyNotNullAndFalse(
   const TagStruct* Prop
   );

@@ -215,6 +215,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
   #define PACKED
 #endif
 
+#ifndef GUID_PLUSPLUS_DEFINED
 ///
 /// 128 bit buffer containing a unique identifier value.
 /// Unless otherwise specified, aligned on a 64 bit boundary.
@@ -225,6 +226,11 @@ typedef struct {
   UINT16  Data3;
   UINT8   Data4[8];
 } GUID;
+
+#define CONST_EFI_GUID_PTR_T  IN CONST EFI_GUID*
+#define JCONST_EFI_GUID_PTR_T  IN JCONST EFI_GUID*
+
+#endif
 
 ///
 /// 4-byte buffer. An IPv4 internet protocol address.
@@ -266,6 +272,7 @@ struct _LIST_ENTRY {
 /// Datum is read-only.
 ///
 #define CONST     const
+// JCONST is for when CONST has been forgotten, creating problem to C++ compiler. When compiling Clover, JCONST is defined to const
 #ifndef JCONST
 #define JCONST
 #endif
@@ -797,6 +804,47 @@ typedef UINTN  *BASE_LIST;
 #endif
 
 /**
+  Returns the alignment requirement of a type.
+
+  @param   TYPE  The name of the type to retrieve the alignment requirement of.
+
+  @return  Alignment requirement, in Bytes, of TYPE.
+**/
+#if defined(__cplusplus) && __cplusplus >= 201103L
+  //
+  // C++ 11 and later support the standard operator alignof.
+  //
+  #define ALIGNOF(TYPE)  alignof (TYPE)
+#elif ((defined(__GNUC__) || (defined(_MSC_VER) && _MSC_VER >= 1900)) && !defined (__cplusplus)) || defined(__clang__)
+  //
+  // All supported versions of GCC and Clang, as well as MSVC 2015 and later,
+  // support the standard operator _Alignof in C mode. GCC and MSVC do not
+  // support it in C++ mode though.
+  //
+  #define ALIGNOF(TYPE)  _Alignof (TYPE)
+#elif defined(__GNUC__)
+  //
+  // GCC does not support _Alignof in C++ mode, unlike Clang. The vendor-
+  // extenstion is supported in both C and C++ mode.
+  //
+  #define ALIGNOF(TYPE)  __alignof__ (TYPE)
+#elif defined(_MSC_EXTENSIONS)
+  //
+  // Earlier versions of MSVC, at least MSVC 2008 and later, as well as current
+  // versions in C++ mode support the vendor-extension __alignof.
+  //
+  #define ALIGNOF(TYPE)  __alignof (TYPE)
+#else
+//
+// For compilers that do not support inbuilt alignof operators, use OFFSET_OF.
+// CHAR8 is known to have both a size and an alignment requirement of 1 Byte.
+// As such, A must be located exactly at the offset equal to its alignment
+// requirement.
+//
+#define ALIGNOF(TYPE)  OFFSET_OF (struct { CHAR8 C; TYPE A; }, A)
+#endif
+
+/**
   Portable definition for compile time assertions.
   Equivalent to C11 static_assert macro from assert.h.
 
@@ -831,8 +879,11 @@ STATIC_ASSERT (sizeof (UINT32)  == 4, "sizeof (UINT32) does not meet UEFI Specif
 STATIC_ASSERT (sizeof (INT64)   == 8, "sizeof (INT64) does not meet UEFI Specification Data Type requirements");
 STATIC_ASSERT (sizeof (UINT64)  == 8, "sizeof (UINT64) does not meet UEFI Specification Data Type requirements");
 STATIC_ASSERT (sizeof (CHAR8)   == 1, "sizeof (CHAR8) does not meet UEFI Specification Data Type requirements");
+#ifdef __cplusplus
+  //sizeof(CHAR16) == 4
+#else
 STATIC_ASSERT (sizeof (CHAR16)  == 2, "sizeof (CHAR16) does not meet UEFI Specification Data Type requirements");
-
+#endif
 //
 // The following three enum types are used to verify that the compiler
 // configuration for enum types is compliant with Section 2.3.1 of the
@@ -876,6 +927,60 @@ STATIC_ASSERT (sizeof (__VERIFY_UINT32_ENUM_SIZE) == 4, "Size of enum does not m
 
 **/
 #define BASE_CR(Record, TYPE, Field)  ((TYPE *) ((CHAR8 *) (Record) - OFFSET_OF (TYPE, Field)))
+
+/**
+  Checks whether a value is a power of two.
+
+  @param   Value  The value to check.
+
+  @retval TRUE   Value is a power of two.
+  @retval FALSE  Value is not a power of two.
+**/
+#define IS_POW2(Value)  ((Value) != 0U && ((Value) & ((Value) - 1U)) == 0U)
+
+/**
+  Determines the subtrahend to subtract from a value to round it down to the
+  previous boundary of a specified alignment.
+
+  @param   Value      The value to round down.
+  @param   Alignment  The alignment boundary used to return the subtrahend.
+
+  @return  Subtrahend to round Value down to alignment boundary Alignment.
+**/
+#define ALIGN_VALUE_SUBTRAHEND(Value, Alignment)  ((Value) & ((Alignment) - 1U))
+
+/**
+  Checks whether a value is aligned by a specified alignment.
+
+  @param   Value      The value to check.
+  @param   Alignment  The alignment boundary used to check against.
+
+  @retval TRUE   Value is aligned by Alignment.
+  @retval FALSE  Value is not aligned by Alignment.
+**/
+#define IS_ALIGNED(Value, Alignment)  (ALIGN_VALUE_SUBTRAHEND (Value, Alignment) == 0U)
+
+/**
+  Checks whether a pointer or address is aligned by a specified alignment.
+
+  @param   Address    The pointer or address to check.
+  @param   Alignment  The alignment boundary used to check against.
+
+  @retval TRUE   Address is aligned by Alignment.
+  @retval FALSE  Address is not aligned by Alignment.
+**/
+#define ADDRESS_IS_ALIGNED(Address, Alignment)  IS_ALIGNED ((UINTN) (Address), Alignment)
+
+/**
+  Determines the addend to add to a value to round it up to the next boundary of
+  a specified alignment.
+
+  @param   Value      The value to round up.
+  @param   Alignment  The alignment boundary used to return the addend.
+
+  @return  Addend to round Value up to alignment boundary Alignment.
+**/
+#define ALIGN_VALUE_ADDEND(Value, Alignment)  (((Alignment) - (Value)) & ((Alignment) - 1U))
 
 /**
   Rounds a value up to the next boundary using a specified alignment.

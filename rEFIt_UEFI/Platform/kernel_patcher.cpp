@@ -20,6 +20,7 @@
 
 #include "kernel_patcher.h"
 #include "MemoryOperation.h"
+#include "../include/OSFlags.h"
 
 //#include "sse3_patcher.h"
 //#include "sse3_5_patcher.h"
@@ -51,15 +52,13 @@
 //UINT32      *dtLength;
 //UINT8       *KernelData = NULL;
 //UINT32      KernelSlide = 0;
-//BOOLEAN     isKernelcache = FALSE;
-//BOOLEAN     is64BitKernel = FALSE;
-//BOOLEAN     SSSE3;
+//XBool       isKernelcache = false;
+//XBool       is64BitKernel = false;
+//XBool       SSSE3;
 
-//BOOLEAN     PatcherInited = FALSE;
-//BOOLEAN     gSNBEAICPUFixRequire = FALSE; // SandyBridge-E AppleIntelCpuPowerManagement patch require or not
-//BOOLEAN     gBDWEIOPCIFixRequire = FALSE; // Broadwell-E IOPCIFamily fix require or not
-
-extern EFI_GUID gEfiAppleBootGuid;
+//XBool       PatcherInited = false;
+//XBool       gSNBEAICPUFixRequire = false; // SandyBridge-E AppleIntelCpuPowerManagement patch require or not
+//XBool       gBDWEIOPCIFixRequire = false; // Broadwell-E IOPCIFamily fix require or not
 
 /*
  * the driver OsxAptioFixDrv is old and mostly not used in favour of its successors.
@@ -72,8 +71,8 @@ void LOADER_ENTRY::SetKernelRelocBase()
 
   KernelRelocBase = 0;
   // OsxAptioFixDrv will set this
-  /*Status = */gRT->GetVariable(L"OsxAptioFixDrv-RelocBase", &gEfiAppleBootGuid, NULL, &DataSize, &KernelRelocBase);
-  DeleteNvramVariable(L"OsxAptioFixDrv-RelocBase", &gEfiAppleBootGuid); // clean up the temporary variable
+  /*Status = */gRT->GetVariable(L"OsxAptioFixDrv-RelocBase", gEfiAppleBootGuid, NULL, &DataSize, &KernelRelocBase);
+  DeleteNvramVariable(L"OsxAptioFixDrv-RelocBase", gEfiAppleBootGuid); // clean up the temporary variable
   // KernelRelocBase is now either read or 0
   return;
 }
@@ -223,7 +222,7 @@ UINTN LOADER_ENTRY::searchProcInDriver(UINT8 * driver, UINT32 driverLen, const X
   }
   INT32 i;
   UINT32 Offset = 0; // Init to avoid warning
-  bool found = false;
+  XBool found = false;
   for (i = 0; i < lSizeVtable; ++i) {
     Offset = vArray[i].n_un.n_strx;
     if (strstr(&Names[Offset], procedure.c_str())) {
@@ -333,7 +332,7 @@ UINTN LOADER_ENTRY::searchProc(const XString8& procedure)
   //search for the name
 //  gBS->Stall(9000000);
   size_t i;
-  bool found = false;
+  XBool found = false;
   for (i=0; i<SizeVtable; ++i) {
     size_t Offset = vArray[i].NameOffset;
     if (Offset == 0) break;
@@ -423,15 +422,15 @@ void LOADER_ENTRY::KernelPatcher_64()
     return;
   }
 
-//  os_version = AsciiOSVersionToUint64(OSVersion);
+//  os_version = AsciiOSVersionToUint64(macOSVersion);
 
   // make sure only kernels for OSX 10.6.0 to 10.7.3 are being patched by this approach
-  if (OSVersion >= AsciiOSVersionToUint64("10.6") && OSVersion <= AsciiOSVersionToUint64("10.7.3")) {
+  if (macOSVersion >= AsciiOSVersionToUint64("10.6") && macOSVersion <= AsciiOSVersionToUint64("10.7.3")) {
 
 //    DBG_RT( "will patch kernel for macOS 10.6.0 to 10.7.3\n");
 
     // remove tsc_init: unknown CPU family panic for kernels prior to 10.6.2 which still had Atom support
-    if (OSVersion < AsciiOSVersionToUint64("10.6.2")) {
+    if (macOSVersion < AsciiOSVersionToUint64("10.6.2")) {
       for (i=0; i<0x1000000; i++) {
         // find _tsc_init panic address by byte sequence 488d3df4632a00
         if (bytes[i] == 0x48 && bytes[i+1] == 0x8D && bytes[i+2] == 0x3D && bytes[i+3] == 0xF4 &&
@@ -476,11 +475,11 @@ void LOADER_ENTRY::KernelPatcher_64()
 
           // Determine cpuid_model address
           // for 10.6.2 kernels it's offset by 299 bytes from cpuid_family address
-          if (OSVersion ==  AsciiOSVersionToUint64("10.6.2")) {
+          if (macOSVersion ==  AsciiOSVersionToUint64("10.6.2")) {
             cpuid_model_addr = cpuid_family_addr - 0X12B;
           }
           // for 10.6.3 to 10.6.7 it's offset by 303 bytes
-          else if (OSVersion <= AsciiOSVersionToUint64("10.6.7")) {
+          else if (macOSVersion <= AsciiOSVersionToUint64("10.6.7")) {
             cpuid_model_addr = cpuid_family_addr - 0X12F;
           }
           // for 10.6.8 to 10.7.3 kernels - by 339 bytes
@@ -528,17 +527,17 @@ void LOADER_ENTRY::KernelPatcher_64()
     }
 
     // patch ssse3
-    if (!SSSE3 && (AsciiStrnCmp(OSVersion,"10.6",4)==0)) {
+    if (!SSSE3 && (AsciiStrnCmp(macOSVersion,"10.6",4)==0)) {
       Patcher_SSE3_6((void*)bytes);
     }
-    if (!SSSE3 && (AsciiStrnCmp(OSVersion,"10.7",4)==0)) {
+    if (!SSSE3 && (AsciiStrnCmp(macOSVersion,"10.7",4)==0)) {
       Patcher_SSE3_7();
     }
   }
 
   // all 10.7.4+ kernels share common CPUID switch statement logic,
   // it needs to be exploited in diff manner due to the lack of space
-  else if (OSVersion >= AsciiOSVersionToUint64("10.7.4")) {
+  else if (macOSVersion >= AsciiOSVersionToUint64("10.7.4")) {
 
     DBG_RT( "will patch kernel for macOS 10.7.4+\n");
 
@@ -725,13 +724,13 @@ void LOADER_ENTRY::KernelPatcher_32()
   bytes[patchLocation +  3] = 0x90;
   bytes[patchLocation +  4] = 0x90;
 
-  if (OSVersion) {
-    if (AsciiStrnCmp(OSVersion,"10.7",4)==0) return;
+  if (macOSVersion) {
+    if (AsciiStrnCmp(macOSVersion,"10.7",4)==0) return;
 
-    if (!SSSE3 && (AsciiStrnCmp(OSVersion,"10.6",4)==0)) {
+    if (!SSSE3 && (AsciiStrnCmp(macOSVersion,"10.6",4)==0)) {
       Patcher_SSE3_6((void*)bytes);
     }
-    if (!SSSE3 && (AsciiStrnCmp(OSVersion,"10.5",4)==0)) {
+    if (!SSSE3 && (AsciiStrnCmp(macOSVersion,"10.5",4)==0)) {
       Patcher_SSE3_5((void*)bytes);
     }
   }
@@ -819,15 +818,15 @@ const UINT8 CataSearchExt[]        = {0x44, 0x89, 0xE0, 0xC1, 0xE8, 0x10};
 const UINT8 CataReplaceMovEax[]    = {0xB8, 0x00, 0x00, 0x00, 0x00, 0x90}; // mov eax, val || nop
 
 
-BOOLEAN LOADER_ENTRY::PatchCPUID(const UINT8* Location, INT32 LenLoc,
+XBool LOADER_ENTRY::PatchCPUID(const UINT8* Location, INT32 LenLoc,
                    const UINT8* Search4, const UINT8* Search10, const UINT8* ReplaceModel,
                    const UINT8* ReplaceExt, INT32 Len)
 {
   INT32 patchLocation=0, patchLocation1=0;
   INT32 Adr = 0, Num;
-  BOOLEAN Patched = FALSE;
-  UINT8 FakeModel = (KernelAndKextPatches.FakeCPUID >> 4) & 0x0f;
-  UINT8 FakeExt = (KernelAndKextPatches.FakeCPUID >> 0x10) & 0x0f;
+  XBool Patched = false;
+  UINT8 FakeModel = (gSettings.KernelAndKextPatches.FakeCPUID >> 4) & 0x0f;
+  UINT8 FakeExt = (gSettings.KernelAndKextPatches.FakeCPUID >> 0x10) & 0x0f;
   for (Num = 0; Num < 2; Num++) {
     Adr = FindBin(&KernelData[Adr], 0x800000 - Adr, Location, (UINT32)LenLoc);
     if (Adr < 0) {
@@ -846,7 +845,7 @@ BOOLEAN LOADER_ENTRY::PatchCPUID(const UINT8* Location, INT32 LenLoc,
         CopyMem(&KernelData[Adr + patchLocation1], ReplaceExt, Len);
         KernelData[Adr + patchLocation1 + 1] = FakeExt;
       }
-      Patched = TRUE;
+      Patched = true;
     }
   }
   return Patched;
@@ -916,7 +915,7 @@ void LOADER_ENTRY::KernelCPUIDPatch()
 
 #define NEW_PM 1
 
-BOOLEAN LOADER_ENTRY::KernelPatchPm()
+XBool LOADER_ENTRY::KernelPatchPm()
 {
   DBG_RT("Patching kernel power management...\n");
 #if NEW_PM
@@ -986,7 +985,7 @@ BOOLEAN LOADER_ENTRY::KernelPatchPm()
   UINT64* Ptr = (UINT64*)KernelData;
   UINT64* End = Ptr + 0x1000000/sizeof(UINT64);
   if (Ptr == NULL) {
-    return FALSE;
+    return false;
   }
 
   
@@ -1031,24 +1030,24 @@ BOOLEAN LOADER_ENTRY::KernelPatchPm()
     gBS->Stall(3000000);
   }
 #endif
-  return TRUE;
+  return true;
 }
 
 const UINT8 PanicNoKextDumpFind[]    = {0x00, 0x25, 0x2E, 0x2A, 0x73, 0x00};
 //STATIC UINT8 PanicNoKextDumpReplace[6] = {0x00, 0x00, 0x2E, 0x2A, 0x73, 0x00};
 
-BOOLEAN LOADER_ENTRY::KernelPanicNoKextDump()
+XBool LOADER_ENTRY::KernelPanicNoKextDump()
 {
   INT32      patchLocation;
   patchLocation = FindBin(KernelData, 0xF00000, PanicNoKextDumpFind, 6);
   if (patchLocation > 0) {
     KernelData[patchLocation + 1] = 0;
-    return TRUE;
+    return true;
   }
-  return FALSE;
+  return false;
 }
 
-BOOLEAN LOADER_ENTRY::KernelLapicPatch_64()
+XBool LOADER_ENTRY::KernelLapicPatch_64()
 {
   // Credits to donovan6000 and Sherlocks for providing the lapic kernel patch source used to build this function
 
@@ -1063,7 +1062,7 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_64()
   // address: 002e4a2f
   // bytes:658b04251c0000003b058bb97b00
   // call _panic -> change to nop {90,90,90,90,90}
-  if ( OSVersion >= MacOsVersion("10.10"_XS8) ) {
+  if ( macOSVersion >= MacOsVersion("10.10"_XS8) ) {
     UINTN procAddr = searchProc("lapic_interrupt"_XS8);
     patchLocation1 = searchProc("_panic"_XS8);
     patchLocation2 = FindRelative32(KernelData, procAddr, 0x140, patchLocation1);
@@ -1124,7 +1123,7 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_64()
 
   if (!patchLocation1) {
     DBG_RT( "Can't find Lapic panic, kernel patch aborted.\n");
-    return FALSE;
+    return false;
   }
   
   // Already patched?  May be running a non-vanilla kernel already?
@@ -1132,11 +1131,11 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_64()
       bytes[patchLocation1 + 2] == 0x90 && bytes[patchLocation1 + 3] == 0x90 &&
       bytes[patchLocation1 + 4] == 0x90) {
     DBG_RT( "Lapic panic already patched, kernel file (10.6 - 10.9) manually patched?\n");
-    return FALSE;
+    return false;
   } else if (bytes[patchLocation1 + 0] == 0x31 && bytes[patchLocation1 + 1] == 0xC0 &&
              bytes[patchLocation1 + 2] == 0x90 && bytes[patchLocation1 + 3] == 0x90) {
     DBG_RT( "Lapic panic already patched, kernel file (10.10 - recent macOS) manually patched?\n");
-    return FALSE;
+    return false;
   } else {
     if (bytes[patchLocation1 + 8] == 0x3B && bytes[patchLocation1 + 9] == 0x05 &&
         bytes[patchLocation1 + 13] == 0x00) {
@@ -1173,13 +1172,13 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_64()
         
       if (!patchLocation2) {
         DBG_RT( "Can't find Lapic panic master (10.10 - recent macOS), kernel patch aborted.\n");
-        return FALSE;
+        return false;
       }
         
       // Already patched? May be running a non-vanilla kernel already?
       if (bytes[patchLocation2 + 5] == 0x31 && bytes[patchLocation2 + 6] == 0xC0) {
         DBG_RT( "Lapic panic master already patched, kernel file (10.10 - recent macOS) manually patched?\n");
-        return FALSE;
+        return false;
       } else {
         DBG_RT( "Patched Lapic panic master (10.10 - recent macOS)\n");
         // E8 XX XX FF FF 83 XX XX XX XX 00 00
@@ -1202,10 +1201,10 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_64()
     Stall(3000000);
 //  }
     
-  return TRUE;
+  return true;
 }
 
-BOOLEAN LOADER_ENTRY::KernelLapicPatch_32()
+XBool LOADER_ENTRY::KernelLapicPatch_32()
 {
   // Credits to donovan6000 and Sherlocks for providing the lapic kernel patch source used to build this function
 
@@ -1228,7 +1227,7 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_32()
 
   if (!patchLocation) {
     DBG_RT( "Can't find Lapic panic, kernel patch aborted.\n");
-    return FALSE;
+    return false;
   }
 
   // Already patched?  May be running a non-vanilla kernel already?
@@ -1237,7 +1236,7 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_32()
       bytes[patchLocation + 2] == 0x90 && bytes[patchLocation + 3] == 0x90 &&
       bytes[patchLocation + 4] == 0x90) {
     DBG_RT( "Lapic panic already patched, kernel file manually patched?\n");
-    return FALSE;
+    return false;
   } else {
     DBG_RT( "Patched Lapic panic (32-bit)\n");
     for (i = 0; i < 5; i++) {
@@ -1249,7 +1248,7 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_32()
     Stall(3000000);
 //  }
 
-  return TRUE;
+  return true;
 }
 
 //
@@ -1258,7 +1257,7 @@ BOOLEAN LOADER_ENTRY::KernelLapicPatch_32()
 // SandyBridge-E, Ivy Bridge, Ivy Bridge-E, Haswell Celeron/Pentium, Haswell-E, Broadwell-E, ...
 // credit Pike R.Alpha, stinga11, syscl
 //
-//BOOLEAN (*EnableExtCpuXCPM)(void *kernelData);
+//XBool (*EnableExtCpuXCPM)(void *kernelData);
 
 //
 // syscl - applyKernPatch a wrapper for SearchAndReplace() to make the CpuPM patch tidy and clean
@@ -1277,9 +1276,9 @@ void LOADER_ENTRY::applyKernPatch(const UINT8 *find, UINTN size, const UINT8 *re
 // Global XCPM patches compatibility
 // Currently 10.8.5 - 10.15
 //
-static inline BOOLEAN IsXCPMOSVersionCompat(const MacOsVersion& OSVersion)
+static inline XBool IsXCPMOSVersionCompat(const MacOsVersion& macOSVersion)
 {
-  return OSVersion >= MacOsVersion("10.8.5"_XS8)  &&  OSVersion < MacOsVersion("11.1.0"_XS8);
+  return macOSVersion >= MacOsVersion("10.8.5"_XS8)  &&  macOSVersion < MacOsVersion("11.1.0"_XS8);
 }
 
 //
@@ -1287,45 +1286,45 @@ static inline BOOLEAN IsXCPMOSVersionCompat(const MacOsVersion& OSVersion)
 //
 // syscl - SandyBridgeEPM(): enable PowerManagement on SandyBridge-E
 //
-BOOLEAN LOADER_ENTRY::SandyBridgeEPM()
+XBool LOADER_ENTRY::SandyBridgeEPM()
 {
     // note: a dummy function that made patches consistency
-    return TRUE;
+    return true;
 }
 
 //
 // syscl - Enable Haswell-E XCPM
 // Hex data provided and polished (c) PMheart, idea (c) Pike R.Alpha
 //
-BOOLEAN LOADER_ENTRY::HaswellEXCPM()
+XBool LOADER_ENTRY::HaswellEXCPM()
 {
   DBG("HaswellEXCPM() ===>\n");
   UINT8       *kern = KernelData;
   XString8     comment;
  // UINT32      i;
   UINTN      patchLocation;
-//  UINT64     os_version = AsciiOSVersionToUint64(OSVersion);
+//  UINT64     os_version = AsciiOSVersionToUint64(macOSVersion);
 
   // check OS version suit for patches
-  if (!IsXCPMOSVersionCompat(OSVersion)) {
+  if (!IsXCPMOSVersionCompat(macOSVersion)) {
     DBG("HaswellEXCPM(): Unsupported macOS.\n");
-    DBG("HaswellEXCPM() <===FALSE\n");
-    return FALSE;
+    DBG("HaswellEXCPM() <===false\n");
+    return false;
   }
 
   // _cpuid_set_info
   comment = "_cpuid_set_info"_XS8;
-  if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.8.5"_XS8)) {
+  if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.8.5"_XS8)) {
     // 10.8.5
     const UINT8 find[] = { 0x83, 0xF8, 0x3C, 0x74, 0x2D };
     const UINT8 repl[] = { 0x83, 0xF8, 0x3F, 0x74, 0x2D };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.10"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.10"_XS8)) {
     // 10.9.x
     const UINT8 find[] = { 0x83, 0xF8, 0x3C, 0x75, 0x07 };
     const UINT8 repl[] = { 0x83, 0xF8, 0x3F, 0x75, 0x07 };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.10.1"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.10.1"_XS8)) {
     // 10.10 - 10.10.1
     const UINT8 find[] = { 0x74, 0x11, 0x83, 0xF8, 0x3C };
     const UINT8 repl[] = { 0x74, 0x11, 0x83, 0xF8, 0x3F };
@@ -1334,32 +1333,32 @@ BOOLEAN LOADER_ENTRY::HaswellEXCPM()
 
   // _xcpm_bootstrap
   comment = "_xcpm_bootstrap"_XS8;
-  if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.8.5"_XS8)) {
+  if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.8.5"_XS8)) {
     // 10.8.5
     const UINT8 find[] = { 0x83, 0xFB, 0x3C, 0x75, 0x54 };
     const UINT8 repl[] = { 0x83, 0xFB, 0x3F, 0x75, 0x54 };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.10"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.10"_XS8)) {
     // 10.9.x
     const UINT8 find[] = { 0x83, 0xFB, 0x3C, 0x75, 0x68 };
     const UINT8 repl[] = { 0x83, 0xFB, 0x3F, 0x75, 0x68 };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.10.2"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.10.2"_XS8)) {
     // 10.10 - 10.10.2
     const UINT8 find[] = { 0x83, 0xFB, 0x3C, 0x75, 0x63 };
     const UINT8 repl[] = { 0x83, 0xFB, 0x3F, 0x75, 0x63 };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.10.5"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.10.5"_XS8)) {
     // 10.10.3 - 10.10.5
     const UINT8 find[] = { 0x83, 0xC3, 0xC6, 0x83, 0xFB, 0x0D };
     const UINT8 repl[] = { 0x83, 0xC3, 0xC3, 0x83, 0xFB, 0x0D };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.11"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.11"_XS8)) {
     // 10.11 DB/PB - 10.11.0
     const UINT8 find[] = { 0x83, 0xC3, 0xC6, 0x83, 0xFB, 0x0D };
     const UINT8 repl[] = { 0x83, 0xC3, 0xC3, 0x83, 0xFB, 0x0D };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.11.6"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.11.6"_XS8)) {
     // 10.11.1 - 10.11.6
     const UINT8 find[] = { 0x83, 0xC3, 0xBB, 0x83, 0xFB, 0x09 };
     const UINT8 repl[] = { 0x83, 0xC3, 0xB8, 0x83, 0xFB, 0x09 };
@@ -1378,28 +1377,28 @@ BOOLEAN LOADER_ENTRY::HaswellEXCPM()
       }
     }
 
-    /*if (OSVersion.notEmpty() && OSVersion <= AsciiOSVersionToUint64("10.12.5")) {
+    /*if (macOSVersion.notEmpty() && macOSVersion <= AsciiOSVersionToUint64("10.12.5")) {
     // 10.12 - 10.12.5
     const UINT8 find[] = { 0x83, 0xC3, 0xC4, 0x83, 0xFB, 0x22 };
     const UINT8 repl[] = { 0x83, 0xC3, 0xC1, 0x83, 0xFB, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.13")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.13")) {
     // 10.12.6
     const UINT8 find[] = { 0x8D, 0x43, 0xC4, 0x83, 0xF8, 0x22 };
     const UINT8 repl[] = { 0x8D, 0x43, 0xC1, 0x83, 0xF8, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
     // PMheart: attempt to add 10.14 compatibility
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.15")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.15")) {
     // 10.13/10.14
     const UINT8 find[] = { 0x89, 0xD8, 0x04, 0xC4, 0x3C, 0x22 };
     const UINT8 repl[] = { 0x89, 0xD8, 0x04, 0xC1, 0x3C, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
     // PMheart: attempt to add 10.15 compatibility
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.15.4")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.15.4")) {
     const UINT8 find[] = { 0x8D, 0x43, 0xC4, 0x3C, 0x22 };
     const UINT8 repl[] = { 0x8D, 0x43, 0xC1, 0x3C, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.16")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.16")) {
     // vector sigma: 10.15.5 Beta 2 build 19F62f and 10.15.4 build 19E287
     const UINT8 find[] = { 0x3B, 0x7E, 0x2E, 0x80, 0xC3, 0xC4, 0x80, 0xFB, 0x42 };
     const UINT8 repl[] = { 0x00, 0x7E, 0x2E, 0x80, 0xC3, 0xC1, 0x80, 0xFB, 0x42 };
@@ -1409,7 +1408,7 @@ BOOLEAN LOADER_ENTRY::HaswellEXCPM()
 
   DBG("Searching _xcpm_pkg_scope_msr ...\n");
   comment = "_xcpm_pkg_scope_msrs"_XS8;
-  if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.8.5"_XS8)) {
+  if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.8.5"_XS8)) {
     // 10.8.5
     const UINT8 find[] = {
       0x48, 0x8D, 0x3D, 0x02, 0x71, 0x55, 0x00, 0xBE,
@@ -1424,7 +1423,7 @@ BOOLEAN LOADER_ENTRY::HaswellEXCPM()
       0x00, 0x00, 0x31, 0xD2, 0x90, 0x90, 0x90, 0x90, 0x90
     };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.10"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.10"_XS8)) {
     // 10.9.x
     const UINT8 find[] = { 0xBE, 0x07, 0x00, 0x00, 0x00, 0x74, 0x13, 0x31, 0xD2, 0xE8, 0x5F, 0x02, 0x00, 0x00 };
     const UINT8 repl[] = { 0xBE, 0x07, 0x00, 0x00, 0x00, 0x90, 0x90, 0x31, 0xD2, 0x90, 0x90, 0x90, 0x90, 0x90 };
@@ -1452,34 +1451,34 @@ BOOLEAN LOADER_ENTRY::HaswellEXCPM()
       DBG("Applied _xcpm_pkg_scope_msr patch\n");
     } else {
       DBG("_xcpm_pkg_scope_msr not found, patch aborted\n");
-      DBG("HaswellEXCPM() <===FALSE\n");
-      return FALSE;
+      DBG("HaswellEXCPM() <===false\n");
+      return false;
     }
   }
 
   DBG("HaswellEXCPM() <===\n");
-  return TRUE;
+  return true;
 }
 
 //
 // Enable Broadwell-E/EP PowerManagement on 10.12+ by syscl
 //
-BOOLEAN LOADER_ENTRY::BroadwellEPM()
+XBool LOADER_ENTRY::BroadwellEPM()
 {
   DBG("BroadwellEPM() ===>\n");
 
   UINT32      i;
   UINTN       patchLocation;
-//  UINT64      os_version = AsciiOSVersionToUint64(OSVersion);
+//  UINT64      os_version = AsciiOSVersionToUint64(macOSVersion);
 
   // check OS version suit for patches
-  if (!IsXCPMOSVersionCompat(OSVersion)) {
+  if (!IsXCPMOSVersionCompat(macOSVersion)) {
     DBG("BroadwellEPM(): Unsupported macOS.\n");
-    DBG("BroadwellEPM() <===FALSE\n");
-    return FALSE;
+    DBG("BroadwellEPM() <===false\n");
+    return false;
   }
 
-  KernelAndKextPatches.FakeCPUID = (UINT32)(OSVersion.notEmpty() && OSVersion < MacOsVersion("10.10.3"_XS8) ? 0x0306C0 : 0x040674);
+  gSettings.KernelAndKextPatches.FakeCPUID = (UINT32)(macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.10.3"_XS8) ? 0x0306C0 : 0x040674);
   KernelCPUIDPatch();
 
   DBG("Searching _xcpm_pkg_scope_msr ...\n");
@@ -1488,7 +1487,7 @@ BOOLEAN LOADER_ENTRY::BroadwellEPM()
   // ffffff800046882c BE07000000                      mov        esi, 0x7
   // ffffff8000468831 31D2                            xor        edx, edx
   // ffffff8000468833 E838FDFFFF                      call       sub_ffffff8000468570
-  if (OSVersion >= MacOsVersion("10.12"_XS8)) {
+  if (macOSVersion >= MacOsVersion("10.12"_XS8)) {
     // 10.12+
 //    patchLocation = 0; // clean out the value just in case
 //    for (i = 0; i < 0x1000000; i++) {
@@ -1510,39 +1509,39 @@ BOOLEAN LOADER_ENTRY::BroadwellEPM()
       DBG("Applied _xcpm_pkg_scope_msr patch\n");
     } else {
       DBG("_xcpm_pkg_scope_msr not found, patch aborted\n");
-      DBG("BroadwellEPM() <===FALSE\n");
-      return FALSE;
+      DBG("BroadwellEPM() <===false\n");
+      return false;
     }
   }
 
   DBG("BroadwellEPM() <===\n");
-  return TRUE;
+  return true;
 }
 //
 // syscl - this patch provides XCPM support for Haswell low-end(HSWLowEnd) and platforms later than Haswell
 // implemented by syscl
 // credit also Pike R.Alpha, stinga11, Sherlocks, vit9696
 //
-BOOLEAN LOADER_ENTRY::HaswellLowEndXCPM()
+XBool LOADER_ENTRY::HaswellLowEndXCPM()
 {
   DBG("HaswellLowEndXCPM() ===>\n");
-//  UINT64      os_version = AsciiOSVersionToUint64(OSVersion);
+//  UINT64      os_version = AsciiOSVersionToUint64(macOSVersion);
   XString8    comment;
 
   // check OS version suit for patches
-  if (!IsXCPMOSVersionCompat(OSVersion)) {
+  if (!IsXCPMOSVersionCompat(macOSVersion)) {
     DBG("HaswellLowEndXCPM(): Unsupported macOS.\n");
-    DBG("HaswellLowEndXCPM() <===FALSE\n");
-    return FALSE;
+    DBG("HaswellLowEndXCPM() <===false\n");
+    return false;
   }
 
-  KernelAndKextPatches.FakeCPUID = (UINT32)(0x0306A0);    // correct FakeCPUID
+  gSettings.KernelAndKextPatches.FakeCPUID = (UINT32)(0x0306A0);    // correct FakeCPUID
   KernelCPUIDPatch();
 
   // 10.8.5 - 10.11.x no need the following kernel patches on Haswell Celeron/Pentium
-  if (OSVersion >= MacOsVersion("10.8.5"_XS8) && OSVersion < MacOsVersion("10.12"_XS8)) {
+  if (macOSVersion >= MacOsVersion("10.8.5"_XS8) && macOSVersion < MacOsVersion("10.12"_XS8)) {
     DBG("HaswellLowEndXCPM() <===\n");
-    return TRUE;
+    return true;
   }
 
   // _xcpm_idle //this is a part of KernelPM
@@ -1568,17 +1567,17 @@ BOOLEAN LOADER_ENTRY::HaswellLowEndXCPM()
     }
   }
   /*
-  if (OSVersion.notEmpty() && OSVersion <= AsciiOSVersionToUint64("10.12.5")) {
+  if (macOSVersion.notEmpty() && macOSVersion <= AsciiOSVersionToUint64("10.12.5")) {
     // 10.12 - 10.12.5
     const UINT8 find[] = { 0x83, 0xC3, 0xC4, 0x83, 0xFB, 0x22 };
     const UINT8 repl[] = { 0x83, 0xC3, 0xC6, 0x83, 0xFB, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.13")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.13")) {
     // 10.12.6
     const UINT8 find[] = { 0x8D, 0x43, 0xC4, 0x83, 0xF8, 0x22 };
     const UINT8 repl[] = { 0x8D, 0x43, 0xC6, 0x83, 0xF8, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.15")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.15")) {
     // 10.13/10.14
     //    ; Basic Block Input Regs: rbx -  Killed Regs: rax
     //    ffffff80004fa0f7 89D8                            mov        eax, ebx
@@ -1589,11 +1588,11 @@ BOOLEAN LOADER_ENTRY::HaswellLowEndXCPM()
     const UINT8 repl[] = { 0x89, 0xD8, 0x04, 0xC6, 0x3C, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
     // PMheart: attempt to add 10.15 compatibility
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.15.4")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.15.4")) {
     const UINT8 find[] = { 0x8D, 0x43, 0xC4, 0x3C, 0x22 };
     const UINT8 repl[] = { 0x8D, 0x43, 0xC6, 0x3C, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.16")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.16")) {
     // vector sigma: 10.15.5 Beta 2 build 19F62f and 10.15.4 build 19E287
     const UINT8 find[] = { 0x3B, 0x7E, 0x2E, 0x80, 0xC3, 0xC4, 0x80, 0xFB, 0x42 };
     const UINT8 repl[] = { 0x00, 0x7E, 0x2E, 0x80, 0xC3, 0xC6, 0x80, 0xFB, 0x42 };
@@ -1602,7 +1601,7 @@ BOOLEAN LOADER_ENTRY::HaswellLowEndXCPM()
 */
   comment = "_cpuid_set_info_rdmsr"_XS8;
   // PMheart: bytes seem stable as of 10.12
-  if (OSVersion >= MacOsVersion("10.12"_XS8)) {
+  if (macOSVersion >= MacOsVersion("10.12"_XS8)) {
     // 10.12+
     const UINT8 find[] = { 0xB9, 0xA0, 0x01, 0x00, 0x00, 0x0F, 0x32 };
     const UINT8 repl[] = { 0xB9, 0xA0, 0x01, 0x00, 0x00, 0x31, 0xC0 };
@@ -1610,40 +1609,40 @@ BOOLEAN LOADER_ENTRY::HaswellLowEndXCPM()
   }
 
   DBG("HaswellLowEndXCPM() <===\n");
-  return TRUE;
+  return true;
 }
 
 //
 // this patch provides XCPM support for Ivy Bridge. by PMheart
 //
-BOOLEAN LOADER_ENTRY::KernelIvyBridgeXCPM()
+XBool LOADER_ENTRY::KernelIvyBridgeXCPM()
 {
   XString8      comment;
 //  UINT32      i;
   UINTN       patchLocation;
-//  UINT64      os_version = AsciiOSVersionToUint64(OSVersion);
+//  UINT64      os_version = AsciiOSVersionToUint64(macOSVersion);
 
   // check whether Ivy Bridge
   if (gCPUStructure.Model != CPU_MODEL_IVY_BRIDGE) {
     DBG("KernelIvyBridgeXCPM(): Unsupported platform.\nRequires Ivy Bridge, aborted\n");
-    DBG("KernelIvyBridgeXCPM() <===FALSE\n");
-    return FALSE;
+    DBG("KernelIvyBridgeXCPM() <===false\n");
+    return false;
   }
 
   // check OS version suit for patches
   // PMheart: attempt to add 10.14 compatibility
-  if (!IsXCPMOSVersionCompat(OSVersion)) {
+  if (!IsXCPMOSVersionCompat(macOSVersion)) {
     DBG("KernelIvyBridgeXCPM():Unsupported macOS.\n");
-    DBG("KernelIvyBridgeXCPM() <===FALSE\n");
-    return FALSE;
-  } else if (OSVersion >= MacOsVersion("10.8.5"_XS8) && OSVersion < MacOsVersion("10.12"_XS8)) {
+    DBG("KernelIvyBridgeXCPM() <===false\n");
+    return false;
+  } else if (macOSVersion >= MacOsVersion("10.8.5"_XS8) && macOSVersion < MacOsVersion("10.12"_XS8)) {
     // 10.8.5 - 10.11.x no need the following kernel patches on Ivy Bridge - we just use -xcpm boot-args
     DBG("KernelIvyBridgeXCPM() <===\n");
-    return TRUE;
+    return true;
   }
 
   DBG("Searching _xcpm_pkg_scope_msr ...\n");
-  if (OSVersion >= MacOsVersion("10.12"_XS8)) {
+  if (macOSVersion >= MacOsVersion("10.12"_XS8)) {
     // 10.12+
 /*    patchLocation = 0; // clean out the value just in case
     for (i = 0; i < 0x1000000; i++) {
@@ -1666,8 +1665,8 @@ BOOLEAN LOADER_ENTRY::KernelIvyBridgeXCPM()
       DBG("Applied _xcpm_pkg_scope_msr patch\n");
     } else {
       DBG("_xcpm_pkg_scope_msr not found, patch aborted\n");
-      DBG("KernelIvyBridgeXCPM() <===FALSE\n");
-      return FALSE;
+      DBG("KernelIvyBridgeXCPM() <===false\n");
+      return false;
     }
   }
 
@@ -1685,28 +1684,28 @@ BOOLEAN LOADER_ENTRY::KernelIvyBridgeXCPM()
     }
   }
 /*
-  if (OSVersion.notEmpty() && OSVersion <= AsciiOSVersionToUint64("10.12.5")) {
+  if (macOSVersion.notEmpty() && macOSVersion <= AsciiOSVersionToUint64("10.12.5")) {
     // 10.12 - 10.12.5
     const UINT8 find[] = { 0x83, 0xC3, 0xC4, 0x83, 0xFB, 0x22 };
     const UINT8 repl[] = { 0x83, 0xC3, 0xC6, 0x83, 0xFB, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.13")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.13")) {
     // 10.12.6
     const UINT8 find[] = { 0x8D, 0x43, 0xC4, 0x83, 0xF8, 0x22 };
     const UINT8 repl[] = { 0x8D, 0x43, 0xC6, 0x83, 0xF8, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
     // PMheart: attempt to add 10.14 compatibility
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.15")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.15")) {
     // 10.13/10.14
     const UINT8 find[] = { 0x89, 0xD8, 0x04, 0xC4, 0x3C, 0x22 };
     const UINT8 repl[] = { 0x89, 0xD8, 0x04, 0xC6, 0x3C, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
     // PMheart: attempt to add 10.15 compatibility
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.15.4")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.15.4")) {
     const UINT8 find[] = { 0x8D, 0x43, 0xC4, 0x3C, 0x22 };
     const UINT8 repl[] = { 0x8D, 0x43, 0xC6, 0x3C, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.16")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.16")) {
     // vector sigma: 10.15.5 Beta 2 build 19F62f and 10.15.4 build 19E287
     const UINT8 find[] = { 0x3B, 0x7E, 0x2E, 0x80, 0xC3, 0xC4, 0x80, 0xFB, 0x42 };
     const UINT8 repl[] = { 0x00, 0x7E, 0x2E, 0x80, 0xC3, 0xC6, 0x80, 0xFB, 0x42 };
@@ -1714,45 +1713,45 @@ BOOLEAN LOADER_ENTRY::KernelIvyBridgeXCPM()
   }
 */
   DBG("KernelIvyBridgeXCPM() <===\n");
-  return TRUE;
+  return true;
 }
 
 //
 // this patch provides XCPM support for Ivy Bridge-E. by PMheart
 // attempt to enable XCPM for Ivy-E, still need to test further
 //
-BOOLEAN LOADER_ENTRY::KernelIvyE5XCPM()
+XBool LOADER_ENTRY::KernelIvyE5XCPM()
 {
   UINT8       *kern = (UINT8*)KernelData;
   XString8    comment;
  // UINT32      i;
   UINTN       patchLocation;
-//  UINT64      os_version = AsciiOSVersionToUint64(OSVersion);
+//  UINT64      os_version = AsciiOSVersionToUint64(macOSVersion);
   
   // check whether Ivy Bridge-E5
   if (gCPUStructure.Model != CPU_MODEL_IVY_BRIDGE_E5) {
     DBG("KernelIvyE5XCPM(): Unsupported platform.\nRequires Ivy Bridge-E, aborted\n");
-    DBG("KernelIvyE5XCPM() <===FALSE\n");
-    return FALSE;
+    DBG("KernelIvyE5XCPM() <===false\n");
+    return false;
   }
   
   // check OS version suit for patches
   // PMheart: attempt to add 10.15 compatibility
-  if (!IsXCPMOSVersionCompat(OSVersion)) {
+  if (!IsXCPMOSVersionCompat(macOSVersion)) {
     DBG("KernelIvyE5XCPM(): Unsupported macOS.\n");
-    DBG("KernelIvyE5XCPM() <===FALSE\n");
-    return FALSE;
+    DBG("KernelIvyE5XCPM() <===false\n");
+    return false;
   }
   
   // _cpuid_set_info
   // TODO: should we use FakeCPUID instead?
   comment = "_cpuid_set_info"_XS8;
-  if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.8.5"_XS8)) {
+  if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.8.5"_XS8)) {
     // 10.8.5
     const UINT8 find[] = { 0x83, 0xF8, 0x3C, 0x74, 0x2D };
     const UINT8 repl[] = { 0x83, 0xF8, 0x3E, 0x74, 0x2D };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if ( OSVersion == MacOsVersion("10.9"_XS8) || OSVersion == MacOsVersion("10.9.1"_XS8) ) {
+  } else if ( macOSVersion == MacOsVersion("10.9"_XS8) || macOSVersion == MacOsVersion("10.9.1"_XS8) ) {
     // 10.9.0 - 10.9.1
     const UINT8 find[] = { 0x83, 0xF8, 0x3C, 0x75, 0x07 };
     const UINT8 repl[] = { 0x83, 0xF8, 0x3E, 0x75, 0x07 };
@@ -1762,7 +1761,7 @@ BOOLEAN LOADER_ENTRY::KernelIvyE5XCPM()
   // _xcpm_pkg_scope_msrs
   DBG("Searching _xcpm_pkg_scope_msrs ...\n");
   comment = "_xcpm_pkg_scope_msrs"_XS8;
-  if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.8.5"_XS8)) {
+  if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.8.5"_XS8)) {
     // 10.8.5
     const UINT8 find[] = {
       0x48, 0x8D, 0x3D, 0x02, 0x71, 0x55, 0x00, 0xBE,
@@ -1777,7 +1776,7 @@ BOOLEAN LOADER_ENTRY::KernelIvyE5XCPM()
       0x00, 0x00, 0x31, 0xD2, 0x90, 0x90, 0x90, 0x90, 0x90
     };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.10"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.10"_XS8)) {
     // 10.9.x
     const UINT8 find[] = { 0xBE, 0x07, 0x00, 0x00, 0x00, 0x74, 0x13, 0x31, 0xD2, 0xE8, 0x5F, 0x02, 0x00, 0x00 };
     const UINT8 repl[] = { 0xBE, 0x07, 0x00, 0x00, 0x00, 0x90, 0x90, 0x31, 0xD2, 0x90, 0x90, 0x90, 0x90, 0x90 };
@@ -1805,39 +1804,39 @@ BOOLEAN LOADER_ENTRY::KernelIvyE5XCPM()
       DBG("Applied _xcpm_pkg_scope_msr patch\n");
     } else {
 //      DBG("_xcpm_pkg_scope_msr not found, patch aborted\n");
-      DBG("KernelIvyE5XCPM() <===FALSE\n");
-      return FALSE;
+      DBG("KernelIvyE5XCPM() <===false\n");
+      return false;
     }
   }
   
   // _xcpm_bootstrap
   comment = "_xcpm_bootstrap"_XS8;
-  if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.8.5"_XS8)) {
+  if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.8.5"_XS8)) {
     // 10.8.5
     const UINT8 find[] = { 0x83, 0xFB, 0x3C, 0x75, 0x54 };
     const UINT8 repl[] = { 0x83, 0xFB, 0x3E, 0x75, 0x54 };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.10"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.10"_XS8)) {
     // 10.9.x
     const UINT8 find[] = { 0x83, 0xFB, 0x3C, 0x75, 0x68 };
     const UINT8 repl[] = { 0x83, 0xFB, 0x3E, 0x75, 0x68 };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.10.2"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.10.2"_XS8)) {
     // 10.10 - 10.10.2
     const UINT8 find[] = { 0x83, 0xFB, 0x3C, 0x75, 0x63 };
     const UINT8 repl[] = { 0x83, 0xFB, 0x3E, 0x75, 0x63 };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.10.5"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.10.5"_XS8)) {
     // 10.10.3 - 10.10.5
     const UINT8 find[] = { 0x83, 0xC3, 0xC6, 0x83, 0xFB, 0x0D };
     const UINT8 repl[] = { 0x83, 0xC3, 0xC4, 0x83, 0xFB, 0x0D };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.11"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.11"_XS8)) {
     // 10.11 DB/PB - 10.11.0
     const UINT8 find[] = { 0x83, 0xC3, 0xC6, 0x83, 0xFB, 0x0D };
     const UINT8 repl[] = { 0x83, 0xC3, 0xC4, 0x83, 0xFB, 0x0D };
     applyKernPatch(find, sizeof(find), repl, comment.c_str());
-  } else if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.11.6"_XS8)) {
+  } else if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.11.6"_XS8)) {
     // 10.11.1 - 10.11.6
     const UINT8 find[] = { 0x83, 0xC3, 0xBB, 0x83, 0xFB, 0x09 };
     const UINT8 repl[] = { 0x83, 0xC3, 0xB9, 0x83, 0xFB, 0x09 };
@@ -1857,28 +1856,28 @@ BOOLEAN LOADER_ENTRY::KernelIvyE5XCPM()
       }
     }
 
-/*    if (OSVersion.notEmpty() && OSVersion <= MacOsVersion("10.12.5")) {
+/*    if (macOSVersion.notEmpty() && macOSVersion <= MacOsVersion("10.12.5")) {
     // 10.12 - 10.12.5
     const UINT8 find[] = { 0x83, 0xC3, 0xC4, 0x83, 0xFB, 0x22 };
     const UINT8 repl[] = { 0x83, 0xC3, 0xC2, 0x83, 0xFB, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.13")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.13")) {
     // 10.12.6
     const UINT8 find[] = { 0x8D, 0x43, 0xC4, 0x83, 0xF8, 0x22 };
     const UINT8 repl[] = { 0x8D, 0x43, 0xC2, 0x83, 0xF8, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
   // PMheart: attempt to add 10.14 compatibility
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.15")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.15")) {
     // 10.13/10.14
     const UINT8 find[] = { 0x89, 0xD8, 0x04, 0xC4, 0x3C, 0x22 };
     const UINT8 repl[] = { 0x89, 0xD8, 0x04, 0xC1, 0x3C, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
   // PMheart: attempt to add 10.15 compatibility
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.15.4")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.15.4")) {
     const UINT8 find[] = { 0x8D, 0x43, 0xC4, 0x3C, 0x22 };
     const UINT8 repl[] = { 0x8D, 0x43, 0xC1, 0x3C, 0x22 };
     applyKernPatch(find, sizeof(find), repl, comment);
-  } else if (OSVersion.notEmpty() && OSVersion < MacOsVersion("10.16")) {
+  } else if (macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.16")) {
     // vector sigma: 10.15.5 Beta 2 build 19F62f and 10.15.4 build 19E287
     const UINT8 find[] = { 0x3B, 0x7E, 0x2E, 0x80, 0xC3, 0xC4, 0x80, 0xFB, 0x42 };
     const UINT8 repl[] = { 0x00, 0x7E, 0x2E, 0x80, 0xC3, 0xC1, 0x80, 0xFB, 0x42 };
@@ -1887,7 +1886,7 @@ BOOLEAN LOADER_ENTRY::KernelIvyE5XCPM()
   }
   
   DBG("KernelIvyE5XCPM() <===\n");
-  return TRUE;
+  return true;
 }
 #if 0
 void Patcher_SSE3_6(void* kernelData)
@@ -1902,7 +1901,7 @@ void Patcher_SSE3_6(void* kernelData)
  // DBG("Start find SSE3 address\n");
   i=0;
   //for (i=0;i<Length;i++)
-  while(TRUE) {
+  while(true) {
     if (bytes[i] == 0x66 && bytes[i+1] == 0x0F && bytes[i+2] == 0x6F &&
         bytes[i+3] == 0x44 && bytes[i+4] == 0x0E && bytes[i+5] == 0xF1 &&
         bytes[i-1664-32] == 0x55
@@ -1931,7 +1930,7 @@ void Patcher_SSE3_6(void* kernelData)
 //  DBG("Found SSE3 last data addres Start\n");
   i = patchLocation1 + 1500;
   //for (i=(patchLocation1+1500); i<(patchLocation1+3000); i++)
-  while(TRUE) {
+  while(true) {
     if (bytes[i] == 0x90 && bytes[i+1] == 0x90 && bytes[i+2] == 0x55 ) {
       patchlast = (i+1) - patchLocation1;
 //      DBG("Found SSE3 last data addres at 0x%08X\n", patchlast);
@@ -2287,7 +2286,7 @@ LOADER_ENTRY::FindBootArgs()
   ptr = (UINT8*)0x200000ull;
 
 
-  while(TRUE) {
+  while(true) {
 
     // check bootargs for 10.7 and up
     bootArgs2 = (BootArgs2*)ptr;
@@ -2351,7 +2350,7 @@ LOADER_ENTRY::FindBootArgs()
   }
 }
 
-BOOLEAN
+XBool
 LOADER_ENTRY::KernelUserPatch()
 {
   INTN Num, y = 0;
@@ -2362,19 +2361,19 @@ LOADER_ENTRY::KernelUserPatch()
   // while config patches go to gSettings.KernelAndKextPatches
   // how to resolve it?
   
-  for (size_t i = 0 ; i < KernelAndKextPatches.KernelPatches.size(); ++i) {
-    DBG( "Patch[%zu]: %s\n", i, KernelAndKextPatches.KernelPatches[i].Label.c_str());
-    if (!KernelAndKextPatches.KernelPatches[i].MenuItem.BValue) {
-      //DBG_RT( "Patch[%d]: %a :: is not allowed for booted OS %a\n", i, KernelAndKextPatches.KernelPatches[i].Label, OSVersion);
+  for (size_t i = 0 ; i < gSettings.KernelAndKextPatches.KernelPatches.size(); ++i) {
+    DBG( "Patch[%zu]: %s\n", i, gSettings.KernelAndKextPatches.KernelPatches[i].Label.c_str());
+    if (!gSettings.KernelAndKextPatches.KernelPatches[i].MenuItem.BValue) {
+      //DBG_RT( "Patch[%d]: %a :: is not allowed for booted OS %a\n", i, KernelAndKextPatches.KernelPatches[i].Label, macOSVersion);
       DBG( "==> disabled\n");
       continue;
     }
     // if we modify directly KernelAndKextPatches.KernelPatches[i].SearchLen, it will wrong for next driver
-    UINTN SearchLen = KernelAndKextPatches.KernelPatches[i].SearchLen;
-    bool once = false;
+    UINTN SearchLen = gSettings.KernelAndKextPatches.KernelPatches[i].SearchLen;
+    XBool once = false;
     UINTN procLen = 0;
-    UINTN procAddr = searchProc(KernelAndKextPatches.KernelPatches[i].ProcedureName);
-    DBG("procedure %s found at 0x%llx\n", KernelAndKextPatches.KernelPatches[i].ProcedureName.c_str(), procAddr);
+    UINTN procAddr = searchProc(gSettings.KernelAndKextPatches.KernelPatches[i].ProcedureName);
+    DBG("procedure %s found at 0x%llx\n", gSettings.KernelAndKextPatches.KernelPatches[i].ProcedureName.c_str(), procAddr);
     if (SearchLen == 0) {
       SearchLen = KERNEL_MAX_SIZE;
       procLen = KERNEL_MAX_SIZE - procAddr;
@@ -2385,22 +2384,22 @@ LOADER_ENTRY::KernelUserPatch()
     UINT8 * curs = &KernelData[procAddr];
     UINTN j = 0;
     while (j < KERNEL_MAX_SIZE) {
-      if (KernelAndKextPatches.KernelPatches[i].StartPattern.isEmpty() || //old behavior
+      if (gSettings.KernelAndKextPatches.KernelPatches[i].StartPattern.isEmpty() || //old behavior
           CompareMemMask((const UINT8*)curs,
-                         KernelAndKextPatches.KernelPatches[i].StartPattern.data(),
-                         KernelAndKextPatches.KernelPatches[i].StartPattern.size(),
-                         KernelAndKextPatches.KernelPatches[i].StartMask.data(),
-                         KernelAndKextPatches.KernelPatches[i].StartPattern.size())) {
+                         gSettings.KernelAndKextPatches.KernelPatches[i].StartPattern.data(),
+                         gSettings.KernelAndKextPatches.KernelPatches[i].StartPattern.size(),
+                         gSettings.KernelAndKextPatches.KernelPatches[i].StartMask.data(),
+                         gSettings.KernelAndKextPatches.KernelPatches[i].StartPattern.size())) {
         DBG( " StartPattern found\n");
         Num = SearchAndReplaceMask(curs,
                                    procLen,
-                                   (const UINT8*)KernelAndKextPatches.KernelPatches[i].Data.data(),
-                                   (const UINT8*)KernelAndKextPatches.KernelPatches[i].MaskFind.data(),
-                                   KernelAndKextPatches.KernelPatches[i].Data.size(),
-                                   (const UINT8*)KernelAndKextPatches.KernelPatches[i].Patch.data(),
-                                   (const UINT8*)KernelAndKextPatches.KernelPatches[i].MaskReplace.data(),
-                                   KernelAndKextPatches.KernelPatches[i].Count,
-                                   KernelAndKextPatches.KernelPatches[i].Skip);
+                                   (const UINT8*)gSettings.KernelAndKextPatches.KernelPatches[i].Find.data(),
+                                   (const UINT8*)gSettings.KernelAndKextPatches.KernelPatches[i].MaskFind.data(),
+                                   gSettings.KernelAndKextPatches.KernelPatches[i].Find.size(),
+                                   (const UINT8*)gSettings.KernelAndKextPatches.KernelPatches[i].Replace.data(),
+                                   (const UINT8*)gSettings.KernelAndKextPatches.KernelPatches[i].MaskReplace.data(),
+                                   gSettings.KernelAndKextPatches.KernelPatches[i].Count,
+                                   gSettings.KernelAndKextPatches.KernelPatches[i].Skip);
         
         if (Num) {
           y++;
@@ -2408,59 +2407,59 @@ LOADER_ENTRY::KernelUserPatch()
           j    += SearchLen - 1;
         }
         DBG( "==> %s : %lld replaces done\n", Num ? "Success" : "Error", Num);
-        if ( once || KernelAndKextPatches.KernelPatches[i].StartPattern.isEmpty() ) {
+        if ( once || gSettings.KernelAndKextPatches.KernelPatches[i].StartPattern.isEmpty() ) {
           break;
         }
       }
       j++; curs++;
     }
   }
-  if (KernelAndKextPatches.KPDebug) {
+  if (gSettings.KernelAndKextPatches.KPDebug) {
     gBS->Stall(2000000);
   }
 
   return (y != 0);
 }
 
-BOOLEAN
+XBool
 LOADER_ENTRY::BooterPatch(IN UINT8 *BooterData, IN UINT64 BooterSize)
 {
   INTN Num, y = 0;
 
 
-  for (size_t i = 0 ; i < KernelAndKextPatches.BootPatches.size(); ++i)
+  for (size_t i = 0 ; i < gSettings.KernelAndKextPatches.BootPatches.size(); ++i)
   {
     // if we modify directly KernelAndKextPatches.BootPatches[i].SearchLen, it will wrong for next driver
-    UINTN SearchLen = KernelAndKextPatches.BootPatches[i].SearchLen;
+    UINTN SearchLen = gSettings.KernelAndKextPatches.BootPatches[i].SearchLen;
     if (!SearchLen) {
       SearchLen = BooterSize;
     }
 
-    DBG( "Patch[%zu]: %s\n", i, KernelAndKextPatches.BootPatches[i].Label.c_str());
-    if (!KernelAndKextPatches.BootPatches[i].MenuItem.BValue) {
+    DBG( "Patch[%zu]: %s\n", i, gSettings.KernelAndKextPatches.BootPatches[i].Label.c_str());
+    if (!gSettings.KernelAndKextPatches.BootPatches[i].MenuItem.BValue) {
       DBG( "==> disabled\n");
       continue;
     }
     UINT8 * curs = BooterData;
     UINTN j = 0;
     while (j < BooterSize) {
-      if (KernelAndKextPatches.BootPatches[i].StartPattern.isEmpty() || //old behavior
+      if (gSettings.KernelAndKextPatches.BootPatches[i].StartPattern.isEmpty() || //old behavior
           CompareMemMask((const UINT8*)curs,
-                         (const UINT8*)KernelAndKextPatches.BootPatches[i].StartPattern.data(),
-                         KernelAndKextPatches.BootPatches[i].StartPattern.size(),
-                         (const UINT8*)KernelAndKextPatches.BootPatches[i].StartMask.data(),
-                         KernelAndKextPatches.BootPatches[i].StartPattern.size())) {
+                         (const UINT8*)gSettings.KernelAndKextPatches.BootPatches[i].StartPattern.data(),
+                         gSettings.KernelAndKextPatches.BootPatches[i].StartPattern.size(),
+                         (const UINT8*)gSettings.KernelAndKextPatches.BootPatches[i].StartMask.data(),
+                         gSettings.KernelAndKextPatches.BootPatches[i].StartPattern.size())) {
         DBG( " StartPattern found\n");
 
         Num = SearchAndReplaceMask(curs,
                                    SearchLen,
-                                   (const UINT8*)KernelAndKextPatches.BootPatches[i].Data.data(),
-                                   (const UINT8*)KernelAndKextPatches.BootPatches[i].MaskFind.data(),
-                                   KernelAndKextPatches.BootPatches[i].Data.size(),
-                                   (const UINT8*)KernelAndKextPatches.BootPatches[i].Patch.data(),
-                                   (const UINT8*)KernelAndKextPatches.BootPatches[i].MaskReplace.data(),
-                                   KernelAndKextPatches.BootPatches[i].Count,
-                                   KernelAndKextPatches.BootPatches[i].Skip);
+                                   (const UINT8*)gSettings.KernelAndKextPatches.BootPatches[i].Find.data(),
+                                   (const UINT8*)gSettings.KernelAndKextPatches.BootPatches[i].MaskFind.data(),
+                                   gSettings.KernelAndKextPatches.BootPatches[i].Find.size(),
+                                   (const UINT8*)gSettings.KernelAndKextPatches.BootPatches[i].Replace.data(),
+                                   (const UINT8*)gSettings.KernelAndKextPatches.BootPatches[i].MaskReplace.data(),
+                                   gSettings.KernelAndKextPatches.BootPatches[i].Count,
+                                   gSettings.KernelAndKextPatches.BootPatches[i].Skip);
         if (Num) {
           y++;
           curs += SearchLen - 1;
@@ -2468,388 +2467,387 @@ LOADER_ENTRY::BooterPatch(IN UINT8 *BooterData, IN UINT64 BooterSize)
         }
 
         DBG( "==> %s : %lld replaces done\n", Num ? "Success" : "Error", Num);
-        if ( KernelAndKextPatches.BootPatches[i].StartPattern.isEmpty() ) {
+        if ( gSettings.KernelAndKextPatches.BootPatches[i].StartPattern.isEmpty() ) {
           break;
         }
       }
       j++; curs++;
     }
   }
-//  if (KernelAndKextPatches.KPDebug) {
-//    gBS->Stall(2000000);
-//  }
-  Stall(2000000);
+  if (gSettings.KernelAndKextPatches.KPDebug) {
+    gBS->Stall(2000000);
+  }
   return (y != 0);
 }
 
-void
-LOADER_ENTRY::KernelAndKextPatcherInit()
-{
-  if (PatcherInited) {
-    DBG("patcher inited\n");
-    return;
-  }
-
-  PatcherInited = TRUE;
-
-  // KernelRelocBase will normally be 0
-  // but if OsxAptioFixDrv is used, then it will be > 0
-  SetKernelRelocBase();
-	DBG("KernelRelocBase = %llx\n", KernelRelocBase);
-
-  // Find bootArgs - we need then for proper detection
-  // of kernel Mach-O header
-  FindBootArgs();
-  if (bootArgs1 == NULL && bootArgs2 == NULL) {
-    DBG_RT("BootArgs not found - skipping patches!\n");
-    return;
-  }
-
-  // Find kernel Mach-O header:
-  // for 10.4 - 10.5: 0x00111000
-  // for 10.6 - 10.7: 0x00200000
-  // for ML: bootArgs2->kslide + 0x00200000
-  // for AptioFix booting - it's always at KernelRelocBase + 0x00200000
-
-//  UINT64 os_version = AsciiOSVersionToUint64(OSVersion);
-    DBG("OSVersion=%s\n", OSVersion.asString().c_str());
-  
-//  if (OSVersion.notEmpty() && OSVersion < AsciiOSVersionToUint64("10.6")) {
-//    KernelData = (UINT8*)(UINTN)(KernelSlide + KernelRelocBase + 0x00111000);
-//  } else {
-    KernelData = (UINT8*)(UINTN)(KernelSlide + KernelRelocBase + 0x00200000);
+//void
+//LOADER_ENTRY::KernelAndKextPatcherInit()
+//{
+//  if (PatcherInited) {
+//    DBG("patcher inited\n");
+//    return;
 //  }
-
-  // check that it is Mach-O header and detect architecture
-  if(MACH_GET_MAGIC(KernelData) == MH_MAGIC || MACH_GET_MAGIC(KernelData) == MH_CIGAM) {
-    DBG("Found 32 bit kernel at 0x%llx\n", (UINTN)KernelData);
-    is64BitKernel = FALSE;
-  } else if (MACH_GET_MAGIC(KernelData) == MH_MAGIC_64 || MACH_GET_MAGIC(KernelData) == MH_CIGAM_64) {
-    DBG( "Found 64 bit kernel at 0x%llx\n", (UINTN)KernelData);
-//    DBG_RT("text section is: %s\n", (const char*)&KernelData[0x28]);
-/*
-    KernelOffset = 0;
-    while (KernelOffset < KERNEL_MAX_SIZE) {
-      if ((MACH_GET_MAGIC(KernelData+KernelOffset) == MH_MAGIC_64 ) || (MACH_GET_MAGIC(KernelData+KernelOffset) == MH_CIGAM_64)) {
-        DBG("dump at offset 0x%x\n", KernelOffset);
-        for (int j = 0; j<20; ++j) {
-          DBG("%02x ", KernelData[KernelOffset+j]);
-        }
-        DBG("\n");
-        if ((((struct mach_header_64*)(KernelData+KernelOffset))->filetype) == MH_EXECUTE) {
-          DBG("execute found\n");
-          break;
-        }
-      }
-      KernelOffset += 4;
-    }
- */
-    if ((((struct mach_header_64*)KernelData)->filetype) == MH_KERNEL_COLLECTION) {
-      // BigSur
-      KernelOffset = GetTextExec();
-//      DBG("BigSur: KernelOffset =0x%X\n", KernelOffset);
-    }
-    is64BitKernel = TRUE;
-  } else {
-    // not valid Mach-O header - exiting
-    DBG( "Kernel not found at 0x%llx - skipping patches!\n", (UINTN)KernelData);
-    KernelData = NULL;
-    return;
-  }
-  DBG( " kernel offset at 0x%x\n", KernelOffset);
-  // find __PRELINK_TEXT and __PRELINK_INFO
-  if ((((struct mach_header_64*)KernelData)->filetype) == MH_KERNEL_COLLECTION) {
-    Get_PreLink(); // BigSur
-  } else {
-    Get_PreLink();
-  }
-  //find symbol tables
-  struct  symtab_command  *symCmd = NULL;
-  UINT32 symCmdOffset = Get_Symtab(&KernelData[KernelOffset]);
-  if (symCmdOffset != 0) {
-    symCmd = (struct symtab_command *)&KernelData[KernelOffset + symCmdOffset];
-    AddrVtable = symCmd->symoff; //this offset relative to KernelData+0
-    SizeVtable = symCmd->nsyms;
-    NamesTable = symCmd->stroff;
-    DBG("Kernel: AddrVtable=0x%x SizeVtable=0x%x NamesTable=0x%x\n", AddrVtable, SizeVtable, NamesTable);
-  }
-/*
-  for (UINTN i=0x00200000; i<0x30000000; i+=4) {
-    UINT32 *KD = (UINT32 *)i;
-    if ((KD[0] == MH_MAGIC_64) && (KD[0x0a] == 0x45545F5F)){
-      DBG_RT( "Found MAGIC at %llx, text=%s\n", i, (const char*)&KD[0x0a]);
-      DBG( "Found MAGIC at %llx, text=%s\n", i, (const char*)&KD[0x0a]);
-      KernelData = (UINT8*)KD;
-      DBG( "Found new kernel at 0x%llx\n", (UINTN)KernelData);
-      break;
-    }
-  }
-*/
-  if (EFI_ERROR(getVTable())) {
-    DBG("error getting vtable: \n");
-  }
-
-  isKernelcache = (PrelinkTextSize > 0) && (PrelinkInfoSize > 0);
-	DBG( "isKernelcache: %ls\n", isKernelcache ? L"Yes" : L"No");
-}
-
-void
-LOADER_ENTRY::KernelAndKextsPatcherStart()
-{
-  BOOLEAN KextPatchesNeeded, patchedOk;
-  /*
-   * it was intended for custom entries but not work if no custom entries used
-   * so set common until better solution invented
-   */
-  //KernelAndKextPatches = (KERNEL_AND_KEXT_PATCHES *)(((UINTN)&gSettings) + OFFSET_OF(SETTINGS_DATA, KernelAndKextPatches));
-//  CopyKernelAndKextPatches(&KernelAndKextPatches, &gSettings.KernelAndKextPatches);
-  KernelAndKextPatches = gSettings.KernelAndKextPatches;
-
-  PatcherInited = false;
-  KernelAndKextPatcherInit();
-
-  KextPatchesNeeded = (
-    KernelAndKextPatches.KPAppleIntelCPUPM ||
-    KernelAndKextPatches.KPAppleRTC ||
-    KernelAndKextPatches.EightApple ||
-    KernelAndKextPatches.KPDELLSMBIOS ||
-    KernelAndKextPatches.KPATIConnectorsPatch.notEmpty() ||
-    KernelAndKextPatches.KextPatches.size() > 0
-  );
-
-//  DBG_RT("\nKernelToPatch: ");
-//  DBG_RT("Kernels patches: %d\n", KernelAndKextPatches.KernelPatches.size());
-  if (gSettings.KernelPatchesAllowed && KernelAndKextPatches.KernelPatches.notEmpty()) {
-//    DBG_RT("Enabled: \n");
-    DBG("Kernels patches: enabled \n");
-//    KernelAndKextPatcherInit();
-//    if (KernelData == NULL) goto NoKernelData;
-    if (EFI_ERROR(getVTable())) {
-//      DBG_RT("error getting vtable: \n");
-      goto NoKernelData;
-    }
-    patchedOk = KernelUserPatch();
-//    DBG_RT(patchedOk ? " OK\n" : " FAILED!\n");
-//    gBS->Stall(5000000);
-  } else {
-//    DBG_RT("Disabled\n");
-  }
-/*
-  DBG_RT( "\nKernelCpu patch: ");
-  if (KernelAndKextPatches.KPKernelCpu) {
-    //
-    // Kernel patches
-    //
-    DBG_RT( "Enabled: \n");
-    KernelAndKextPatcherInit();
-    if (KernelData == NULL) goto NoKernelData;
-    if(is64BitKernel) {
-      DBG_RT( "64 bit patch ...\n");
-      KernelPatcher_64();
-    } else {
-      DBG_RT( "32 bit patch ...\n");
-      KernelPatcher_32();
-    }
-    DBG_RT( " OK\n");
-  } else {
-    DBG_RT( "Disabled\n");
-  }
-*/
-  //other method for KernelCPU patch is FakeCPUID
-  DBG_RT( "\nFakeCPUID patch: ");
-  if (KernelAndKextPatches.FakeCPUID) {
-    DBG_RT( "Enabled: 0x%06x\n", KernelAndKextPatches.FakeCPUID);
-//    KernelAndKextPatcherInit();
-//    if (KernelData == NULL) goto NoKernelData;
-    KernelCPUIDPatch();
-  } else {
-    DBG_RT( "Disabled\n");
-  }
-
-  // CPU power management patch for CPU with locked msr
-  DBG_RT( "\nKernelPm patch: ");
-  if (KernelAndKextPatches.KPKernelPm || KernelAndKextPatches.KPKernelXCPM) {
-    DBG_RT( "Enabled: \n");
-    DBG( "KernelPm patch: Enabled\n");
-//    KernelAndKextPatcherInit();
-//    if (KernelData == NULL) goto NoKernelData;
-    patchedOk = FALSE;
-    if (is64BitKernel) {
-      patchedOk = KernelPatchPm();
-    }
-    DBG_RT( patchedOk ? " OK\n" : " FAILED!\n");
-  } else {
-    DBG_RT( "Disabled\n");
-  }
-  
-  // Patch to not dump kext at panic (c)vit9696
-  DBG_RT( "\nPanicNoKextDump patch: ");
-  if (KernelAndKextPatches.KPPanicNoKextDump) {
-    DBG_RT( "Enabled: \n");
-//    KernelAndKextPatcherInit();
-//    if (KernelData == NULL) goto NoKernelData;
-    patchedOk = KernelPanicNoKextDump();
-    DBG_RT( patchedOk ? " OK\n" : " FAILED!\n");
-  } else {
-    DBG_RT( "Disabled\n");
-  }
-
-
-  // Lapic Panic Kernel Patch
-  DBG_RT( "\nKernelLapic patch: ");
-  if (KernelAndKextPatches.KPKernelLapic) {
-    DBG_RT( "Enabled: \n");
-//    KernelAndKextPatcherInit();
-//    if (KernelData == NULL) goto NoKernelData;
-    if(is64BitKernel) {
-      DBG_RT( "64-bit patch ...\n");
-      patchedOk = KernelLapicPatch_64();
-    } else {
-      DBG_RT( "32-bit patch ...\n");
-      patchedOk = KernelLapicPatch_32();
-    }
-    DBG_RT( patchedOk ? " OK\n" : " FAILED!\n");
-  } else {
-    DBG_RT( "Disabled\n");
-  }
-
-  if (KernelAndKextPatches.KPKernelXCPM) {
-    //
-    // syscl - EnableExtCpuXCPM: Enable unsupported CPU's PowerManagement
-    //
-//    EnableExtCpuXCPM = NULL;
-    patchedOk = FALSE;
-//    BOOLEAN apply_idle_patch = (gCPUStructure.Model >= CPU_MODEL_SKYLAKE_U) && gSettings.HWP;
-//    KernelAndKextPatcherInit();
-//    if (KernelData == NULL) goto NoKernelData;
-    
-    // syscl - now enable extra Cpu's PowerManagement
-    // only Intel support this feature till now
-    // move below code outside the if condition if AMD supports
-    // XCPM later on
- 
-    if (gCPUStructure.Vendor == CPU_VENDOR_INTEL) {
-      switch (gCPUStructure.Model) {
-          case CPU_MODEL_JAKETOWN:
-            // SandyBridge-E LGA2011
-            patchedOk = SandyBridgeEPM();
-            gSNBEAICPUFixRequire = TRUE;       // turn on SandyBridge-E AppleIntelCPUPowerManagement Fix
-            break;
-              
-          case CPU_MODEL_IVY_BRIDGE:
-            // IvyBridge
-            patchedOk = KernelIvyBridgeXCPM();
-            break;
-              
-          case CPU_MODEL_IVY_BRIDGE_E5:
-            // IvyBridge-E
-            patchedOk = KernelIvyE5XCPM();
-            break;
-
-          case CPU_MODEL_HASWELL_E:
-            // Haswell-E
-            patchedOk = HaswellEXCPM();
-            break;
-              
-          case CPU_MODEL_BROADWELL_E5:
-          case CPU_MODEL_BROADWELL_DE:
-            // Broadwell-E/EP
-            patchedOk = BroadwellEPM();
-            gBDWEIOPCIFixRequire = TRUE;
-            break;
-
-          default:
-            if (gCPUStructure.Model >= CPU_MODEL_HASWELL &&
-               (AsciiStrStr(gCPUStructure.BrandString, "Celeron") ||
-                AsciiStrStr(gCPUStructure.BrandString, "Pentium"))) {
-              // Haswell+ low-end CPU
-              patchedOk = HaswellLowEndXCPM();
-            }
-            break;
-      }
-    }
-	  DBG_RT( "EnableExtCpuXCPM - %s!\n", patchedOk? "OK" : "FAILED");
-  }
-
-  Stall(2000000);
-  //
-  // Kext patches
-  //
-
-  // we need to scan kexts if "InjectKexts true and CheckFakeSMC"
-  if (/*OSFLAG_ISSET(Flags, OSFLAG_WITHKEXTS) || */
-      OSFLAG_ISSET(Flags, OSFLAG_CHECKFAKESMC)) {
-    DBG_RT( "\nAllowing kext patching to check if FakeSMC is present\n");
-    gSettings.KextPatchesAllowed = TRUE;
-    KextPatchesNeeded = TRUE;
-  }
-
-  DBG_RT( "\nKextPatches Needed: %c, Allowed: %c ... ",
-         (KextPatchesNeeded ? L'Y' : L'n'),
-         (gSettings.KextPatchesAllowed ? L'Y' : L'n')
-         );
-
-  if (KextPatchesNeeded && gSettings.KextPatchesAllowed) {
-//    DBG_RT( "\nKext patching INIT\n");
-//    KernelAndKextPatcherInit();
-//    if (KernelData == NULL) goto NoKernelData;
-    DBG_RT( "\nKext patching STARTED\n");
-    KextPatcherStart();  //is FakeSMC found in cache then inject will be disabled
-    DBG_RT( "\nKext patching ENDED\n");
-  } else {
-    DBG_RT( "Disabled\n");
-  }
-
-  Stall(1000000);
-
-  //
-  // Kext add
-  //
-//  if (KernelAndKextPatches.KPDebug) {
-//    if (OSFLAG_ISSET(Entry->Flags, OSFLAG_CHECKFAKESMC) &&
-//        OSFLAG_ISUNSET(Entry->Flags, OSFLAG_WITHKEXTS)) {
-//    disabled kext injection if FakeSMC is already present
-//    Entry->Flags = OSFLAG_UNSET(Entry->Flags, OSFLAG_WITHKEXTS); //Slice - we are already here
 //
-//      DBG_RT( "\nInjectKexts: disabled because FakeSMC is already present and InjectKexts option set to Detect\n");
-//      gBS->Stall(500000);
+//  PatcherInited = true;
+//
+//  // KernelRelocBase will normally be 0
+//  // but if OsxAptioFixDrv is used, then it will be > 0
+//  SetKernelRelocBase();
+//	DBG("KernelRelocBase = %llx\n", KernelRelocBase);
+//
+//  // Find bootArgs - we need then for proper detection
+//  // of kernel Mach-O header
+//  FindBootArgs();
+//  if (bootArgs1 == NULL && bootArgs2 == NULL) {
+//    DBG_RT("BootArgs not found - skipping patches!\n");
+//    return;
+//  }
+//
+//  // Find kernel Mach-O header:
+//  // for 10.4 - 10.5: 0x00111000
+//  // for 10.6 - 10.7: 0x00200000
+//  // for ML: bootArgs2->kslide + 0x00200000
+//  // for AptioFix booting - it's always at KernelRelocBase + 0x00200000
+//
+////  UINT64 os_version = AsciiOSVersionToUint64(macOSVersion);
+//    DBG("macOSVersion=%s\n", macOSVersion.asString().c_str());
+//
+////  if (macOSVersion.notEmpty() && macOSVersion < AsciiOSVersionToUint64("10.6")) {
+////    KernelData = (UINT8*)(UINTN)(KernelSlide + KernelRelocBase + 0x00111000);
+////  } else {
+//    KernelData = (UINT8*)(UINTN)(KernelSlide + KernelRelocBase + 0x00200000);
+////  }
+//
+//  // check that it is Mach-O header and detect architecture
+//  if(MACH_GET_MAGIC(KernelData) == MH_MAGIC || MACH_GET_MAGIC(KernelData) == MH_CIGAM) {
+//    DBG("Found 32 bit kernel at 0x%llx\n", (UINTN)KernelData);
+//    is64BitKernel = false;
+//  } else if (MACH_GET_MAGIC(KernelData) == MH_MAGIC_64 || MACH_GET_MAGIC(KernelData) == MH_CIGAM_64) {
+//    DBG( "Found 64 bit kernel at 0x%llx\n", (UINTN)KernelData);
+////    DBG_RT("text section is: %s\n", (const char*)&KernelData[0x28]);
+///*
+//    KernelOffset = 0;
+//    while (KernelOffset < KERNEL_MAX_SIZE) {
+//      if ((MACH_GET_MAGIC(KernelData+KernelOffset) == MH_MAGIC_64 ) || (MACH_GET_MAGIC(KernelData+KernelOffset) == MH_CIGAM_64)) {
+//        DBG("dump at offset 0x%x\n", KernelOffset);
+//        for (int j = 0; j<20; ++j) {
+//          DBG("%02x ", KernelData[KernelOffset+j]);
+//        }
+//        DBG("\n");
+//        if ((((struct mach_header_64*)(KernelData+KernelOffset))->filetype) == MH_EXECUTE) {
+//          DBG("execute found\n");
+//          break;
+//        }
+//      }
+//      KernelOffset += 4;
+//    }
+// */
+//    if ((((struct mach_header_64*)KernelData)->filetype) == MH_KERNEL_COLLECTION) {
+//      // BigSur
+//      KernelOffset = GetTextExec();
+////      DBG("BigSur: KernelOffset =0x%X\n", KernelOffset);
+//    }
+//    is64BitKernel = true;
+//  } else {
+//    // not valid Mach-O header - exiting
+//    DBG( "Kernel not found at 0x%llx - skipping patches!\n", (UINTN)KernelData);
+//    KernelData = NULL;
+//    return;
+//  }
+//  DBG( " kernel offset at 0x%x\n", KernelOffset);
+//  // find __PRELINK_TEXT and __PRELINK_INFO
+//  if ((((struct mach_header_64*)KernelData)->filetype) == MH_KERNEL_COLLECTION) {
+//    Get_PreLink(); // BigSur
+//  } else {
+//    Get_PreLink();
+//  }
+//  //find symbol tables
+//  struct  symtab_command  *symCmd = NULL;
+//  UINT32 symCmdOffset = Get_Symtab(&KernelData[KernelOffset]);
+//  if (symCmdOffset != 0) {
+//    symCmd = (struct symtab_command *)&KernelData[KernelOffset + symCmdOffset];
+//    AddrVtable = symCmd->symoff; //this offset relative to KernelData+0
+//    SizeVtable = symCmd->nsyms;
+//    NamesTable = symCmd->stroff;
+//    DBG("Kernel: AddrVtable=0x%x SizeVtable=0x%x NamesTable=0x%x\n", AddrVtable, SizeVtable, NamesTable);
+//  }
+///*
+//  for (UINTN i=0x00200000; i<0x30000000; i+=4) {
+//    UINT32 *KD = (UINT32 *)i;
+//    if ((KD[0] == MH_MAGIC_64) && (KD[0x0a] == 0x45545F5F)){
+//      DBG_RT( "Found MAGIC at %llx, text=%s\n", i, (const char*)&KD[0x0a]);
+//      DBG( "Found MAGIC at %llx, text=%s\n", i, (const char*)&KD[0x0a]);
+//      KernelData = (UINT8*)KD;
+//      DBG( "Found new kernel at 0x%llx\n", (UINTN)KernelData);
+//      break;
 //    }
 //  }
-
-  if (OSFLAG_ISSET(Flags, OSFLAG_WITHKEXTS)) {
-    UINT32      deviceTreeP;
-    UINT32      *deviceTreeLength;
-    EFI_STATUS  Status;
-    UINTN       DataSize;
-
-    // check if FSInject already injected kexts
-    DataSize = 0;
-    Status = gRT->GetVariable (L"FSInject.KextsInjected", &gEfiGlobalVariableGuid, NULL, &DataSize, NULL);
-    if (Status == EFI_BUFFER_TOO_SMALL) {
-      // var exists - just exit
-
-      DBG_RT( "\nInjectKexts: skipping, FSInject already injected them\n");
-      Stall(500000);
-      return;
-    }
-
+//*/
+//  if (EFI_ERROR(getVTable())) {
+//    DBG("error getting vtable: \n");
+//  }
+//
+//  isKernelcache = (PrelinkTextSize > 0) && (PrelinkInfoSize > 0);
+//	DBG( "isKernelcache: %ls\n", isKernelcache ? L"Yes" : L"No");
+//}
+//
+//void
+//LOADER_ENTRY::KernelAndKextsPatcherStart()
+//{
+//  XBool KextPatchesNeeded, patchedOk;
+//  /*
+//   * it was intended for custom entries but not work if no custom entries used
+//   * so set common until better solution invented
+//   */
+//  //KernelAndKextPatches = (KERNEL_AND_KEXT_PATCHES *)(((UINTN)&gSettings) + OFFSET_OF(SETTINGS_DATA, KernelAndKextPatches));
+////  CopyKernelAndKextPatches(&KernelAndKextPatches, &gSettings.KernelAndKextPatches);
+//  KernelAndKextPatches = gSettings.KernelAndKextPatches;
+//
+//  PatcherInited = false;
+//  KernelAndKextPatcherInit();
+//
+//  KextPatchesNeeded = (
+//    KernelAndKextPatches.KPAppleIntelCPUPM || GlobalConfig.NeedPMfix ||
+//    KernelAndKextPatches.KPAppleRTC ||
+//    KernelAndKextPatches.EightApple ||
+//    KernelAndKextPatches.KPDELLSMBIOS ||
+//    KernelAndKextPatches.KPATIConnectorsPatch.notEmpty() ||
+//    KernelAndKextPatches.KextPatches.size() > 0
+//  );
+//
+////  DBG_RT("\nKernelToPatch: ");
+////  DBG_RT("Kernels patches: %d\n", KernelAndKextPatches.KernelPatches.size());
+//  if (GlobalConfig.KernelPatchesAllowed && KernelAndKextPatches.KernelPatches.notEmpty()) {
+////    DBG_RT("Enabled: \n");
+//    DBG("Kernels patches: enabled \n");
+////    KernelAndKextPatcherInit();
+////    if (KernelData == NULL) goto NoKernelData;
+//    if (EFI_ERROR(getVTable())) {
+////      DBG_RT("error getting vtable: \n");
+//      goto NoKernelData;
+//    }
+//    patchedOk = KernelUserPatch();
+////    DBG_RT(patchedOk ? " OK\n" : " FAILED!\n");
+////    gBS->Stall(5000000);
+//  } else {
+////    DBG_RT("Disabled\n");
+//  }
+///*
+//  DBG_RT( "\nKernelCpu patch: ");
+//  if (KernelAndKextPatches.KPKernelCpu) {
+//    //
+//    // Kernel patches
+//    //
+//    DBG_RT( "Enabled: \n");
 //    KernelAndKextPatcherInit();
 //    if (KernelData == NULL) goto NoKernelData;
-    if (bootArgs1 != NULL) {
-      deviceTreeP = bootArgs1->deviceTreeP;
-      deviceTreeLength = &bootArgs1->deviceTreeLength;
-    } else if (bootArgs2 != NULL) {
-      deviceTreeP = bootArgs2->deviceTreeP;
-      deviceTreeLength = &bootArgs2->deviceTreeLength;
-    } else return;
-
-    Status = InjectKexts(deviceTreeP, deviceTreeLength);
-    DBG_RT("Inject kexts done at 0x%llx\n", (UINTN)deviceTreeP);
-    if (!EFI_ERROR(Status)) KernelBooterExtensionsPatch();
-  }
-
-  return;
-
-NoKernelData:
-  Stall(5000000);
-}
+//    if(is64BitKernel) {
+//      DBG_RT( "64 bit patch ...\n");
+//      KernelPatcher_64();
+//    } else {
+//      DBG_RT( "32 bit patch ...\n");
+//      KernelPatcher_32();
+//    }
+//    DBG_RT( " OK\n");
+//  } else {
+//    DBG_RT( "Disabled\n");
+//  }
+//*/
+//  //other method for KernelCPU patch is FakeCPUID
+//  DBG_RT( "\nFakeCPUID patch: ");
+//  if (KernelAndKextPatches.FakeCPUID) {
+//    DBG_RT( "Enabled: 0x%06x\n", KernelAndKextPatches.FakeCPUID);
+////    KernelAndKextPatcherInit();
+////    if (KernelData == NULL) goto NoKernelData;
+//    KernelCPUIDPatch();
+//  } else {
+//    DBG_RT( "Disabled\n");
+//  }
+//
+//  // CPU power management patch for CPU with locked msr
+//  DBG_RT( "\nKernelPm patch: ");
+//  if (KernelAndKextPatches.KPKernelPm||GlobalConfig.NeedPMfix || KernelAndKextPatches.KPKernelXCPM) {
+//    DBG_RT( "Enabled: \n");
+//    DBG( "KernelPm patch: Enabled\n");
+////    KernelAndKextPatcherInit();
+////    if (KernelData == NULL) goto NoKernelData;
+//    patchedOk = false;
+//    if (is64BitKernel) {
+//      patchedOk = KernelPatchPm();
+//    }
+//    DBG_RT( patchedOk ? " OK\n" : " FAILED!\n");
+//  } else {
+//    DBG_RT( "Disabled\n");
+//  }
+//
+//  // Patch to not dump kext at panic (c)vit9696
+//  DBG_RT( "\nPanicNoKextDump patch: ");
+//  if (KernelAndKextPatches.KPPanicNoKextDump) {
+//    DBG_RT( "Enabled: \n");
+////    KernelAndKextPatcherInit();
+////    if (KernelData == NULL) goto NoKernelData;
+//    patchedOk = KernelPanicNoKextDump();
+//    DBG_RT( patchedOk ? " OK\n" : " FAILED!\n");
+//  } else {
+//    DBG_RT( "Disabled\n");
+//  }
+//
+//
+//  // Lapic Panic Kernel Patch
+//  DBG_RT( "\nKernelLapic patch: ");
+//  if (KernelAndKextPatches.KPKernelLapic) {
+//    DBG_RT( "Enabled: \n");
+////    KernelAndKextPatcherInit();
+////    if (KernelData == NULL) goto NoKernelData;
+//    if(is64BitKernel) {
+//      DBG_RT( "64-bit patch ...\n");
+//      patchedOk = KernelLapicPatch_64();
+//    } else {
+//      DBG_RT( "32-bit patch ...\n");
+//      patchedOk = KernelLapicPatch_32();
+//    }
+//    DBG_RT( patchedOk ? " OK\n" : " FAILED!\n");
+//  } else {
+//    DBG_RT( "Disabled\n");
+//  }
+//
+//  if (KernelAndKextPatches.KPKernelXCPM) {
+//    //
+//    // syscl - EnableExtCpuXCPM: Enable unsupported CPU's PowerManagement
+//    //
+////    EnableExtCpuXCPM = NULL;
+//    patchedOk = false;
+////    XBool apply_idle_patch = (gCPUStructure.Model >= CPU_MODEL_SKYLAKE_U) && gSettings.HWP;
+////    KernelAndKextPatcherInit();
+////    if (KernelData == NULL) goto NoKernelData;
+//
+//    // syscl - now enable extra Cpu's PowerManagement
+//    // only Intel support this feature till now
+//    // move below code outside the if condition if AMD supports
+//    // XCPM later on
+//
+//    if (gCPUStructure.Vendor == CPU_VENDOR_INTEL) {
+//      switch (gCPUStructure.Model) {
+//          case CPU_MODEL_JAKETOWN:
+//            // SandyBridge-E LGA2011
+//            patchedOk = SandyBridgeEPM();
+//            gSNBEAICPUFixRequire = true;       // turn on SandyBridge-E AppleIntelCPUPowerManagement Fix
+//            break;
+//
+//          case CPU_MODEL_IVY_BRIDGE:
+//            // IvyBridge
+//            patchedOk = KernelIvyBridgeXCPM();
+//            break;
+//
+//          case CPU_MODEL_IVY_BRIDGE_E5:
+//            // IvyBridge-E
+//            patchedOk = KernelIvyE5XCPM();
+//            break;
+//
+//          case CPU_MODEL_HASWELL_E:
+//            // Haswell-E
+//            patchedOk = HaswellEXCPM();
+//            break;
+//
+//          case CPU_MODEL_BROADWELL_E5:
+//          case CPU_MODEL_BROADWELL_DE:
+//            // Broadwell-E/EP
+//            patchedOk = BroadwellEPM();
+//            gBDWEIOPCIFixRequire = true;
+//            break;
+//
+//          default:
+//            if (gCPUStructure.Model >= CPU_MODEL_HASWELL &&
+//               ( gCPUStructure.BrandString.contains("Celeron") ||
+//                 gCPUStructure.BrandString.contains("Pentium"))) {
+//              // Haswell+ low-end CPU
+//              patchedOk = HaswellLowEndXCPM();
+//            }
+//            break;
+//      }
+//    }
+//	  DBG_RT( "EnableExtCpuXCPM - %s!\n", patchedOk? "OK" : "FAILED");
+//  }
+//
+//  Stall(2000000);
+//  //
+//  // Kext patches
+//  //
+//
+//  // we need to scan kexts if "InjectKexts true and CheckFakeSMC"
+//  if (/*OSFLAG_ISSET(Flags, OSFLAG_WITHKEXTS) || */
+//      OSFLAG_ISSET(Flags, OSFLAG_CHECKFAKESMC)) {
+//    DBG_RT( "\nAllowing kext patching to check if FakeSMC is present\n");
+//    GlobalConfig.KextPatchesAllowed = true;
+//    KextPatchesNeeded = true;
+//  }
+//
+//  DBG_RT( "\nKextPatches Needed: %c, Allowed: %c ... ",
+//         (KextPatchesNeeded ? L'Y' : L'n'),
+//         (GlobalConfig.KextPatchesAllowed ? L'Y' : L'n')
+//         );
+//
+//  if (KextPatchesNeeded && GlobalConfig.KextPatchesAllowed) {
+////    DBG_RT( "\nKext patching INIT\n");
+////    KernelAndKextPatcherInit();
+////    if (KernelData == NULL) goto NoKernelData;
+//    DBG_RT( "\nKext patching STARTED\n");
+//    KextPatcherStart();  //is FakeSMC found in cache then inject will be disabled
+//    DBG_RT( "\nKext patching ENDED\n");
+//  } else {
+//    DBG_RT( "Disabled\n");
+//  }
+//
+//  Stall(1000000);
+//
+//  //
+//  // Kext add
+//  //
+////  if (KernelAndKextPatches.KPDebug) {
+////    if (OSFLAG_ISSET(Entry->Flags, OSFLAG_CHECKFAKESMC) &&
+////        OSFLAG_ISUNSET(Entry->Flags, OSFLAG_WITHKEXTS)) {
+////    disabled kext injection if FakeSMC is already present
+////    Entry->Flags = OSFLAG_UNSET(Entry->Flags, OSFLAG_WITHKEXTS); //Slice - we are already here
+////
+////      DBG_RT( "\nInjectKexts: disabled because FakeSMC is already present and InjectKexts option set to Detect\n");
+////      gBS->Stall(500000);
+////    }
+////  }
+//
+//  if (OSFLAG_ISSET(Flags, OSFLAG_WITHKEXTS)) {
+//    UINT32      deviceTreeP;
+//    UINT32      *deviceTreeLength;
+//    EFI_STATUS  Status;
+//    UINTN       DataSize;
+//
+//    // check if FSInject already injected kexts
+//    DataSize = 0;
+//    Status = gRT->GetVariable (L"FSInject.KextsInjected", &gEfiGlobalVariableGuid, NULL, &DataSize, NULL);
+//    if (Status == EFI_BUFFER_TOO_SMALL) {
+//      // var exists - just exit
+//
+//      DBG_RT( "\nInjectKexts: skipping, FSInject already injected them\n");
+//      Stall(500000);
+//      return;
+//    }
+//
+////    KernelAndKextPatcherInit();
+////    if (KernelData == NULL) goto NoKernelData;
+//    if (bootArgs1 != NULL) {
+//      deviceTreeP = bootArgs1->deviceTreeP;
+//      deviceTreeLength = &bootArgs1->deviceTreeLength;
+//    } else if (bootArgs2 != NULL) {
+//      deviceTreeP = bootArgs2->deviceTreeP;
+//      deviceTreeLength = &bootArgs2->deviceTreeLength;
+//    } else return;
+//
+//    Status = InjectKexts(deviceTreeP, deviceTreeLength);
+//    DBG_RT("Inject kexts done at 0x%llx\n", (UINTN)deviceTreeP);
+//    if (!EFI_ERROR(Status)) KernelBooterExtensionsPatch();
+//  }
+//
+//  return;
+//
+//NoKernelData:
+//  Stall(5000000);
+//}

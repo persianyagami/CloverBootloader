@@ -29,6 +29,7 @@
  */
 //Slice - rewrite for UEFI with more functions like Copyright (c) 2003 Apple Computer
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
+#include "../../cpp_foundation/apd.h"
 #include "../b64cdecode.h"
 #include "plist.h"
 #include "../../libeg/FloatLib.h"
@@ -57,7 +58,7 @@ EFI_STATUS ParseTagInteger(CHAR8* buffer, TagStruct* * tag, UINT32* lenPtr);
 EFI_STATUS ParseTagFloat(CHAR8* buffer, TagStruct* * tag, UINT32* lenPtr);
 EFI_STATUS ParseTagData(CHAR8* buffer, TagStruct* * tag, UINT32* lenPtr);
 EFI_STATUS ParseTagDate(CHAR8* buffer, TagStruct* * tag, UINT32* lenPtr);
-EFI_STATUS ParseTagBoolean(TagStruct* * tag, bool value, UINT32* lenPtr);
+EFI_STATUS ParseTagBoolean(TagStruct* * tag, XBool value, UINT32* lenPtr);
 
 EFI_STATUS XMLParseNextTag (CHAR8  *buffer, TagStruct**tag, UINT32 *lenPtr);
 
@@ -75,97 +76,28 @@ EFI_STATUS FixDataMatchingTag( CHAR8* buffer, CONST CHAR8* tag,UINT32* lenPtr);
 #include "TagFloat.h"
 #include "TagInt64.h"
 #include "TagString8.h"
-//
-////UINTN newtagcount = 0;
-////UINTN tagcachehit = 0;
-//TagStruct* TagStruct::getEmptyTag()
-//{
-//  TagStruct*  tag;
-//
-//  if ( gTagsFree.size() > 0 ) {
-//    tag = &gTagsFree[0];
-//    gTagsFree.RemoveWithoutFreeingAtIndex(0);
-////tagcachehit++;
-////DBG("tagcachehit=%lld\n", tagcachehit);
-//    return tag;
-//  }
-//  tag = new TagStruct();
-////newtagcount += 1;
-////DBG("newtagcount=%lld\n", newtagcount);
-//  return tag;
-//}
-//
-//TagStruct* TagStruct::getEmptyDictTag()
-//{
-//  TagStruct* newDictTag = getEmptyTag();
-//  newDictTag->type = kTagTypeDict;
-//  return newDictTag;
-//}
-//
-//TagStruct* TagStruct::getEmptyArrayTag()
-//{
-//  TagStruct* newArrayTag = getEmptyTag();
-//  newArrayTag->type = kTagTypeArray;
-//  return newArrayTag;
-//}
 
-//void TagStruct::FreeTag()
-//{
-//  // Clear and free the tag.
-//  type = kTagTypeNone;
-//
-//  _string.setEmpty();
-//  _intValue = 0;
-//  _floatValue = 0;
-//
-//  if ( _data ) {
-//      FreePool(_data);
-//      _data = NULL;
-//  }
-//  _dataLen = 0;
-//
-//  //while ( tagIdx < _dictOrArrayContent.notEmpty() ) {
-//  //  _dictOrArrayContent[0].FreeTag();
-//  //  _dictOrArrayContent.RemoveWithoutFreeingAtIndex(0);
-//  //}
-//  // this loop is better because removing objects from the end don't do any memory copying.
-//  for (size_t tagIdx = _dictOrArrayContent.size() ; tagIdx > 0  ; ) {
-//    tagIdx--;
-//    _dictOrArrayContent[tagIdx].FreeTag();
-//    _dictOrArrayContent.RemoveWithoutFreeingAtIndex(tagIdx);
-//  }
-//
-//  gTagsFree.AddReference(this, false);
-//}
+#ifdef TagStruct_COUNT_CACHEHITMISS
+size_t TagStruct::cachemiss = 0;
+size_t TagStruct::cachehit = 0;
+#endif
 
+void TagStruct::EmptyCache()
+{
+#ifdef TagStruct_USE_CACHE
+  TagArray::tagsFree.setEmpty();
+  TagBool::tagsFree.setEmpty();
+  TagData::tagsFree.setEmpty();
+  TagDate::tagsFree.setEmpty();
+  TagDict::tagsFree.setEmpty();
+  TagFloat::tagsFree.setEmpty();
+  TagInt64::tagsFree.setEmpty();
+  TagKey::tagsFree.setEmpty();
+  TagString::tagsFree.setEmpty();
+#endif
+}
 
-//TagStruct* GetNextProperty(TagStruct* dict)
-//{
-//  TagStruct* tagList, tag;
-//
-//  if (dict->isDict()) {
-//    return NULL;
-//  }
-//
-//  tag = NULL;
-//  tagList = dict->tag;
-//  while (tagList)
-//  {
-//    tag = tagList;
-//    tagList = tag->tagNext;
-//
-//    if ( !tag->isKey() ||  tag->keyValue().isEmpty() ) {
-//      continue;
-//
-//    }
-//    return tag->tag;
-//  }
-//
-//  return NULL;
-//}
-//
-
-bool TagStruct::debugIsEqual(const TagStruct& other, const XString8& label) const
+XBool TagStruct::debugIsEqual(const TagStruct& other, const XString8& label) const
 {
   if ( *this != other ) {
     MsgLog("Difference at %s\n", label.c_str());
@@ -184,29 +116,29 @@ void TagStruct::printf(unsigned int ident) const
 }
 
 // Convenience method
-bool TagStruct::isTrue() const
+XBool TagStruct::isTrue() const
 {
   if ( isBool() ) return getBool()->boolValue();
   return false;
 }
-bool TagStruct::isFalse() const
+XBool TagStruct::isFalse() const
 {
   if ( isBool() ) return !getBool()->boolValue();
   return false;
 }
-bool TagStruct::isTrueOrYy() const
+XBool TagStruct::isTrueOrYy() const
 {
   if ( isBool() ) return getBool()->boolValue();
   if ( isString() && getString()->stringValue().notEmpty() && (getString()->stringValue()[0] == 'y' || getString()->stringValue()[0] == 'Y') ) return true;
   return false;
 }
-bool TagStruct::isTrueOrYes() const
+XBool TagStruct::isTrueOrYes() const
 {
   if ( isBool() ) return getBool()->boolValue();
-  if ( isString() && getString()->stringValue().equal("Yes"_XS8) ) return true;
+  if ( isString() && getString()->stringValue().isEqual("Yes"_XS8) ) return true;
   return false;
 }
-bool TagStruct::isFalseOrNn() const
+XBool TagStruct::isFalseOrNn() const
 {
   if ( isBool() ) return !getBool()->boolValue();
   if ( isString() && getString()->stringValue().notEmpty() && (getString()->stringValue()[0] == 'n' || getString()->stringValue()[0] == 'N') ) return true;
@@ -222,27 +154,28 @@ bool TagStruct::isFalseOrNn() const
 // tag pointer and returns the end of the dic, or returns ?? if not found.
 //
 
-EFI_STATUS ParseXML(const CHAR8* buffer, TagDict** dict, size_t bufSize)
+EFI_STATUS ParseXML(const UINT8* buffer, TagDict** dict, size_t bufSize)
 {
   EFI_STATUS  Status;
   UINT32    length = 0;
   UINT32    pos = 0;
   TagStruct*    tag = NULL;
-  CHAR8*    configBuffer = NULL;
+  apd<CHAR8*> configBuffer = NULL;
   size_t    bufferSize = 0;
   UINTN     i;
 
   if (bufSize) {
     bufferSize = bufSize;
   } else {
-    bufferSize = (UINT32)strlen(buffer);
+    bufferSize = (UINT32)strlen((CHAR8*)buffer);
   }
   DBG("buffer size=%ld\n", bufferSize);
   if(dict == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
-  configBuffer = (__typeof__(configBuffer))AllocateZeroPool(bufferSize+1);
+  configBuffer = (CHAR8*)AllocateZeroPool(bufferSize+1);
+//  memset(configBuffer, 0, bufferSize+1);
   if(configBuffer == NULL) {
     return EFI_OUT_OF_RESOURCES;
   }
@@ -254,7 +187,7 @@ EFI_STATUS ParseXML(const CHAR8* buffer, TagDict** dict, size_t bufSize)
     }
   }
   buffer_start = configBuffer;
-  while (TRUE)
+  while (true)
   {
     Status = XMLParseNextTag(configBuffer + pos, &tag, &length);
     DBG("pos=%u\n", pos);
@@ -268,11 +201,11 @@ EFI_STATUS ParseXML(const CHAR8* buffer, TagDict** dict, size_t bufSize)
     if (tag == NULL) {
       continue;
     }
-    if (tag->isDict()) {
+    if (tag->isDict()||tag->isArray()) {
       break;
     }
 
-	  tag->FreeTag();
+	  tag->ReleaseTag();
     tag = NULL;
   }
 //  FreePool(configBuffer);
@@ -280,7 +213,8 @@ EFI_STATUS ParseXML(const CHAR8* buffer, TagDict** dict, size_t bufSize)
   if (EFI_ERROR(Status)) {
     return Status;
   }
-  *dict = tag->getDict();
+  if (tag->isDict()) *dict = tag->getDict();
+  else *dict = NULL;
   return EFI_SUCCESS;
 }
 
@@ -380,12 +314,12 @@ EFI_STATUS XMLParseNextTag(CHAR8* buffer, TagStruct** tag, UINT32* lenPtr)
   {
     Status = ParseTagDate(buffer + pos, tag, &length);
   }
-  /***** FALSE ****/
+  /***** false ****/
   else if (!strcmp(tagName, kXMLTagFalse))
   {
     Status = ParseTagBoolean(tag, false, &length);
   }
-  /***** TRUE ****/
+  /***** true ****/
   else if (!strcmp(tagName, kXMLTagTrue))
   {
     Status = ParseTagBoolean(tag, true, &length);
@@ -424,11 +358,11 @@ EFI_STATUS XMLParseNextTag(CHAR8* buffer, TagStruct** tag, UINT32* lenPtr)
 //==========================================================================
 // ParseTagList
 
-EFI_STATUS __ParseTagList(bool isArray, CHAR8* buffer, TagStruct** tag, UINT32 empty, UINT32* lenPtr)
+EFI_STATUS __ParseTagList(XBool isArray, CHAR8* buffer, TagStruct** tag, UINT32 empty, UINT32* lenPtr)
 {
   EFI_STATUS  Status = EFI_SUCCESS;
   UINT32    pos;
-  TagStruct*    tagTail;
+//  TagStruct*    tagTail;
   UINT32    length = 0;
 
   if (isArray) {
@@ -436,7 +370,7 @@ EFI_STATUS __ParseTagList(bool isArray, CHAR8* buffer, TagStruct** tag, UINT32 e
   } else {
     DBG("parsing dict len=%d\n", *lenPtr);
   }
-  tagTail = NULL;
+//  tagTail = NULL;
   pos = 0;
 
   TagStruct* dictOrArrayTag;
@@ -451,7 +385,7 @@ EFI_STATUS __ParseTagList(bool isArray, CHAR8* buffer, TagStruct** tag, UINT32 e
   XObjArray<TagStruct>& tagList = *tagListPtr;
 
   if (!empty) {
-    while (TRUE) {
+    while (true) {
       TagStruct* newDictOrArrayTag = NULL;
       Status = XMLParseNextTag(buffer + pos, &newDictOrArrayTag, &length);
       if (EFI_ERROR(Status)) {
@@ -469,7 +403,7 @@ EFI_STATUS __ParseTagList(bool isArray, CHAR8* buffer, TagStruct** tag, UINT32 e
     }
 
     if (EFI_ERROR(Status)) {
-      dictOrArrayTag->FreeTag();
+      dictOrArrayTag->ReleaseTag();
       return Status;
     }
   }
@@ -512,7 +446,7 @@ EFI_STATUS ParseTagKey( char * buffer, TagStruct** tag, UINT32* lenPtr)
 //    return Status;
 //  }
   tmpTag = TagKey::getEmptyTag();
-  tmpTag->setKeyValue(LString8(buffer));
+  tmpTag->setKeyValue(buffer, strlen(buffer));
 
   *tag = tmpTag;
   *lenPtr = length + length2;
@@ -539,7 +473,8 @@ EFI_STATUS ParseTagString(CHAR8* buffer, TagStruct* * tag,UINT32* lenPtr)
     return EFI_OUT_OF_RESOURCES;
   }
 
-  tmpTag->setStringValue(LString8(XMLDecode(buffer)));
+  size_t outlen = XMLDecode(buffer, strlen(buffer), buffer, strlen(buffer));
+  tmpTag->setStringValue(buffer, outlen);
   *tag = tmpTag;
   *lenPtr = length;
   DBG(" parse string %s\n", tmpTag->getString()->stringValue().c_str());
@@ -555,7 +490,7 @@ EFI_STATUS ParseTagInteger(CHAR8* buffer, TagStruct** tag, UINT32* lenPtr)
   UINT32    length = 0;
   INTN     integer;
   UINT32    size;
-  BOOLEAN   negative = FALSE;
+  XBool  negative = false;
   CHAR8*    val = buffer;
   TagInt64* tmpTag;
 
@@ -591,14 +526,14 @@ EFI_STATUS ParseTagInteger(CHAR8* buffer, TagStruct** tag, UINT32* lenPtr)
       else {
         MsgLog("ParseTagInteger hex error (0x%hhX) in buffer %s\n", *val, buffer);
         //        getchar();
-        tmpTag->FreeTag();
+        tmpTag->ReleaseTag();
         return EFI_UNSUPPORTED;
       }
     }
   }
   else if ( size ) {  // Decimal value
     if (*val == '-') {
-      negative = TRUE;
+      negative = true;
       val++;
       size--;
     }
@@ -608,7 +543,7 @@ EFI_STATUS ParseTagInteger(CHAR8* buffer, TagStruct** tag, UINT32* lenPtr)
         if (*val < '0' || *val > '9') {
           MsgLog("ParseTagInteger decimal error (0x%hhX) in buffer %s\n", *val, buffer);
           //          getchar();
-          tmpTag->FreeTag();
+          tmpTag->ReleaseTag();
           return EFI_UNSUPPORTED;
         }
         integer = (integer * 10) + (*val++ - '0');
@@ -670,7 +605,7 @@ EFI_STATUS ParseTagData(CHAR8* buffer, TagStruct* * tag, UINT32* lenPtr)
 
   tmpTag = TagData::getEmptyTag();
   //Slice - correction as Apple 2003
-//  tmpTag->setStringValue(LString8(buffer));
+//  tmpTag->setStringValue(buffer);
   // dmazar: base64 decode data
   UINTN  len = 0;
   UINT8* data = (UINT8 *)Base64DecodeClover(buffer, &len);
@@ -697,7 +632,7 @@ EFI_STATUS ParseTagDate(CHAR8* buffer, TagStruct* * tag,UINT32* lenPtr)
 
 
   tmpTag = TagDate::getEmptyTag();
-  tmpTag->setDateValue(LString8(buffer));
+  tmpTag->setDateValue(buffer, length);
 
   *tag = tmpTag;
   *lenPtr = length;
@@ -708,7 +643,7 @@ EFI_STATUS ParseTagDate(CHAR8* buffer, TagStruct* * tag,UINT32* lenPtr)
 //==========================================================================
 // ParseTagBoolean
 
-EFI_STATUS ParseTagBoolean(TagStruct** tag, bool value, UINT32* lenPtr)
+EFI_STATUS ParseTagBoolean(TagStruct** tag, XBool value, UINT32* lenPtr)
 {
   TagBool* tmpTag;
 
@@ -802,20 +737,20 @@ EFI_STATUS FixDataMatchingTag( CHAR8* buffer, CONST CHAR8* tag, UINT32* lenPtr)
 
 
 /*
- return TRUE if the property present && value = TRUE
- else return FALSE
+ return true if the property present && value = true
+ else return false
  */
-BOOLEAN
+XBool
 IsPropertyNotNullAndTrue(const TagStruct* Prop)
 {
   return Prop != NULL && Prop->isTrueOrYy();
 }
 
 /*
- return TRUE if the property present && value = FALSE
- else return FALSE
+ return true if the property present && value = false
+ else return false
  */
-BOOLEAN
+XBool
 IsPropertyNotNullAndFalse(const TagStruct* Prop)
 {
   return Prop != NULL && Prop->isFalseOrNn();
@@ -853,10 +788,10 @@ GetPropertyAsInteger(
     return (INTN)AsciiStrDecimalToUintn((Prop->getString()->stringValue()[0] == '+') ? (Prop->getString()->stringValue().c_str() + 1) : Prop->getString()->stringValue().c_str());
   } else if (Prop->isData()) {
 
-    INTN Size = Prop->getData()->dataLenValue();
+    UINTN Size = Prop->getData()->dataLenValue();
     if (Size > 8) Size = 8;
     INTN Data = 0;
-    CopyMem(&Data, Prop->getData()->dataValue(), Size);
+    memcpy(&Data, Prop->getData()->dataValue(), Size);
     return Data;
   }
   return Default;

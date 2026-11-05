@@ -37,15 +37,22 @@
 
 #ifdef ENABLE_SECURE_BOOT
 
+#include <Platform.h>
+#include "../Platform/Settings.h"
 #include "entry_scan.h"
 
 #include <Guid/ImageAuthentication.h>
 
 #include "securebootkeys.h"
 
+#include <openssl/configuration.h>
+#undef OPENSSL_NO_DEPRECATED
+
+#include <openssl/types.h>
+#include <openssl/pkcs7.h>
 #include <openssl/err.h>
+#include <openssl/evp.h>
 #include <openssl/pem.h>
-#include <openssl/sha.h>
 
 #ifndef DEBUG_ALL
 #define DEBUG_SECURE_VARS 1
@@ -67,13 +74,13 @@
 EFI_STATUS ClearSecureBootKeys(void)
 {
   // Clear the platform database
-  return gRT->SetVariable(PLATFORM_DATABASE_NAME, &PLATFORM_DATABASE_GUID, SET_DATABASE_ATTRIBUTES, sizeof(gSecureBootPlatformNullSignedKey), (void *)gSecureBootPlatformNullSignedKey);
+  return gRT->SetVariable(PLATFORM_DATABASE_NAME, PLATFORM_DATABASE_GUID, SET_DATABASE_ATTRIBUTES, sizeof(gSecureBootPlatformNullSignedKey), (void *)gSecureBootPlatformNullSignedKey);
 }
 
 // Enroll the secure boot keys
 EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
                                 IN UINTN    AuthorizedDatabaseSize,
-                                IN BOOLEAN  WantDefaultKeys)
+                                IN XBool    WantDefaultKeys)
 {
   EFI_STATUS Status;
 
@@ -86,8 +93,8 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
   if (WantDefaultKeys) {
     // Get default authorized database
     DBG("Retrieving default authorized database ...\n");
-    Database = GetSignatureDatabase(DEFAULT_AUTHORIZED_DATABASE_NAME, &DEFAULT_AUTHORIZED_DATABASE_GUID, &DatabaseSize);
-    if ((DatabaseSize == 0) && (Database != NULL)) {
+    Database = GetSignatureDatabase(DEFAULT_AUTHORIZED_DATABASE_NAME, DEFAULT_AUTHORIZED_DATABASE_GUID, &DatabaseSize);
+    if ( DatabaseSize == 0  &&  Database != NULL ) {
       FreePool(Database);
       Database = NULL;
     }
@@ -96,7 +103,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
   if (Database != NULL) {
     DBG("Appending default authorized database to authorized database ...\n");
     //Status = AppendSignatureDatabaseToDatabase(&Database, &DatabaseSize, AuthorizedDatabase, AuthorizedDatabaseSize);
-    Status = AppendSignatureToDatabase(&Database, &DatabaseSize, &gEfiCertX509Guid, (void *)gSecureBootDatabaseKey, sizeof(gSecureBootDatabaseKey));
+    Status = AppendSignatureToDatabase(&Database, &DatabaseSize, gEfiCertX509Guid, (void *)gSecureBootDatabaseKey, sizeof(gSecureBootDatabaseKey));
     if (EFI_ERROR(Status)) {
       FreePool(Database);
       return Status;
@@ -113,7 +120,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
       DBG("No default authorized database found, using built-in default keys ...\n");
       DatabaseSize = 0;
       Database = NULL;
-      Status = AppendSignatureToDatabase(&Database, &DatabaseSize, &gEfiCertX509Guid, (void *)gSecureBootCanonicalDatabaseKey, sizeof(gSecureBootCanonicalDatabaseKey));
+      Status = AppendSignatureToDatabase(&Database, &DatabaseSize, gEfiCertX509Guid, (void *)gSecureBootCanonicalDatabaseKey, sizeof(gSecureBootCanonicalDatabaseKey));
       if (EFI_ERROR(Status)) {
         if (Database != NULL) {
           FreePool(Database);
@@ -121,7 +128,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
         DBG("Failed to modify authorized database with Canonical key! %s\n", efiStrError(Status));
         return Status;
       }
-      Status = AppendSignatureToDatabase(&Database, &DatabaseSize, &gEfiCertX509Guid, (void *)gSecureBootMSPCADatabaseKey, sizeof(gSecureBootMSPCADatabaseKey));
+      Status = AppendSignatureToDatabase(&Database, &DatabaseSize, gEfiCertX509Guid, (void *)gSecureBootMSPCADatabaseKey, sizeof(gSecureBootMSPCADatabaseKey));
       if (EFI_ERROR(Status)) {
         if (Database != NULL) {
           FreePool(Database);
@@ -129,7 +136,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
         DBG("Failed to modify authorized database with MS PCA key! %s\n", efiStrError(Status));
         return Status;
       }
-      Status = AppendSignatureToDatabase(&Database, &DatabaseSize, &gEfiCertX509Guid, (void *)gSecureBootMSUEFICADatabaseKey, sizeof(gSecureBootMSUEFICADatabaseKey));
+      Status = AppendSignatureToDatabase(&Database, &DatabaseSize, gEfiCertX509Guid, (void *)gSecureBootMSUEFICADatabaseKey, sizeof(gSecureBootMSUEFICADatabaseKey));
       if (EFI_ERROR(Status)) {
         if (Database != NULL) {
           FreePool(Database);
@@ -138,7 +145,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
         return Status;
       }
     }
-    Status = AppendSignatureToDatabase(&Database, &DatabaseSize, &gEfiCertX509Guid, (void *)gSecureBootDatabaseKey, sizeof(gSecureBootDatabaseKey));
+    Status = AppendSignatureToDatabase(&Database, &DatabaseSize, gEfiCertX509Guid, (void *)gSecureBootDatabaseKey, sizeof(gSecureBootDatabaseKey));
     //Status = AppendSignatureToDatabase(&Database, &DatabaseSize, &gEfiCertX509Guid, AuthorizedDatabase, AuthorizedDatabaseSize);
     Status = SetAuthorizedDatabase(Database, DatabaseSize);
     FreePool(Database);
@@ -157,14 +164,14 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
     DBG("Retrieving the default unauthorized database ...\n");
     DatabaseSize = 0;
     Database = NULL;
-    Database = GetSignatureDatabase(DEFAULT_UNAUTHORIZED_DATABASE_NAME, &DEFAULT_UNAUTHORIZED_DATABASE_GUID, &DatabaseSize);
+    Database = GetSignatureDatabase(DEFAULT_UNAUTHORIZED_DATABASE_NAME, DEFAULT_UNAUTHORIZED_DATABASE_GUID, &DatabaseSize);
     if ((DatabaseSize == 0) && (Database != NULL)) {
       FreePool(Database);
       Database = NULL;
     }
     // Set the unauthorized database
     if (Database != NULL) {
-      Status = SetSignatureDatabase(UNAUTHORIZED_DATABASE_NAME, &UNAUTHORIZED_DATABASE_GUID, Database, DatabaseSize);
+      Status = SetSignatureDatabase(UNAUTHORIZED_DATABASE_NAME, UNAUTHORIZED_DATABASE_GUID, Database, DatabaseSize);
       FreePool(Database);
       DatabaseSize = 0;
       if (EFI_ERROR(Status)) {
@@ -179,7 +186,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
   if (WantDefaultKeys) {
     // Get the default exchange database
     DBG("Retrieving default exchange database ...\n");
-    Database = GetSignatureDatabase(DEFAULT_EXCHANGE_DATABASE_NAME, &DEFAULT_EXCHANGE_DATABASE_GUID, &DatabaseSize);
+    Database = GetSignatureDatabase(DEFAULT_EXCHANGE_DATABASE_NAME, DEFAULT_EXCHANGE_DATABASE_GUID, &DatabaseSize);
     if ((DatabaseSize == 0) && (Database != NULL)) {
       FreePool(Database);
       Database = NULL;
@@ -189,7 +196,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
       DBG("No default exchange database found, using built-in default keys ...\n");
       DatabaseSize = 0;
       Database = NULL;
-      Status = AppendSignatureToDatabase(&Database, &DatabaseSize, &gEfiCertX509Guid, (void *)gSecureBootMSExchangeKey, sizeof(gSecureBootMSExchangeKey));
+      Status = AppendSignatureToDatabase(&Database, &DatabaseSize, gEfiCertX509Guid, (void *)gSecureBootMSExchangeKey, sizeof(gSecureBootMSExchangeKey));
       if (EFI_ERROR(Status)) {
         if (Database != NULL) {
           FreePool(Database);
@@ -201,7 +208,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
   }
   // Set the exchange database
   DBG("Modifying exchange database ...\n");
-  Status = AppendSignatureToDatabase(&Database, &DatabaseSize, &gEfiCertX509Guid, (void *)gSecureBootExchangeKeyDER, sizeof(gSecureBootExchangeKeyDER));
+  Status = AppendSignatureToDatabase(&Database, &DatabaseSize, gEfiCertX509Guid, (void *)gSecureBootExchangeKeyDER, sizeof(gSecureBootExchangeKeyDER));
     
   if (EFI_ERROR(Status)) {
     if (Database != NULL) {
@@ -211,7 +218,7 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
     return Status;
   }
   DBG("Setting the exchange database ...\n");
-  Status = SetSignatureDatabase(EXCHANGE_DATABASE_NAME, &EXCHANGE_DATABASE_GUID, Database, DatabaseSize);
+  Status = SetSignatureDatabase(EXCHANGE_DATABASE_NAME, EXCHANGE_DATABASE_GUID, Database, DatabaseSize);
   FreePool(Database);
   DatabaseSize = 0;
   Database = NULL;
@@ -222,14 +229,14 @@ EFI_STATUS EnrollSecureBootKeys(IN void    *AuthorizedDatabase,
   // Unsure if default platform database should be enrolled.....???
   // Set the platform database - NOT ENROLLING DEFAULT PLATFORM DATABASE, ONLY CLOVER SHOULD OWN PLATFORM(?)
   DBG("Setting the platform database ...\n");
-  Status = gRT->SetVariable(PLATFORM_DATABASE_NAME, &PLATFORM_DATABASE_GUID, SET_DATABASE_ATTRIBUTES, sizeof(gSecureBootPlatformSignedKey), (void *)gSecureBootPlatformSignedKey);
+  Status = gRT->SetVariable(PLATFORM_DATABASE_NAME, PLATFORM_DATABASE_GUID, SET_DATABASE_ATTRIBUTES, sizeof(gSecureBootPlatformSignedKey), (void *)gSecureBootPlatformSignedKey);
 
   return Status;
 }
 
 // Read signature database
-void *GetSignatureDatabase(IN  CHAR16   *DatabaseName,
-                           IN  EFI_GUID *DatabaseGuid,
+void *GetSignatureDatabase(const wchar_t *DatabaseName,
+                           const EFI_GUID& DatabaseGuid,
                            OUT UINTN    *DatabaseSize)
 {
   UINTN  Size = 0;
@@ -239,7 +246,7 @@ void *GetSignatureDatabase(IN  CHAR16   *DatabaseName,
     return NULL;
   }
   *DatabaseSize = 0;
-  if ((DatabaseName == NULL) || (DatabaseGuid == NULL)) {
+  if ( DatabaseName == NULL  ||  DatabaseGuid.isNull() ) {
     return NULL;
   }
   // Get database size
@@ -368,11 +375,11 @@ STATIC EFI_STATUS GetUTCTime(OUT EFI_TIME *Timestamp)
 }
 
 // Write signed variable
-EFI_STATUS SetSignedVariable(IN CHAR16   *DatabaseName,
-                             IN EFI_GUID *DatabaseGuid,
-                             IN UINT32    Attributes,
-                             IN void     *Database,
-                             IN UINTN     DatabaseSize)
+EFI_STATUS SetSignedVariable(const wchar_t*    DatabaseName,
+                             const EFI_GUID&   DatabaseGuid,
+                             IN UINT32              Attributes,
+                             IN void               *Database,
+                             IN UINTN               DatabaseSize)
 {
   EFI_STATUS                     Status;
   EFI_VARIABLE_AUTHENTICATION_2 *Authentication;
@@ -386,10 +393,10 @@ EFI_STATUS SetSignedVariable(IN CHAR16   *DatabaseName,
   EVP_PKEY                      *PrivateKey = NULL;
   const EVP_MD                  *md;
   // Check parameters
-  if ((DatabaseName == NULL) || (DatabaseGuid == NULL)) {
+  if ( DatabaseName == NULL  ||  DatabaseGuid.isNull() ) {
     return EFI_INVALID_PARAMETER;
   }
-  DBG("Setting secure variable: %s %ls 0x%hhX (0x%hhX)\n", strguid(DatabaseGuid), DatabaseName, Database, DatabaseSize);
+  DBG("Setting secure variable: %s %ls 0x%llX (0x%llX)\n", DatabaseGuid.toXString8().c_str(), DatabaseName, uintptr_t(Database), DatabaseSize);
   NameLen = StrLen(DatabaseName);
   if (NameLen == 0) {
     return EFI_INVALID_PARAMETER;
@@ -400,9 +407,9 @@ EFI_STATUS SetSignedVariable(IN CHAR16   *DatabaseName,
   if (EFI_ERROR(Status)) {
     return Status;
   }
-  DBG("Timestamp: %t\n", Timestamp);
+  // TODO: %t specifier DBG("Timestamp: %t\n", Timestamp);
   // In user mode we need to sign the database with exchange key
-  if (!gSettings.SecureBootSetupMode) {
+  if (!GlobalConfig.SecureBootSetupMode) {
     // Initialize the cyphers and digests
     ERR_load_crypto_strings();
     OpenSSL_add_all_digests();
@@ -431,7 +438,7 @@ EFI_STATUS SetSignedVariable(IN CHAR16   *DatabaseName,
     // Do the actual signing process
     BioData = BIO_new(BIO_s_mem());
     BIO_write(BioData, DatabaseName, (int)StrLen(DatabaseName));
-    BIO_write(BioData, DatabaseGuid, sizeof(EFI_GUID));
+    BIO_write(BioData, &DatabaseGuid, sizeof(EFI_GUID));
     BIO_write(BioData, &Attributes, sizeof(UINT32));
     BIO_write(BioData, &Timestamp, sizeof(EFI_TIME));
     BIO_write(BioData, Database, (int)DatabaseSize);
@@ -488,7 +495,7 @@ EFI_STATUS SetSignedVariable(IN CHAR16   *DatabaseName,
   } else {
     CopyMem(((UINT8 *)Authentication) + sizeof(EFI_TIME) + sizeof(EFI_GUID) + sizeof(UINT32) + sizeof(UINT16) + sizeof(UINT16), Database, DatabaseSize); //Payload, PayloadSize);
   }
-  DBG("Writing secure variable 0x%hhX (0x%hhX) ...\n", Authentication, Size);
+  DBG("Writing secure variable 0x%llX (0x%llX) ...\n", uintptr_t(Authentication), Size);
   // Write the database variable
   Status = gRT->SetVariable(DatabaseName, DatabaseGuid, SET_DATABASE_ATTRIBUTES, Size, Authentication);
   // Cleanup the authentication buffer
@@ -497,15 +504,15 @@ EFI_STATUS SetSignedVariable(IN CHAR16   *DatabaseName,
 }
 
 // Write signature database
-EFI_STATUS SetSignatureDatabase(IN CHAR16   *DatabaseName,
-                                IN EFI_GUID *DatabaseGuid,
+EFI_STATUS SetSignatureDatabase(const wchar_t* DatabaseName,
+                                const EFI_GUID& DatabaseGuid,
                                 IN void     *Database,
                                 IN UINTN     DatabaseSize)
 {
   EFI_STATUS Status;
   // Check is valid to set database
-  if ((gSettings.SecureBoot && gSettings.SecureBootSetupMode) ||
-      (!gSettings.SecureBoot && !gSettings.SecureBootSetupMode)) {
+  if ((GlobalConfig.SecureBoot && GlobalConfig.SecureBootSetupMode) ||
+      (!GlobalConfig.SecureBoot && !GlobalConfig.SecureBootSetupMode)) {
     return EFI_NOT_FOUND;
   }
   // Erase database

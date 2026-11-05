@@ -2,6 +2,7 @@
 #define __MacOsVersion_H__
 
 #include "../cpp_foundation/XStringArray.h"
+#include "Utils.h"
 
 const XString8 getSuffixForMacOsVersion(int LoaderType);
 
@@ -25,8 +26,8 @@ class AbstractMacOsVersion
     int nbElement() const { int idx; for ( idx=0 ; idx < nbMaxElement && versionsNumber[idx] != -1 ; idx++ ) {}; return idx; }
     int lastElement() const { int idx; for ( idx=1 ; idx < nbMaxElement && versionsNumber[idx] != -1 ; idx++ ) {}; return versionsNumber[idx-1]; }
     void setEmpty() { lastError.setEmpty(); for ( size_t idx=0 ; idx < nbMaxElement ; idx++ ) versionsNumber[idx] = -1; }
-    bool isEmpty() const { return versionsNumber[0] == -1; }
-    bool notEmpty() const { return !isEmpty(); }
+    XBool isEmpty() const { return versionsNumber[0] == -1; }
+    XBool notEmpty() const { return !isEmpty(); }
 
     template<typename IntegralType, enable_if(is_integral(IntegralType))>
     int elementAt(IntegralType i) const {
@@ -229,7 +230,7 @@ class MacOsVersion : public AbstractMacOsVersion
     }
 
         
-    bool match(const MacOsVersionPattern& pattern) const
+    XBool match(const MacOsVersionPattern& pattern) const
     {
 //      int nbMax = nbElemen() <= pattern.nbMaxElement ? nbMaxElement : pattern.nbMaxElement;
       int idx;
@@ -250,16 +251,16 @@ class MacOsVersion : public AbstractMacOsVersion
       return false;
     }
     
-    bool operator ==(const MacOsVersion &other) const
+    XBool operator ==(const MacOsVersion &other) const
     {
       for ( size_t idx=0 ; idx < nbMaxElement ; idx++ ) {
         if ( versionsNumber[idx] != other.elementAt(idx) ) return false;
       }
       return true;
     };
-    bool operator !=(const MacOsVersion &other) const { return ! ( *this == other); }
+    XBool operator !=(const MacOsVersion &other) const { return ! ( *this == other); }
     
-    bool operator <(const MacOsVersion &other) const
+    XBool operator <(const MacOsVersion &other) const
     {
       for ( size_t idx=0 ; idx < nbMaxElement ; idx++ ) {
         if ( versionsNumber[idx] < other.elementAt(idx) ) return true;
@@ -267,9 +268,9 @@ class MacOsVersion : public AbstractMacOsVersion
       }
       return false; // here, means it's equal
     };
-    bool operator >=(const MacOsVersion &other) const { return ! ( *this < other); }
+    XBool operator >=(const MacOsVersion &other) const { return ! ( *this < other); }
     
-    bool operator >(const MacOsVersion &other) const
+    XBool operator >(const MacOsVersion &other) const
     {
       for ( size_t idx=0 ; idx < nbMaxElement ; idx++ ) {
         if ( versionsNumber[idx] > other.elementAt(idx) ) return true;
@@ -277,7 +278,7 @@ class MacOsVersion : public AbstractMacOsVersion
       }
       return false; // here, means it's equal
     };
-    bool operator <=(const MacOsVersion &other) const { return ! ( *this > other); }
+    XBool operator <=(const MacOsVersion &other) const { return ! ( *this > other); }
 };
 
 

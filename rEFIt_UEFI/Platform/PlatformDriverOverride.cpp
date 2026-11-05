@@ -9,7 +9,7 @@
  */
 
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
-#include <Protocol/PlatformDriverOverride.h>
+#include <Efi.h>
 
 #ifndef DEBUG_ALL
 #define DEBUG_PLO 1
@@ -119,7 +119,7 @@ OurPlatformDriverLoaded (
   
   Status = gBS->OpenProtocol(
                              DriverImageHandle,
-                             &gEfiComponentNameProtocolGuid,
+                             gEfiComponentNameProtocolGuid,
                              (void**)&CompName,
                              gImageHandle,
                              NULL,
@@ -213,7 +213,7 @@ void RegisterDriversToHighestPriority(IN EFI_HANDLE *PriorityDrivers)
   EFI_STATUS                            Status;
   
   mPriorityDrivers = PriorityDrivers;
-  Status = gBS->LocateProtocol(&gEfiPlatformDriverOverrideProtocolGuid, NULL, (void **) &PlatformDriverOverride);
+  Status = gBS->LocateProtocol(gEfiPlatformDriverOverrideProtocolGuid, NULL, (void **) &PlatformDriverOverride);
   if (EFI_ERROR(Status)) {
     DBG("PlatformDriverOverrideProtocol not found. Installing ... ");
     Status = gBS->InstallMultipleProtocolInterfaces (

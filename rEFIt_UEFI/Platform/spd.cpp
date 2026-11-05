@@ -24,7 +24,7 @@
 
 #ifndef DEBUG_SPD
 #ifndef DEBUG_ALL
-#define DEBUG_SPD 0
+#define DEBUG_SPD 1
 #else
 #define DEBUG_SPD DEBUG_ALL
 #endif
@@ -36,15 +36,8 @@
 #define DBG(...) DebugLog(DEBUG_SPD, __VA_ARGS__)
 #endif
 
-//extern EFI_DATA_HUB_PROTOCOL			*gDataHub;
 
-//extern DMI*					gDMI;
-
-//==>
-extern UINT16 TotalCount;
-//<==
-
-BOOLEAN             smbIntel;
+XBool       smbIntel;
 UINT8				smbPage;
 
 CONST CHAR8 *spd_memory_types[] =
@@ -384,7 +377,7 @@ CONST CHAR8* getVendorName(RAM_SLOT_INFO* slot, UINT8 *spd, UINT32 base, UINT8 s
     }
   }
   /* OK there is no vendor id here lets try to match the partnum if it exists */
-  if (AsciiStrStr(slot->PartNo,"GU332") == slot->PartNo) { // Unifosa fingerprint
+  if ( slot->PartNo.startWithOrEqualTo("GU332") ) { // Unifosa fingerprint
     return "Unifosa";
   }
   return "NoName";
@@ -477,16 +470,19 @@ UINT16 getDDRspeedMhz(UINT8 * spd)
   if (xmpProfiles) {
     MsgLog("Found module with XMP version %d.%d\n", (xmpVersion >> 4) & 0xF, xmpVersion & 0xF);
 
-    switch (gSettings.XMPDetection) {
+    switch (gSettings.Boot.XMPDetection) {
+      case -1:
+        MsgLog("XMPDetection deactivated in config.plist\n");
+        break;
       case 0:
         // Detect the better XMP profile
         if (xmpFrequency1 >= xmpFrequency2) {
           if (xmpFrequency1 >= frequency) {
-            DBG("Using XMP Profile1 instead of standard frequency %dMHz\n", frequency);
+            MsgLog("Using XMP Profile1 instead of standard frequency %dMHz\n", frequency);
             frequency = xmpFrequency1;
           }
         } else if (xmpFrequency2 >= frequency) {
-          DBG("Using XMP Profile2 instead of standard frequency %dMHz\n", frequency);
+          MsgLog("Using XMP Profile2 instead of standard frequency %dMHz\n", frequency);
           frequency = xmpFrequency2;
         }
         break;
@@ -495,9 +491,9 @@ UINT16 getDDRspeedMhz(UINT8 * spd)
         // Use first profile if present
         if ((xmpProfiles & 1) == 1) {
           frequency = xmpFrequency1;
-          DBG("Using XMP Profile1 instead of standard frequency %dMHz\n", frequency);
+          MsgLog("Using XMP Profile1 instead of standard frequency %dMHz\n", frequency);
         } else {
-          DBG("Not using XMP Profile1 because it is not present\n");
+          MsgLog("Not using XMP Profile1 because it is not present\n");
         }
         break;
 
@@ -505,28 +501,34 @@ UINT16 getDDRspeedMhz(UINT8 * spd)
         // Use second profile
         if ((xmpProfiles & 2) == 2) {
           frequency = xmpFrequency2;
-          DBG("Using XMP Profile2 instead of standard frequency %dMHz\n", frequency);
+          MsgLog("Using XMP Profile2 instead of standard frequency %dMHz\n", frequency);
         } else {
-          DBG("Not using XMP Profile2 because it is not present\n");
+          MsgLog("Not using XMP Profile2 because it is not present\n");
         }
         break;
 
       default:
+        MsgLog("XMPDetection invalid value '%d' in config.plist\n", gSettings.Boot.XMPDetection);
         break;
     }
   } else {
     // Print out XMP not detected
-    switch (gSettings.XMPDetection) {
+    switch (gSettings.Boot.XMPDetection) {
+      case -1:
+        MsgLog("XMP is not present, XMPDetection deactivated in config.plist\n");
+        break;
+
       case 0:
-        DBG("Not using XMP because it is not present\n");
+        MsgLog("Not using XMP because it is not present\n");
         break;
 
       case 1:
       case 2:
-        DBG("Not using XMP Profile%d because it is not present\n", gSettings.XMPDetection);
+        MsgLog("Not using XMP Profile%d because it is not present\n", gSettings.Boot.XMPDetection);
         break;
 
       default:
+        MsgLog("XMP is not present, XMPDetection has invalid value '%d' config.plist, \n", gSettings.Boot.XMPDetection);
         break;
     }
   }
@@ -597,7 +599,7 @@ STATIC void read_smb(EFI_PCI_IO_PROTOCOL *PciIo, UINT16	vid, UINT16	did)
   UINT32			base, mmio, hostc;
   UINT16			Command;
   //RAM_SLOT_INFO*  slot;
-  //BOOLEAN			fullBanks;
+  //XBool			fullBanks;
   UINT8*			spdbuf;
 //  UINT16			vid, did;
 
@@ -643,7 +645,7 @@ STATIC void read_smb(EFI_PCI_IO_PROTOCOL *PciIo, UINT16	vid, UINT16	did)
                                   );
 
     base &= 0xFFFE;
-    smbIntel = TRUE;
+    smbIntel = true;
   }
   else {
     /*Status = */PciIo->Pci.Read (
@@ -654,7 +656,7 @@ STATIC void read_smb(EFI_PCI_IO_PROTOCOL *PciIo, UINT16	vid, UINT16	did)
                                   &base
                                   );
     base &= 0xFFFC;
-    smbIntel = FALSE;
+    smbIntel = false;
   }
   /*Status = */PciIo->Pci.Read (
                                 PciIo,
@@ -673,12 +675,6 @@ STATIC void read_smb(EFI_PCI_IO_PROTOCOL *PciIo, UINT16	vid, UINT16	did)
 
   spdbuf = (__typeof__(spdbuf))AllocateZeroPool(MAX_SPD_SIZE);
 
-  // Search MAX_RAM_SLOTS slots
-  //==>
-  /*  TotalSlotsCount = (UINT8) TotalCount;
-   if (!TotalSlotsCount) {
-   TotalSlotsCount = MAX_RAM_SLOTS;
-   } */
   TotalSlotsCount = 8; //MAX_RAM_SLOTS;  -- spd can read only 8 slots
   DBG("Slots to scan [%d]...\n", TotalSlotsCount);
   for (i = 0; i <  TotalSlotsCount; i++){
@@ -698,43 +694,64 @@ STATIC void read_smb(EFI_PCI_IO_PROTOCOL *PciIo, UINT16	vid, UINT16	did)
     
     // Copy spd data into buffer
     DBG("SPD[%d]: Type %d @0x%X\n", i, spdbuf[SPD_MEMORY_TYPE], 0x50 + i);
+    RAM_SLOT_INFO* rsiPtr = NULL;
     switch (spdbuf[SPD_MEMORY_TYPE])  {
-      case SPD_MEMORY_TYPE_SDRAM_DDR:
+      case SPD_MEMORY_TYPE_SDRAM_DDR: {
         init_spd(spd_indexes_ddr, spdbuf, base, i);
 
-        gRAM.SPD[i].Type = MemoryTypeDdr;
-        gRAM.SPD[i].ModuleSize = (((1 << ((spdbuf[SPD_NUM_ROWS] & 0x0f)
+        rsiPtr = new RAM_SLOT_INFO;
+        RAM_SLOT_INFO& rsi = *rsiPtr;
+
+        rsi.SlotIndex = i;
+
+        rsi.Type = MemoryTypeDdr;
+        rsi.ModuleSize = (((1 << ((spdbuf[SPD_NUM_ROWS] & 0x0f)
                                           + (spdbuf[SPD_NUM_COLUMNS] & 0x0f) - 17)) *
                                    ((spdbuf[SPD_NUM_DIMM_BANKS] & 0x7) + 1) *
                                    spdbuf[SPD_NUM_BANKS_PER_SDRAM])/3)*2;
         break;
-
-      case SPD_MEMORY_TYPE_SDRAM_DDR2:
+      }
+      case SPD_MEMORY_TYPE_SDRAM_DDR2: {
         init_spd(spd_indexes_ddr, spdbuf, base, i);
 
-        gRAM.SPD[i].Type = MemoryTypeDdr2;
-        gRAM.SPD[i].ModuleSize = ((1 << ((spdbuf[SPD_NUM_ROWS] & 0x0f)
+        rsiPtr = new RAM_SLOT_INFO;
+        RAM_SLOT_INFO& rsi = *rsiPtr;
+
+        rsi.SlotIndex = i;
+
+        rsi.Type = MemoryTypeDdr2;
+        rsi.ModuleSize = ((1 << ((spdbuf[SPD_NUM_ROWS] & 0x0f)
                                          + (spdbuf[SPD_NUM_COLUMNS] & 0x0f) - 17)) *
                                   ((spdbuf[SPD_NUM_DIMM_BANKS] & 0x7) + 1) *
                                   spdbuf[SPD_NUM_BANKS_PER_SDRAM]);
         break;
-
-      case SPD_MEMORY_TYPE_SDRAM_DDR3:
+      }
+      case SPD_MEMORY_TYPE_SDRAM_DDR3: {
         init_spd(spd_indexes_ddr3, spdbuf, base, i);
 
-        gRAM.SPD[i].Type = MemoryTypeDdr3;
-        gRAM.SPD[i].ModuleSize = ((spdbuf[4] & 0x0f) + 28 ) + ((spdbuf[8] & 0x7)  + 3 );
-        gRAM.SPD[i].ModuleSize -= (spdbuf[7] & 0x7) + 25;
-        gRAM.SPD[i].ModuleSize = ((1 << gRAM.SPD[i].ModuleSize) * (((spdbuf[7] >> 3) & 0x1f) + 1));
+        rsiPtr = new RAM_SLOT_INFO;
+        RAM_SLOT_INFO& rsi = *rsiPtr;
+
+        rsi.SlotIndex = i;
+
+        rsi.Type = MemoryTypeDdr3;
+        rsi.ModuleSize = ((spdbuf[4] & 0x0f) + 28 ) + ((spdbuf[8] & 0x7)  + 3 );
+        rsi.ModuleSize -= (spdbuf[7] & 0x7) + 25;
+        rsi.ModuleSize = ((1 << rsi.ModuleSize) * (((spdbuf[7] >> 3) & 0x1f) + 1));
 
         break;
-
-      case SPD_MEMORY_TYPE_SDRAM_DDR4:
+      }
+      case SPD_MEMORY_TYPE_SDRAM_DDR4: {
         init_spd(spd_indexes_ddr4, spdbuf, base, i);
 
-        gRAM.SPD[i].Type = MemoryTypeDdr4;
+        rsiPtr = new RAM_SLOT_INFO;
+        RAM_SLOT_INFO& rsi = *rsiPtr;
 
-        gRAM.SPD[i].ModuleSize
+        rsi.SlotIndex = i;
+
+        rsi.Type = MemoryTypeDdr4;
+
+        rsi.ModuleSize
         = (1 << ((spdbuf[4] & 0x0f) + 8 /* Mb */ - 3 /* MB */)) // SDRAM Capacity
         * (1 << ((spdbuf[13] & 0x07) + 3)) // Primary Bus Width
         / (1 << ((spdbuf[12] & 0x07) + 2)) // SDRAM Width
@@ -799,23 +816,26 @@ STATIC void read_smb(EFI_PCI_IO_PROTOCOL *PciIo, UINT16	vid, UINT16	did)
          111 = 8 die
          */
         break;
-
+      }
       default:
-        gRAM.SPD[i].ModuleSize = 0;
         break;
     }
 
-    if (gRAM.SPD[i].ModuleSize == 0) continue;
+    if (rsiPtr == NULL) continue;
+    RAM_SLOT_INFO& rsi = *rsiPtr;
     //spd_type = (slot->spd[SPD_MEMORY_TYPE] < ((UINT8) 12) ? slot->spd[SPD_MEMORY_TYPE] : 0);
     //gRAM Type = spd_mem_to_smbios[spd_type];
-    gRAM.SPD[i].PartNo = getDDRPartNum(spdbuf, base, i);
-    gRAM.SPD[i].Vendor = getVendorName(&(gRAM.SPD[i]), spdbuf, base, i);
-    gRAM.SPD[i].SerialNo = getDDRSerial(spdbuf);
+    rsi.PartNo.takeValueFrom(getDDRPartNum(spdbuf, base, i));
+    rsi.PartNo.trim();
+    rsi.Vendor.takeValueFrom(getVendorName(&(rsi), spdbuf, base, i));
+    rsi.Vendor.trim();
+    rsi.SerialNo.takeValueFrom(getDDRSerial(spdbuf));
+    rsi.SerialNo.trim();
     //XXX - when we can FreePool allocated for these buffers? No this is pointer copy
     // determine spd speed
     speed = getDDRspeedMhz(spdbuf);
     DBG("DDR speed %dMHz\n", speed);
-    if (gRAM.SPD[i].Frequency<speed) gRAM.SPD[i].Frequency = speed;
+    if (rsi.Frequency<speed) rsi.Frequency = speed;
 
 #if 0
     // pci memory controller if available, is more reliable
@@ -830,26 +850,26 @@ STATIC void read_smb(EFI_PCI_IO_PROTOCOL *PciIo, UINT16	vid, UINT16	did)
         case 98:	freq+=2;break;
         case 99:	freq++; break;
       }
-      gRAM.SPD[i].Frequency = freq;
+      rsi.Frequency = freq;
       DBG("RAM speed %dMHz\n", freq);
     }
 #endif
 
     MsgLog("Slot: %d Type %d %dMB %dMHz Vendor=%s PartNo=%s SerialNo=%s\n",
            i,
-           (int)gRAM.SPD[i].Type,
-           gRAM.SPD[i].ModuleSize,
-           gRAM.SPD[i].Frequency,
-           gRAM.SPD[i].Vendor,
-           gRAM.SPD[i].PartNo,
-           gRAM.SPD[i].SerialNo);
+           (int)rsi.Type,
+           rsi.ModuleSize,
+           rsi.Frequency,
+           rsi.Vendor.c_str(),
+           rsi.PartNo.c_str(),
+           rsi.SerialNo.c_str());
 
-    gRAM.SPD[i].InUse = TRUE;
-    ++(gRAM.SPDInUse);
+//    rsi.InUse = true;
+    gRAM.SPD.AddReference(rsiPtr, true);
     //}
 
     // laptops sometimes show slot 0 and 2 with slot 1 empty when only 2 slots are presents so:
-    //gDMI->DIMM[i]= (UINT32)((i>0 && gRAM->DIMM[1].InUse==FALSE && !fullBanks && TotalCount == 2)?mapping[i] : i); // for laptops case, mapping setup would need to be more generic than this
+    //gDMI->DIMM[i]= (UINT32)((i>0 && gRAM->DIMM[1].InUse==false && !fullBanks && TotalCount == 2)?mapping[i] : i); // for laptops case, mapping setup would need to be more generic than this
 
     //slot->spd = NULL;
 
@@ -863,12 +883,9 @@ void ScanSPD()
 {
   EFI_STATUS            Status;
   EFI_HANDLE            *HandleBuffer = NULL;
-//  EFI_GUID              **ProtocolGuidArray;
   EFI_PCI_IO_PROTOCOL   *PciIo = NULL;
   UINTN                 HandleCount;
-//  UINTN                 ArrayCount;
   UINTN                 Index;
-//  UINTN                 ProtocolIndex;
   PCI_TYPE00            gPci;
 
   DbgHeader("ScanSPD");

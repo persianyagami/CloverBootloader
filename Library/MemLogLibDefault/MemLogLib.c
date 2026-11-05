@@ -427,14 +427,7 @@ UINT64
 EFIAPI
 GetMemLogTscTicksPerSecond (VOID)
 {
-  EFI_STATUS        Status;
-  
-  if (mMemLog == NULL) {
-    Status = MemLogInit ();
-    if (EFI_ERROR(Status)) {
-      return 0;
-    }
-  }
+  if (mMemLog == NULL) return 0;
   return mMemLog->TscFreqSec;
 }
 
@@ -464,6 +457,7 @@ static void transmitS8Printf(const char* buf, unsigned int nbchar, void* context
     // but not too big (if something gets out of controll)
     if (mMemLog->BufferSize + MEM_LOG_INITIAL_SIZE > MEM_LOG_MAX_SIZE) {
     // Out of resources!
+    // Jief : Silent fail. TODO : At least put "Out of resource" at the end of the log
       return;
     }
     Offset = mMemLog->Cursor - mMemLog->Buffer;
@@ -475,7 +469,7 @@ static void transmitS8Printf(const char* buf, unsigned int nbchar, void* context
   mMemLog->Cursor += nbchar;
 }
 
-const char* printf_lite_get_timestamp()
+const char* printf_lite_get_timestamp(void)
 {
   UINT64    dTStartSec;
   UINT64    dTStartMs;
@@ -541,20 +535,25 @@ MemLogfVA (
 #else
   vprintf_with_callback_timestamp_emitcr(Format, Marker, transmitS8Printf, NULL, &printfNewline, Timing, 1);
 #endif
+  
+#ifdef DEBUG_ON_SERIAL_PORT
   size_t DataWritten = mMemLog->Cursor - mMemLog->Buffer - LastMessage;
-
+#endif
   //
   // Check driver debug mask value and global mask
   //
-  if ((DebugMode & GetDebugPrintErrorLevel ()) == 0) {
-    return;
-  }
+//  DebugMode is not same as PrintErrorLevel
+//  if ((DebugMode & GetDebugPrintErrorLevel ()) == 0) {
+//    return;
+//  }
   //
   // Write to standard debug device also
   //
   // Jief : use SerialPortWrite instead of DebugPrint to avoid 256 chars message length limitation.
   // Jief : do this before CallBack to preserve order of messages sent from inside callback.
+#ifdef DEBUG_ON_SERIAL_PORT
   SerialPortWrite((UINT8*)(mMemLog->Buffer + LastMessage), DataWritten);
+#endif
 //  DebugPrint(DEBUG_INFO, "%a", LastMessage);
 
   //

@@ -12,25 +12,27 @@
 
 class TagInt64 : public TagStruct
 {
-  static XObjArray<TagInt64> tagsFree;
   INT64 value;
 
 public:
+#ifdef TagStruct_USE_CACHE
+  static XObjArray<TagInt64> tagsFree;
+#endif
 
   TagInt64() : value(0) {}
   TagInt64(const TagInt64& other) = delete; // Can be defined if needed
   const TagInt64& operator = (const TagInt64&); // Can be defined if needed
   virtual ~TagInt64() { }
   
-  virtual bool operator == (const TagStruct& other) const;
+  virtual XBool operator == (const TagStruct& other) const;
 
   virtual TagInt64* getInt64() { return this; }
   virtual const TagInt64* getInt64() const { return this; }
 
-  virtual bool isInt64() const { return true; }
+  virtual XBool isInt64() const { return true; }
   virtual const XString8 getTypeAsXString8() const { return "Int64"_XS8; }
   static TagInt64* getEmptyTag();
-  virtual void FreeTag();
+  virtual void ReleaseTag();
   
   virtual void sprintf(unsigned int ident, XString8* s) const;
 

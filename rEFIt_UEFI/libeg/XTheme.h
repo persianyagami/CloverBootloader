@@ -1,61 +1,40 @@
 #if !defined(__XTHEME_H__)
 #define __XTHEME_H__
 
+#include "nanosvg.h"
 #include "../cpp_foundation/XObjArray.h"
 #include "../cpp_foundation/XString.h"
+#include "../Settings/Self.h"
 #include "libeg.h"
-//#include "nanosvg.h"
 #include "XImage.h"
 #include "XIcon.h"
 #include "XCinema.h"
-#include "Self.h"
+
 
 class TagDict;
-
 class TagStruct;
 
 #define INDICATOR_SIZE (52)
+#define CONFIG_THEME_FILENAME L"theme.plist"
+#define CONFIG_THEME_SVG L"theme.svg"
+#define HEIGHT_2K 1100
+
+
+EFI_STATUS InitTheme (const CHAR8* ChosenTheme);
+
+extern textFaces nullTextFaces;
 
 class XTheme
 {
 public:
   XObjArray<XIcon> Icons;
-protected:
   XStringW     m_ThemePath = NullXStringW;
-  EFI_FILE    *ThemeDir;
+  EFI_FILE    *ThemeDir = 0;
 
-public:
-  void openThemeDir() {
-    if ( ThemeDir != NULL ) ThemeDir->Close(ThemeDir);
-    /*Status = */self.getCloverDir().Open(&self.getCloverDir(), &ThemeDir, m_ThemePath.wc_str(), EFI_FILE_MODE_READ, 0);
-  }
-  void closeThemeDir() {
-    if ( ThemeDir != NULL ) ThemeDir->Close(ThemeDir);
-    ThemeDir = NULL;
-  }
-//  const XStringW& getThemePath() { return m_ThemePath; }
-//  void setThemePath(const XStringW& aThemePath) {
-//    m_ThemePath = aThemePath;
-//    closeThemeDir();
-//    openThemeDir();
-//  }
-  const EFI_FILE& getThemeDir() {
-    return *ThemeDir;
-  }
-  bool IsEmbeddedTheme(void)
-  {
-    if (embedded) {
-      ThemeDir = NULL;
-    }
-    return ThemeDir == NULL;
-  }
-
-
-public:
 //  UINTN       DisableFlags;
   UINTN       HideBadges;
   UINTN       HideUIFlags;
-//  BOOLEAN     TextOnly;
+//  XBool    TextOnly;
   FONT_TYPE   Font;
   INTN        CharWidth;
   UINTN       SelectionColor;
@@ -69,10 +48,10 @@ public:
   XStringW    BackgroundName;
   SCALING     BackgroundScale;
   INTN        BackgroundSharp;
-  BOOLEAN     BackgroundDark;
-//  BOOLEAN     CustomIcons;
-  BOOLEAN     SelectionOnTop;
-  BOOLEAN     BootCampStyle;
+  XBool       BackgroundDark;
+//  XBool    CustomIcons;
+  XBool       SelectionOnTop;
+  XBool       BootCampStyle;
   INTN        BadgeOffsetX;
   INTN        BadgeOffsetY;
   INTN        BadgeScale;
@@ -84,17 +63,17 @@ public:
   INTN        BannerEdgeVertical;
   INTN        BannerNudgeX;
   INTN        BannerNudgeY;
-  BOOLEAN     VerticalLayout;
-  BOOLEAN     NonSelectedGrey;
+  XBool       VerticalLayout;
+  XBool       NonSelectedGrey;
   INTN        MainEntriesSize;
   INTN        TileXSpace;
   INTN        TileYSpace;
 //  INTN        IconFormat;
-  BOOLEAN     Proportional;
-//  BOOLEAN     ShowOptimus;
-  BOOLEAN     embedded;
-  BOOLEAN     DarkEmbedded;
-  BOOLEAN     TypeSVG;
+  XBool       Proportional;
+//  XBool    ShowOptimus;
+  XBool       embedded;
+  XBool       DarkEmbedded;
+  XBool       TypeSVG;
 //  INTN        Codepage;  //no! it is global settings
 //  INTN        CodepageSize;
   float       Scale;
@@ -117,7 +96,7 @@ public:
   INTN  FontHeight;
   INTN  TextHeight;
 
-  BOOLEAN     Daylight;
+  XBool   Daylight;
 
   XImage  Background; //Background and Banner will not be in array as they live own life
   XImage  BigBack; //it size is not equal to screen size will be scaled or cropped
@@ -139,30 +118,54 @@ public:
 
   XCinema Cinema;
 
-  void *SVGParser;
+  UINTN NumFrames = 0;
+  UINTN FrameTime = 0;
+
+
+public:
+  NSVGfontChain* fontsDB = 0;
+  textFaces textFace[4]; //0-help 1-message 2-menu 3-test, far future it will be infinite list with id // in VectorGraphics, I use sizeof(textFace)/sizeof(textFace[0]. So if you change that to a pointer, it'll break.
+
   
   void Init();
   XTheme(); //default constructor
   XTheme(const XTheme&) = delete;
   XTheme& operator=(const XTheme&) = delete;
 
-  ~XTheme();
+  ~XTheme() {
+    if ( ThemeDir != NULL ) ThemeDir->Close(ThemeDir);
+    if ( fontsDB ) {
+      nsvg__deleteFontChain(fontsDB);
+    }
+    for (size_t i=0 ; i < Icons.length() ; ++i ) {
+      Icons[i].setEmpty();
+    }
+  }
 
   
+  const EFI_FILE& getThemeDir() const { return *ThemeDir; }
+  XBool IsEmbeddedTheme(void)
+  {
+    if (embedded) {
+      ThemeDir = NULL;
+    }
+    return ThemeDir == NULL;
+  }
+
+
   //fill the theme
 //  const XImage& GetIcon(const char* Name);
 //  const XImage& GetIcon(const CHAR16* Name);
   const XIcon& GetIcon(const XString8& Name);  //get by name
         XIcon* GetIconP(const XString8& Name);
   const XIcon& GetIcon(INTN Id); //get by id
-        XIcon* GetIconP(INTN Id); //not const
         XIcon& GetIconAlt(INTN Id, INTN Alt); //if id not found
   const XIcon& LoadOSIcon(const CHAR16* OSIconName); //TODO make XString provider
   const XIcon& LoadOSIcon(const XString8& Full);
-  bool CheckNative(INTN Id);
+  XBool CheckNative(INTN Id);
  
   //fonts
-  void LoadFontImage(IN BOOLEAN UseEmbedded, IN INTN Rows, IN INTN Cols);
+  void LoadFontImage(IN XBool UseEmbedded, IN INTN Rows, IN INTN Cols);
   void PrepareFont();
   INTN GetEmpty(const XImage& Buffer, const EFI_GRAPHICS_OUTPUT_BLT_PIXEL& FirstPixel, INTN MaxWidth, INTN Start, INTN Step);
   INTN RenderText(IN const XStringW& Text, OUT XImage* CompImage_ptr,
@@ -177,11 +180,16 @@ public:
   void FillByEmbedded();
   void FillByDir();
   EFI_STATUS GetThemeTagSettings(const TagDict* DictPointer);
-  void parseTheme(void* p, const char** dict); //in nano project
-  EFI_STATUS ParseSVGXTheme(const CHAR8* buffer); // in VectorTheme
-  EFI_STATUS ParseSVGXIcon(INTN Id, const XString8& IconNameX, XImage* Image, void **SVGIcon);
+  void parseTheme(void* p, char** dict); //in nano project
+  EFI_STATUS ParseSVGXTheme(UINT8* buffer, UINTN Size); // in VectorTheme
+  EFI_STATUS ParseSVGXIcon(NSVGparser* SVGParser, INTN Id, const XString8& IconNameX, XImage* Image);
   TagDict* LoadTheme(const XStringW& TestTheme); //return TagStruct* why?
-  EFI_STATUS LoadSvgFrame(INTN i, OUT XImage* XFrame); // for animation
+  EFI_STATUS LoadSvgFrame(NSVGparser* SVGParser, INTN i, OUT XImage* XFrame); // for animation
+
+  const textFaces& getTextFace(size_t idx) {
+    if (!TypeSVG ) return nullTextFaces;
+    return textFace[idx];
+  }
 
   //screen operations
   void ClearScreen();
@@ -193,4 +201,8 @@ protected:
   //internal layout variables instead of globals in menu.cpp
 
 };
+
+extern XTheme* ThemeX;
+
+
 #endif

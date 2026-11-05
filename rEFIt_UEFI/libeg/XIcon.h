@@ -3,44 +3,42 @@
 
 #include "../cpp_foundation/XObjArray.h"
 #include "../cpp_foundation/XString.h"
+#include "XImage.h"
 #include "libeg.h"
+#include "nanosvg.h"
+#include "../Platform/BootLog.h"
+#include "../Platform/Utils.h"
 
-extern CONST CHAR8* IconsNames[];
+extern CONST LString8 IconsNames[];
 extern const INTN IconsNamesSize;
+
 
 class XIcon
 {
 public:
-  INTN Id;  //for example BUILTIN_ICON_POINTER
-  XString8 Name; //for example "os_moja", "vol_internal"
-  XImage Image;
-  XImage ImageNight;
-  bool Native;
-  void *ImageSVG;  //NSVGimage*
-  void *ImageSVGnight;
+  INTN Id = 0;  //for example BUILTIN_ICON_POINTER
+  XString8 Name = XString8(); //for example "os_moja", "vol_internal"
+  XImage Image = XImage();
+  XImage ImageNight = XImage();
+  XBool Native = false;
 protected:
-  bool Empty;
+  XBool Empty = true;
 public:
-  XIcon(): Id(0), Name(), Image(), ImageNight(), Native(false), ImageSVG(nullptr), ImageSVGnight(nullptr), Empty(true) {};
-  XIcon(INTN Id, bool Embedded = false);
-  // Initialisation of ImageSVG(other.ImageSVG), ImageSVGnight(other.ImageSVGnight) is wrong because we just copy the pointer
-  XIcon(const XIcon& other) : Id(other.Id), Name(other.Name), Image(other.Image), ImageNight(other.ImageNight), Native(other.Native), ImageSVG(other.ImageSVG), ImageSVGnight(other.ImageSVGnight), Empty(other.Empty) {} ;
-  ~XIcon();
+  XIcon() {};
+  XIcon(INTN Id, XBool Embedded = false);
   
 
-  bool isEmpty() const  { return Empty; }
-  void setFilled() { Empty = false; }
-  void setEmpty()  { Empty = true; }
+  XBool isEmpty() const  { return Image.isEmpty()  &&  ImageNight.isEmpty(); }
+  void setEmpty()  { Id = 0; Name.setEmpty(); Image.setEmpty(); ImageNight.setEmpty(); Native = false; }
   
   EFI_STATUS LoadXImage(const EFI_FILE *Dir, const XStringW& FileName); //for example LoadImage(ThemeDir, L"icons\\" + Name);
   EFI_STATUS LoadXImage(const EFI_FILE *Dir, const wchar_t* LIconName);
   EFI_STATUS LoadXImage(const EFI_FILE *Dir, const char* IconName);
+  void GetEmbedded();
 
   // Default are not valid, as usual. We delete them. If needed, proper ones can be created
 //  Icon(const Icon&) = delete;
-  XIcon& operator=(const XIcon&); // = delete;
-  void GetEmbedded();
-  XImage* GetBest(bool night, bool *free = nullptr);
+  const XImage& GetBest(XBool night) const;
 };
 
 

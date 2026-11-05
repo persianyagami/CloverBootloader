@@ -44,34 +44,42 @@
 
 #include "TagBool.h"
 
+#ifdef TagStruct_USE_CACHE
 XObjArray<TagBool> TagBool::tagsFree;
+#endif
 
-//UINTN newtagcount = 0;
-//UINTN tagcachehit = 0;
 TagBool* TagBool::getEmptyTag()
 {
   TagBool* tag;
 
+#ifdef TagStruct_USE_CACHE
   if ( tagsFree.size() > 0 ) {
     tag = &tagsFree[0];
     tagsFree.RemoveWithoutFreeingAtIndex(0);
-//tagcachehit++;
-//DBG("tagcachehit=%lld\n", tagcachehit);
+    #ifdef TagStruct_COUNT_CACHEHITMISS
+      cachehit++;
+     #endif
     return tag;
   }
-  tag = new TagBool();
-//newtagcount += 1;
-//DBG("newtagcount=%lld\n", newtagcount);
+#endif
+  tag = new TagBool;
+  #ifdef TagStruct_COUNT_CACHEHITMISS
+    cachemiss++;
+   #endif
   return tag;
 }
 
-void TagBool::FreeTag()
+void TagBool::ReleaseTag()
 {
   value = false;
+#ifdef TagStruct_USE_CACHE
   tagsFree.AddReference(this, true);
+#else
+  delete this;
+#endif
 }
 
-bool TagBool::operator == (const TagStruct& other) const
+XBool TagBool::operator == (const TagStruct& other) const
 {
   if ( !other.isBool() ) return false;
   return value == other.getBool()->value;

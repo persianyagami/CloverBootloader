@@ -41,6 +41,7 @@
 #include "../Platform/BasicIO.h"
 #include "menu.h"
 #include "../gui/REFIT_MENU_SCREEN.h"
+#include "../Platform/CloverVersion.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_SCR 1
@@ -61,14 +62,14 @@ UINTN ConHeight;
 CHAR16 *BlankLine = NULL;
 INTN BanHeight = 0;
 
-static void SwitchToText(IN BOOLEAN CursorEnabled);
+static void SwitchToText(IN XBool CursorEnabled);
 static void SwitchToGraphics(void);
 static void DrawScreenHeader(IN CONST CHAR16 *Title);
 static void UpdateConsoleVars(void);
 static INTN ConvertEdgeAndPercentageToPixelPosition(INTN Edge, INTN DesiredPercentageFromEdge, INTN ImageDimension, INTN ScreenDimension);
 INTN CalculateNudgePosition(INTN Position, INTN NudgeValue, INTN ImageDimension, INTN ScreenDimension);
 //INTN RecalculateImageOffset(INTN AnimDimension, INTN ValueToScale, INTN ScreenDimensionToFit, INTN ThemeDesignDimension);
-static BOOLEAN IsImageWithinScreenLimits(INTN Value, INTN ImageDimension, INTN ScreenDimension);
+static XBool IsImageWithinScreenLimits(INTN Value, INTN ImageDimension, INTN ScreenDimension);
 static INTN RepositionFixedByCenter(INTN Value, INTN ScreenDimension, INTN DesignScreenDimension);
 static INTN RepositionRelativeByGapsOnEdges(INTN Value, INTN ImageDimension, INTN ScreenDimension, INTN DesignScreenDimension);
 INTN HybridRepositioning(INTN Edge, INTN Value, INTN ImageDimension, INTN ScreenDimension, INTN DesignScreenDimension);
@@ -76,7 +77,7 @@ INTN HybridRepositioning(INTN Edge, INTN Value, INTN ImageDimension, INTN Screen
 
 INTN   UGAWidth;
 INTN   UGAHeight;
-BOOLEAN AllowGraphicsMode;
+XBool AllowGraphicsMode;
 const EFI_GRAPHICS_OUTPUT_BLT_PIXEL StdBackgroundPixel   = { 0xbf, 0xbf, 0xbf, 0xff};
 const EFI_GRAPHICS_OUTPUT_BLT_PIXEL MenuBackgroundPixel  = { 0x00, 0x00, 0x00, 0x00};
 const EFI_GRAPHICS_OUTPUT_BLT_PIXEL InputBackgroundPixel = { 0xcf, 0xcf, 0xcf, 0x80};
@@ -88,7 +89,7 @@ const EFI_GRAPHICS_OUTPUT_BLT_PIXEL WhitePixel  = { 0xff, 0xff, 0xff, 0xff};
 const EFI_GRAPHICS_OUTPUT_BLT_PIXEL BlackPixel  = { 0x00, 0x00, 0x00, 0xff};
 EFI_GRAPHICS_OUTPUT_BLT_PIXEL SelectionBackgroundPixel = { 0xef, 0xef, 0xef, 0xff };
 
-static BOOLEAN GraphicsScreenDirty;
+static XBool GraphicsScreenDirty;
 
 // general defines and variables
 
@@ -96,7 +97,7 @@ static BOOLEAN GraphicsScreenDirty;
 // Screen initialization and switching
 //
 
-void InitScreen(IN BOOLEAN SetMaxResolution)
+void InitScreen(IN XBool SetMaxResolution)
 {
 	//DbgHeader("InitScreen");
     // initialize libeg
@@ -104,16 +105,16 @@ void InitScreen(IN BOOLEAN SetMaxResolution)
     
     if (egHasGraphicsMode()) {
         egGetScreenSize(&UGAWidth, &UGAHeight);
-        AllowGraphicsMode = TRUE;
+        AllowGraphicsMode = true;
     } else {
-        AllowGraphicsMode = FALSE;
-		//egSetGraphicsModeEnabled(FALSE);   // just to be sure we are in text mode
+        AllowGraphicsMode = false;
+		//egSetGraphicsModeEnabled(false);   // just to be sure we are in text mode
     }
 	
-    GraphicsScreenDirty = TRUE;
+    GraphicsScreenDirty = true;
     
     // disable cursor
-	gST->ConOut->EnableCursor(gST->ConOut, FALSE);
+	gST->ConOut->EnableCursor(gST->ConOut, false);
     
     UpdateConsoleVars();
 
@@ -123,30 +124,30 @@ void InitScreen(IN BOOLEAN SetMaxResolution)
 
 void SetupScreen(void)
 {
-    if (GlobalConfig.TextOnly) {
+    if (gSettings.GUI.TextOnly) {
         // switch to text mode if requested
-        AllowGraphicsMode = FALSE;
-        SwitchToText(FALSE);
+        AllowGraphicsMode = false;
+        SwitchToText(false);
     } else if (AllowGraphicsMode) {
         // clear screen and show banner
         // (now we know we'll stay in graphics mode)
         SwitchToGraphics();
-		//BltClearScreen(TRUE);
+		//BltClearScreen(true);
     }
 }
 
-static void SwitchToText(IN BOOLEAN CursorEnabled)
+static void SwitchToText(IN XBool CursorEnabled)
 {
-  egSetGraphicsModeEnabled(FALSE);
+  egSetGraphicsModeEnabled(false);
 	gST->ConOut->EnableCursor(gST->ConOut, CursorEnabled);
 }
 
 static void SwitchToGraphics(void)
 {
     if (AllowGraphicsMode && !egIsGraphicsModeEnabled()) {
-      InitScreen(FALSE);
-      egSetGraphicsModeEnabled(TRUE);
-      GraphicsScreenDirty = TRUE;
+      InitScreen(false);
+      egSetGraphicsModeEnabled(true);
+      GraphicsScreenDirty = true;
     }
 }
 
@@ -156,59 +157,59 @@ static void SwitchToGraphics(void)
 void BeginTextScreen(IN CONST CHAR16 *Title)
 {
     DrawScreenHeader(Title);
-    SwitchToText(FALSE);
+    SwitchToText(false);
     
     // reset error flag
-    haveError = FALSE;
+    haveError = false;
 }
 
-void FinishTextScreen(IN BOOLEAN WaitAlways)
+void FinishTextScreen(IN XBool WaitAlways)
 {
     if (haveError || WaitAlways) {
-        SwitchToText(FALSE);
+        SwitchToText(false);
  //       PauseForKey(L"FinishTextScreen");
     }
     
     // reset error flag
-    haveError = FALSE;
+    haveError = false;
 }
 
-void BeginExternalScreen(IN BOOLEAN UseGraphicsMode/*, IN CONST CHAR16 *Title*/)
+void BeginExternalScreen(IN XBool UseGraphicsMode/*, IN CONST CHAR16 *Title*/)
 {
 	if (!AllowGraphicsMode) {
-        UseGraphicsMode = FALSE;
+        UseGraphicsMode = false;
 	}
     
     if (UseGraphicsMode) {
         SwitchToGraphics();
-		//BltClearScreen(FALSE);
+		//BltClearScreen(false);
     }
     
     // show the header
 	//DrawScreenHeader(Title);
     
 	if (!UseGraphicsMode) {
-        SwitchToText(TRUE);
+        SwitchToText(true);
 	}
     
     // reset error flag
-    haveError = FALSE;
+    haveError = false;
 }
 
 void FinishExternalScreen(void)
 {
     // make sure we clean up later
-    GraphicsScreenDirty = TRUE;
+    GraphicsScreenDirty = true;
     
     if (haveError) {
         // leave error messages on screen in case of error,
         // wait for a key press, and then switch
-        PauseForKey(L"was error, press any key\n");
-        SwitchToText(FALSE);
+        PauseForKey("was error."_XS8);
+        SwitchToText(false);
     }
     
     // reset error flag
-    haveError = FALSE;
+    haveError = false;
 }
 
 void TerminateScreen(void)
@@ -218,7 +219,7 @@ void TerminateScreen(void)
 	gST->ConOut->ClearScreen(gST->ConOut);
     
     // enable cursor
-	gST->ConOut->EnableCursor(gST->ConOut, TRUE);
+	gST->ConOut->EnableCursor(gST->ConOut, true);
 }
 
 static void DrawScreenHeader(IN CONST CHAR16 *Title)
@@ -290,7 +291,7 @@ StatusToString (
 void SwitchToGraphicsAndClear(void) //called from MENU_FUNCTION_INIT
 {
   SwitchToGraphics();
-  ThemeX.Background.DrawWithoutCompose(0,0,0,0);
+  ThemeX->Background.DrawWithoutCompose(0,0,0,0);
 }
 
 /*
@@ -339,7 +340,7 @@ INTN CalculateNudgePosition(INTN Position, INTN NudgeValue, INTN ImageDimension,
   return value;
 }
 
-static BOOLEAN IsImageWithinScreenLimits(INTN Value, INTN ImageDimension, INTN ScreenDimension)
+static XBool IsImageWithinScreenLimits(INTN Value, INTN ImageDimension, INTN ScreenDimension)
 {
   return (Value >= 0 && Value + ImageDimension <= ScreenDimension);
 }
@@ -376,7 +377,7 @@ INTN HybridRepositioning(INTN Edge, INTN Value, INTN ImageDimension, INTN Screen
 
 void REFIT_MENU_SCREEN::GetAnime()
 {
-  FilmC = ThemeX.Cinema.GetFilm(ID);
+  FilmC = ThemeX->Cinema.GetFilm(ID);
 //  DBG("ScreenID=%lld Film found=%d\n", ID, (FilmC != nullptr)?1:0);
   if (FilmC != nullptr) {
     FilmC->AnimeRun = true;
@@ -385,12 +386,12 @@ void REFIT_MENU_SCREEN::GetAnime()
 
 void REFIT_MENU_SCREEN::InitAnime()
 {
-  if (gThemeChanged) {
+  if (GlobalConfig.gThemeChanged) {
     FilmC = nullptr;
   }
   if (FilmC == nullptr) {
 //    DBG("Screen %lld inited without anime\n", ID);
-//    FilmC->AnimeRun = FALSE;
+//    FilmC->AnimeRun = false;
     return;
   }
 //  DBG("=== Debug Film ===\n");
@@ -410,8 +411,8 @@ void REFIT_MENU_SCREEN::InitAnime()
     // Check if screen size being used is different from theme origination size.
     // If yes, then recalculate the animation placement % value.
     // This is necessary because screen can be a different size, but anim is not scaled.
-    FilmC->FilmPlace.XPos = HybridRepositioning(FilmC->ScreenEdgeHorizontal, FilmC->FilmX, CWidth,  UGAWidth,  ThemeX.ThemeDesignWidth );
-    FilmC->FilmPlace.YPos = HybridRepositioning(FilmC->ScreenEdgeVertical,   FilmC->FilmY, CHeight, UGAHeight, ThemeX.ThemeDesignHeight);
+    FilmC->FilmPlace.XPos = HybridRepositioning(FilmC->ScreenEdgeHorizontal, FilmC->FilmX, CWidth,  UGAWidth,  ThemeX->ThemeDesignWidth );
+    FilmC->FilmPlace.YPos = HybridRepositioning(FilmC->ScreenEdgeVertical,   FilmC->FilmY, CHeight, UGAHeight, ThemeX->ThemeDesignHeight);
 
     // Does the user want to fine tune the placement?
     FilmC->FilmPlace.XPos = CalculateNudgePosition(FilmC->FilmPlace.XPos, FilmC->NudgeX, CWidth, UGAWidth);
@@ -423,7 +424,7 @@ void REFIT_MENU_SCREEN::InitAnime()
   } else {
     // We are here if there is no anime, or if we use oldstyle placement values
     // For both these cases, FilmPlace will be set after banner/menutitle positions are known
-    FilmC->FilmPlace = ThemeX.BannerPlace;
+    FilmC->FilmPlace = ThemeX->BannerPlace;
     if (CWidth > 0 && CHeight > 0) {
       // Retained for legacy themes without new anim placement options.
       FilmC->FilmPlace.XPos = ((INTN)FilmC->FilmPlace.XPos * 2 > CWidth  - (INTN)FilmC->FilmPlace.Width ) ? (UINTN)((INTN)FilmC->FilmPlace.XPos + ((INTN)FilmC->FilmPlace.Width  - CWidth ) / 2) : 0;
@@ -432,7 +433,7 @@ void REFIT_MENU_SCREEN::InitAnime()
   }
   if (FilmC->NumFrames != 0) {
     DBG(" Anime seems OK, init it\n");
-    FilmC->AnimeRun = TRUE;
+    FilmC->AnimeRun = true;
     FilmC->Reset();
     FilmC->LastDraw = 0;
   }

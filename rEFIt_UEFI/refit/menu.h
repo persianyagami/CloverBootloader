@@ -3,10 +3,12 @@
 
 #include "../cpp_foundation/XString.h"
 #include "../gui/menu_items/menu_items.h"
+//#include "../gui/REFIT_MAINMENU_SCREEN.h"
+class REFIT_MAINMENU_SCREEN;
 
 //void AddMenuInfoLine(IN REFIT_MENU_SCREEN *Screen, IN CONST CHAR16 *InfoLine);
 //void AddMenuInfo(IN REFIT_MENU_SCREEN  *SubScreen, IN CONST CHAR16 *Line);
-//void AddMenuEntry(IN REFIT_MENU_SCREEN *Screen, IN REFIT_MENU_ENTRY *Entry, bool freeIt);
+//void AddMenuEntry(IN REFIT_MENU_SCREEN *Screen, IN REFIT_MENU_ENTRY *Entry, XBool freeIt);
 //void AddMenuCheck(REFIT_MENU_SCREEN *SubScreen, CONST CHAR8 *Text, UINTN Bit, INTN ItemNum);
 //void FreeMenu(IN REFIT_MENU_SCREEN *Screen);
 //UINTN RunMenu(IN REFIT_MENU_SCREEN *Screen, OUT REFIT_ABSTRACT_MENU_ENTRY **ChosenEntry);
@@ -29,13 +31,14 @@ extern EG_RECT ScrollbarNewPointerPlace;
 extern INTN LayoutAnimMoveForMenuX;
 extern INTN LayoutMainMenuHeight;
 
+extern REFIT_MAINMENU_SCREEN MainMenu;
 
 void OptionsMenu(OUT REFIT_ABSTRACT_MENU_ENTRY **ChosenEntry);
 void FreeScrollBar(void);
 
 void
 FillInputs (
-  BOOLEAN New
+  XBool New
   );
 
 void

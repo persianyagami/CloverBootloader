@@ -8,9 +8,10 @@
  * additions and corrections by Slice and pcj, 2012.
  */
 
+#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 #include "AmlGenerator.h"
 
-BOOLEAN aml_add_to_parent(AML_CHUNK* parent, AML_CHUNK* node)
+XBool aml_add_to_parent(AML_CHUNK* parent, AML_CHUNK* node)
 {
 	if (parent && node)
 	{
@@ -23,12 +24,12 @@ BOOLEAN aml_add_to_parent(AML_CHUNK* parent, AML_CHUNK* node)
 			case AML_CHUNK_QWORD:
 			case AML_CHUNK_ALIAS:
 				MsgLog("aml_add_to_parent: node doesn't support child nodes!\n");
-				return FALSE;
+				return false;
 			case AML_CHUNK_NAME:
 				if (parent->First) 
 				{
 					MsgLog("aml_add_to_parent: name node supports only one child node!\n");
-					return FALSE;
+					return false;
 				}
 				break;
 
@@ -44,10 +45,10 @@ BOOLEAN aml_add_to_parent(AML_CHUNK* parent, AML_CHUNK* node)
 		
 		parent->Last = node;
 		
-		return TRUE;
+		return true;
 	}
 	
-	return FALSE;
+	return false;
 }
 
 AML_CHUNK* aml_create_node(AML_CHUNK* parent)
@@ -376,7 +377,7 @@ AML_CHUNK* aml_add_store(AML_CHUNK* parent)
 	return node;
 }
 
-AML_CHUNK* aml_add_byte_buffer(AML_CHUNK* parent, /* CONST*/ UINT8* data, UINT32 size)
+AML_CHUNK* aml_add_byte_buffer(AML_CHUNK* parent, CONST UINT8* data, UINT32 size)
 {
 	AML_CHUNK* node = aml_create_node(parent);
 	

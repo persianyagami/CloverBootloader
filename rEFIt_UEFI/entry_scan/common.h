@@ -10,9 +10,6 @@
 
 #include "../cpp_foundation/XString.h"
 
-//XString AddLoadOption(IN const XString& LoadOptions, IN const XString& LoadOption);
-//XString RemoveLoadOption(IN const XString& LoadOptions, IN const XString& LoadOption);
-
 INTN
 StrniCmp (
   IN CONST CHAR16 *Str1,
@@ -31,13 +28,9 @@ StrToLower (
   IN CHAR16 *Str
   );
 
-void
-AlertMessage (
-  IN CONST CHAR16 *Title,
-  IN CONST CHAR16 *Message
-  );
+void AlertMessage (IN const XStringW& Title, IN const XStringW& Message);
 
-BOOLEAN
+XBool
 YesNoMessage (
   IN CONST CHAR16 *Title,
   IN CONST CHAR16 *Message);

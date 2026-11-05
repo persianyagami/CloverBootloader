@@ -5,6 +5,11 @@ Headers collection for procedures
 #ifndef __BOOTLOG__H__
 #define __BOOTLOG__H__
 
+
+#ifdef __cplusplus
+#include "../cpp_foundation/XBool.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,16 +29,24 @@ extern "C" {
 //#define PREWAKE_LOG  L"misc\\prewake.log"
 
 
+#ifndef DEBUG_ALL
+#define MsgLog(...)  DebugLog(1, __VA_ARGS__)
+#else
+#define MsgLog(...)  DebugLog(DEBUG_ALL, __VA_ARGS__)
+#endif
+
 
 void
 InitBooterLog (void);
 
 void closeDebugLog(void);
 
+#ifdef __cplusplus
 EFI_STATUS
 SetupBooterLog (
-  BOOLEAN AllowGrownSize
+  XBool AllowGrownSize
   );
+#endif
 
 EFI_STATUS
 SaveBooterLog (
@@ -59,6 +72,8 @@ PrintBytes (
   IN  UINTN Number
   );
 
+
+void DbgHeader(CONST CHAR8 *str);
 
 /*
  * OpenCore

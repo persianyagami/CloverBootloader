@@ -12,25 +12,27 @@
 
 class TagString : public TagStruct
 {
-  static XObjArray<TagString> tagsFree;
   XString8 _string;
 
 public:
+#ifdef TagStruct_USE_CACHE
+  static XObjArray<TagString> tagsFree;
+#endif
 
   TagString() : _string() {}
   TagString(const TagString& other) = delete; // Can be defined if needed
   const TagString& operator = (const TagString&); // Can be defined if needed
   virtual ~TagString() { }
   
-  virtual bool operator == (const TagStruct& other) const;
+  virtual XBool operator == (const TagStruct& other) const;
 
   virtual TagString* getString() { return this; }
   virtual const TagString* getString() const { return this; }
 
-  virtual bool isString() const { return true; }
+  virtual XBool isString() const { return true; }
   virtual const XString8 getTypeAsXString8() const { return "String8"_XS8; }
   static TagString* getEmptyTag();
-  virtual void FreeTag();
+  virtual void ReleaseTag();
   
   virtual void sprintf(unsigned int ident, XString8* s) const;
 
@@ -50,8 +52,11 @@ public:
   void setStringValue(const XString8& xstring)
   {
     // empty string is allowed
-    //if ( xstring.isEmpty() ) panic("TagStruct::setStringValue() : xstring.isEmpty() ");
     _string = xstring;
+  }
+  void setStringValue(const char* value, size_t length)
+  {
+    _string.strncpy(value, length); // strncpy can handle value==NULL, *value=0 and length=0
   }
 
 };

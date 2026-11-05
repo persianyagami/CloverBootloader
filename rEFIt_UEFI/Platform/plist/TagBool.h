@@ -12,39 +12,41 @@
 
 class TagBool : public TagStruct
 {
-  static XObjArray<TagBool> tagsFree;
-  bool value;
+  XBool value;
 
 public:
+#ifdef TagStruct_USE_CACHE
+  static XObjArray<TagBool> tagsFree;
+#endif
 
   TagBool() : value(false) {}
   TagBool(const TagBool& other) = delete; // Can be defined if needed
   const TagBool& operator = (const TagBool&); // Can be defined if needed
   virtual ~TagBool() { }
   
-  virtual bool operator == (const TagStruct& other) const;
+  virtual XBool operator == (const TagStruct& other) const;
 
   virtual TagBool* getBool() { return this; }
   virtual const TagBool* getBool() const { return this; }
 
-  virtual bool isBool() const { return true; }
+  virtual XBool isBool() const { return true; }
   virtual const XString8 getTypeAsXString8() const { return "Bool"_XS8; }
   static TagBool* getEmptyTag();
-  virtual void FreeTag();
+  virtual void ReleaseTag();
   
   virtual void sprintf(unsigned int ident, XString8* s) const;
 
   /*
    *  getters and setters
    */
-  bool boolValue() const
+  XBool boolValue() const
   {
 //    if ( !isBool() ) panic("TagBool::boolValue() : !isBool() ");
     return value;
   }
-  void setBoolValue(bool b)
+  void setBoolValue(XBool b)
   {
-//    if ( !isBool() ) panic("TagBool::setIntValue(bool) : !isBool() ");
+//    if ( !isBool() ) panic("TagBool::setIntValue(XBool) : !isBool() ");
     value = b;
   }
 

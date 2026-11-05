@@ -399,9 +399,39 @@ HOB_TEMPLATE  gHobTemplate = {
       EFI_ACPI_DESCRIPTION_GUID
     },
     {
-      {
-        0,
-      },
+      { 0, }, // PM_TMR_BLK
+      0,
+      0,
+      0,
+      0,
+      0,
+      { 0, 0, 0, 0, 0, }, // RESET_REG
+      0,
+      { 0, 0, 0, 0, 0, }, // PM1a_EVT_BLK
+      { 0, 0, 0, 0, 0, }, // PM1b_EVT_BLK
+      { 0, 0, 0, 0, 0, }, // PM1a_CNT_BLK
+      { 0, 0, 0, 0, 0, }, // PM1b_CNT_BLK
+      { 0, 0, 0, 0, 0, }, // PM2_CNT_BLK
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      { 0, 0, 0, 0, 0, }, // GPE0_BLK
+      { 0, 0, 0, 0, 0, }, // GPE1_BLK
+      0,
+      0,
+      0,
+      0,
+      0,
     }
   },
   { // NV Storage FV Resource
@@ -622,8 +652,9 @@ Return:
   // Allocate memory only up to EBDA (EBDA boundry speicifed at EFI_MEMORY_BELOW_1MB_END is not universal!)
   // Bottom of EBDA is usually available by examining 0x40E, which should contain EBDA base address >> 4
   // If value is not sane, we use default value at EFI_MEMORY_BELOW_1MB_END (0x9F800)
-
-  EbdaAddress = LShiftU64((UINT64)(*(UINT16 *)(UINTN)(0x40E)), 4);
+  volatile UINT16 * volatile ebda;
+  ebda = (volatile UINT16 *)(UINTN)(0x40E);
+  EbdaAddress = LShiftU64((UINT64)(*ebda), 4);
   if (EbdaAddress < 0x90000 || EbdaAddress > EFI_MEMORY_BELOW_1MB_END) {
     EbdaAddress = 0x9A000;
   }

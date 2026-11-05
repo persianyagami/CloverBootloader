@@ -14,6 +14,10 @@
 
 #define WILL_WORK 0
 
+#include "device_inject.h"
+
+#define IGPU_LESS 0
+
 /*
  ============== Information ===============
  https://en.wikipedia.org/wiki/List_of_Intel_chipsets
@@ -468,7 +472,14 @@ UINT8 mn_HD3000_os_info[20] = {
   0xf0, 0x1f, 0x01, 0x00, 0x00, 0x00, 0x10, 0x07, 0x00, 0x00
 };
 
+#if IGPU_LESS
+static struct gma_gpu_t KnownGPUS[] = {
+  { 0xFFFF, "Intel Unsupported"              }, // common name for unsuported devices
+  { 0x27A2, "Intel GMA 950"                  }, // Mobile - Intel 945GM Express Chipset Family - MacBook1,1/MacBook2,1
+  { 0x2A12, "Intel GMA X3100"                }, // Mobile - Intel 965 Express Chipset Family
 
+};
+#else
 static struct gma_gpu_t KnownGPUS[] = {
   { 0xFFFF, "Intel Unsupported"              }, // common name for unsuported devices
 #if WILL_WORK
@@ -942,6 +953,7 @@ static struct gma_gpu_t KnownGPUS[] = {
   { 0x4500, "Intel Jasper Lake"              }, //
 
 };
+#endif
 
 
 CONST CHAR8 *get_gma_model(UINT16 id)
@@ -957,34 +969,34 @@ CONST CHAR8 *get_gma_model(UINT16 id)
 }
 
 
-BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
+XBool setup_gma_devprop(const MacOsVersion& macOSVersion, const XString8& BuildVersion, EFI_FILE* RootDir, pci_dt_t *gma_dev)
 {
   UINTN           j;
-  UINTN           i;
+//  UINTN           i;
   XString8        devicepath;
   CONST CHAR8           *model;
   DevPropDevice   *device = NULL;
   UINT8           BuiltIn = 0x00;
   UINT32          FakeID;
   UINT32          DualLink = 1;
-//  UINT64          os_version = AsciiOSVersionToUint64(Entry->OSVersion);
-  BOOLEAN         SetUGAWidth = FALSE;
-  BOOLEAN         SetUGAHeight = FALSE;
-  BOOLEAN         Injected = FALSE;
-  BOOLEAN         SetFake = FALSE;
-  BOOLEAN         SetSnb = FALSE;
-  BOOLEAN         SetIg = FALSE;
+//  UINT64          os_version = AsciiOSVersionToUint64(macOSVersion);
+  XBool           SetUGAWidth = false;
+  XBool           SetUGAHeight = false;
+  XBool           Injected = false;
+  XBool           SetFake = false;
+  XBool           SetSnb = false;
+  XBool           SetIg = false;
 
-  MACHINE_TYPES   MacModel = GetModelFromString(gSettings.ProductName);
+  MacModel   MacModel = GetModelFromString(gSettings.Smbios.ProductName);
 
   devicepath = get_pci_dev_path(gma_dev);
 
   model = get_gma_model(gma_dev->device_id);
 
-  for (j = 0; j < NGFX; j++) {
-    if ((gGraphics[j].Vendor == Intel) &&
-        (gGraphics[j].DeviceID == gma_dev->device_id)) {
-      model = gGraphics[j].Model;
+  for (j = 0; j < gConf.GfxPropertiesArray.size(); j++) {
+    if ((gConf.GfxPropertiesArray[j].Vendor == Intel) &&
+        (gConf.GfxPropertiesArray[j].DeviceID == gma_dev->device_id)) {
+      model = gConf.GfxPropertiesArray[j].Model.c_str();
       break;
     }
   }
@@ -992,18 +1004,18 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
 
 	MsgLog("%s [%04hX:%04hX] :: %s\n",
       model, gma_dev->vendor_id, gma_dev->device_id, devicepath.c_str());
-
+#if IGPU_LESS == 0
   // Resolution
   switch (UGAWidth) {
     case 640:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 360:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
 			  DBG("  Found one ninth of a Full HD Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 480:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
 			  DBG("  Found VGA Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1012,14 +1024,14 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 800:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 480:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
 			  DBG("  Found Wide VGA Display - 5:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 600:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
 			  DBG("  Found Super VGA Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1028,23 +1040,23 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 854:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       if(UGAHeight == 480) {
-        SetUGAHeight = TRUE;
+        SetUGAHeight = true;
         DBG("  Found Full Wide VGA Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       } else {
         DBG("  Found Unknown Resolution Display - ?:? :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       }
       break;
     case 960:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 540:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found one quarter of Full HD Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 640:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Double-size VGA Display - 3:2 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1053,18 +1065,18 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 1024:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 576:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Super VGA Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 600:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Super VGA Display - 17:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 768:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found XGA Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1073,31 +1085,31 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 1152:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       if(UGAHeight == 864) {
-        SetUGAHeight = TRUE;
+        SetUGAHeight = true;
         DBG("  Found XGA Plus Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       } else {
         DBG("  Found Unknown Resolution Display - ?:? :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       }
       break;
     case 1280:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 720:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found HD Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 768:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide XGA Display - 5:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 800:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide XGA Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 1024:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Super XGA Display - 5:4 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1106,41 +1118,41 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 1366:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       if(UGAHeight == 768) {
-        SetUGAHeight = TRUE;
+        SetUGAHeight = true;
         DBG("  Found Full Wide XGA Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       } else {
         DBG("  Found Unknown Resolution Display - ?:? :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       }
       break;
     case 1400:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       if(UGAHeight == 1050) {
-        SetUGAHeight = TRUE;
+        SetUGAHeight = true;
         DBG("  Found Super XGA Plus Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       } else {
         DBG("  Found Unknown Resolution Display - ?:? :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       }
       break;
     case 1440:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       if(UGAHeight == 900) {
-        SetUGAHeight = TRUE;
+        SetUGAHeight = true;
         DBG("  Found Wide XGA Plus Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       } else {
         DBG("  Found Unknown Resolution Display - ?:? :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       }
       break;
     case 1600:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 900:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found HD Plus Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 1200:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Ultra XGA Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1149,10 +1161,10 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 1680:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 1050:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Widescreen Super XGA Plus Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1161,14 +1173,14 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 1920:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 1080:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Full HD Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 1200:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Ultra XGA Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1177,14 +1189,14 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 2048:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 1152:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Quad Wide XGA Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 1536:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Quad XGA Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1193,18 +1205,18 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 2560:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 1440:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Quad HD Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 1600:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Quad XGA Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 2048:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Quad Wide XGA Display - 5:4 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1213,27 +1225,27 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 2880:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       if(UGAHeight == 1800) {
-        SetUGAHeight = TRUE;
+        SetUGAHeight = true;
         DBG("  Found Wide Quad XGA Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       } else {
         DBG("  Found Unknown Resolution Display - ?:? :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       }
       break;
     case 3200:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 1800:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Quad HD Plus Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 2048:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Quad Super XGA Display - 25:16 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 2400:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Quad Ultra XGA Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1242,14 +1254,14 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 3840:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 2160:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Ultra HD, 4K Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 2400:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Quad Ultra XGA Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1258,27 +1270,27 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 4096:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       if(UGAHeight == 3072) {
-        SetUGAHeight = TRUE;
+        SetUGAHeight = true;
         DBG("  Found Hex XGA Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       } else {
         DBG("  Found Unknown Resolution Display - ?:? :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       }
       break;
     case 5120:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 2880:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Ultra HD Plus Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 3200:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Hex XGA Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 4096:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Hex Super XGA Display - 5:4 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1287,14 +1299,14 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 6400:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 4096:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Hex Super XGA Display - 25:16 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 4800:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Hex Ultra XGA Display - 4:3 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1303,14 +1315,14 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     case 7680:
-      SetUGAWidth = TRUE;
+      SetUGAWidth = true;
       switch (UGAHeight) {
         case 4320:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Full Ultra HD Display - 16:9 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         case 4800:
-          SetUGAHeight = TRUE;
+          SetUGAHeight = true;
           DBG("  Found Wide Hex Ultra XGA Display - 16:10 :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
           break;
         default:
@@ -1322,49 +1334,46 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
 		  DBG("  Found Unknown Resolution Display - ?:? :: Width=%lld Height=%lld\n", UGAWidth, UGAHeight);
       break;
   }
-
+#endif
   if (!device_inject_string) {
     device_inject_string = devprop_create_string();
   }
 
   if (gma_dev && !gma_dev->used) {
     device = devprop_add_device_pci(device_inject_string, gma_dev, NULL);
-    gma_dev->used = TRUE;
+    gma_dev->used = true;
   }
 
   if (!device) {
-    return FALSE;
+    return false;
   }
 
-  if (gSettings.NrAddProperties != 0xFFFE) {
-    for (i = 0; i < gSettings.NrAddProperties; i++) {
-      if (gSettings.AddProperties[i].Device != DEV_INTEL) {
-        continue;
-      }
-      Injected = TRUE;
+//  if (gSettings.Devices.AddPropertyArray.size() != 0xFFFE) { // Looks like NrAddProperties == 0xFFFE is not used anymore
+//    for (i = 0; i < gSettings.Devices.AddPropertyArray.size(); i++) {
+//      if (gSettings.Devices.AddPropertyArray[i].Device != DEV_INTEL) {
+//        continue;
+//      }
+//      Injected = true;
+//
+//      if (!gSettings.Devices.AddPropertyArray[i].MenuItem.BValue) {
+//        //DBG("  disabled property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
+//      } else {
+//        devprop_add_value(device, gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].Value);
+//        //DBG("  added property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
+//      }
+//    }
+//  }
 
-      if (!gSettings.AddProperties[i].MenuItem.BValue) {
-        //DBG("  disabled property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
-      } else {
-        devprop_add_value(device,
-                          gSettings.AddProperties[i].Key,
-                          (UINT8*)gSettings.AddProperties[i].Value,
-                          gSettings.AddProperties[i].ValueLen);
-        //DBG("  added property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
-      }
-    }
-  }
+//  if (Injected) {
+//    MsgLog("  Additional Intel GFX properties injected, continue\n");
+//  }
 
-  if (Injected) {
-    MsgLog("  Additional Intel GFX properties injected, continue\n");
-  }
-
-  if (gSettings.UseIntelHDMI) {
+  if (gSettings.Devices.UseIntelHDMI) {
     devprop_add_value(device, "hda-gfx", (UINT8*)"onboard-1", 10);
     MsgLog("  IntelHDMI: used\n");
   }
 
-  if (gSettings.InjectEDID && gSettings.CustomEDID) {
+  if (gSettings.Graphics.EDID.InjectEDID && gSettings.Graphics.EDID.CustomEDID.notEmpty()) {
     switch (gma_dev->device_id) {
       case 0x2772: // "Intel GMA 950"
       case 0x2776: // "Intel GMA 950"
@@ -1379,16 +1388,29 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       case 0x2A03: // "Intel GMA X3100"
       case 0x2A12: // "Intel GMA X3100"
       case 0x2A13: // "Intel GMA X3100"
-        devprop_add_value(device, "AAPL01,override-no-connect", gSettings.CustomEDID, 128);
+        devprop_add_value(device, "AAPL01,override-no-connect", gSettings.Graphics.EDID.CustomEDID.data(), 128);
         DBG("  AAPL01,override-no-connect: added\n");
         break;
       default:
-        devprop_add_value(device, "AAPL00,override-no-connect", gSettings.CustomEDID, 128);
+        devprop_add_value(device, "AAPL00,override-no-connect", gSettings.Graphics.EDID.CustomEDID.data(), 128);
         DBG("  AAPL00,override-no-connect: added\n");
         break;
     }
   }
 
+#if IGPU_LESS == 1
+
+  if ((gSettings.Graphics.DualLink == 0) || (gSettings.Graphics.DualLink == 1)) {
+    if (gSettings.Graphics.DualLink == 1) {
+      DBG("  DualLink: set to 1\n");
+      devprop_add_value(device, "AAPL01,DualLink", (UINT8*)&gSettings.Graphics.DualLink, 1);
+//      DBG("  AAPL01,DualLink = 1\n");
+    } else {
+      DBG("  DualLink: set to 0\n");
+//      DBG("  AAPL01,DualLink: not used\n");
+    }
+  }
+#else
   // DualLink
   // Low resolution(1366x768-) - DualLink = 0, but no need it
   // High resolution(1400x1050+) - DualLink = 1
@@ -1407,10 +1429,10 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
     case 0x2A03: // "Intel GMA X3100"
     case 0x2A12: // "Intel GMA X3100"
     case 0x2A13: // "Intel GMA X3100"
-      if ((gSettings.DualLink == 0) || (gSettings.DualLink == 1)) {
-        if (gSettings.DualLink == 1) {
+      if ((gSettings.Graphics.DualLink == 0) || (gSettings.Graphics.DualLink == 1)) {
+        if (gSettings.Graphics.DualLink == 1) {
           DBG("  DualLink: set to 1\n");
-          devprop_add_value(device, "AAPL01,DualLink", (UINT8*)&gSettings.DualLink, 1);
+          devprop_add_value(device, "AAPL01,DualLink", (UINT8*)&gSettings.Graphics.DualLink, 1);
           DBG("  AAPL01,DualLink = 1\n");
         } else {
           DBG("  DualLink: set to 0\n");
@@ -1435,10 +1457,10 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
     default:
-      if ((gSettings.DualLink == 0) || (gSettings.DualLink == 1)) {
-        if (gSettings.DualLink == 1) {
+      if ((gSettings.Graphics.DualLink == 0) || (gSettings.Graphics.DualLink == 1)) {
+        if (gSettings.Graphics.DualLink == 1) {
           DBG("  DualLink: set to 1\n");
-          devprop_add_value(device, "AAPL00,DualLink", (UINT8*)&gSettings.DualLink, 1);
+          devprop_add_value(device, "AAPL00,DualLink", (UINT8*)&gSettings.Graphics.DualLink, 1);
           DBG("  AAPL00,DualLink = 1\n");
         } else {
           DBG("  DualLink: set to 0\n");
@@ -1463,14 +1485,14 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
   }
-
-  if (gSettings.FakeIntel) {
-    FakeID = gSettings.FakeIntel >> 16;
+#endif
+  if (gSettings.Devices.FakeID.FakeIntel) {
+    FakeID = gSettings.Devices.FakeID.FakeIntel >> 16;
     devprop_add_value(device, "device-id", (UINT8*)&FakeID, 4);
-    FakeID = gSettings.FakeIntel & 0xFFFF;
+    FakeID = gSettings.Devices.FakeID.FakeIntel & 0xFFFF;
     devprop_add_value(device, "vendor-id", (UINT8*)&FakeID, 4);
-    SetFake = TRUE;
-	  MsgLog("  FakeID Intel GFX = 0x%08x\n", gSettings.FakeIntel);
+    SetFake = true;
+	  MsgLog("  FakeID Intel GFX = 0x%08x\n", gSettings.Devices.FakeID.FakeIntel);
   } else {
     DBG("  FakeID Intel GFX: not set\n");
   }
@@ -1484,35 +1506,35 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
     case 0x0116: // "Intel HD Graphics 3000"
     case 0x0122: // "Intel HD Graphics 3000"
     case 0x0126: // "Intel HD Graphics 3000"
-      if (gSettings.IgPlatform != 0) {
-        devprop_add_value(device, "AAPL,snb-platform-id", (UINT8*)&gSettings.IgPlatform, 4);
-		  MsgLog("  snb-platform-id = 0x%08x\n", gSettings.IgPlatform);
-        SetSnb = TRUE;
+      if (GlobalConfig.IgPlatform != 0) {
+        devprop_add_value(device, "AAPL,snb-platform-id", (UINT8*)&GlobalConfig.IgPlatform, 4);
+		  MsgLog("  snb-platform-id = 0x%08x\n", GlobalConfig.IgPlatform);
+        SetSnb = true;
       } else {
         DBG("  snb-platform-id: not set\n");
       }
       break;
     default:
-      if (gSettings.IgPlatform != 0) {
-        devprop_add_value(device, "AAPL,ig-platform-id", (UINT8*)&gSettings.IgPlatform, 4);
-		  MsgLog("  ig-platform-id = 0x%08x\n", gSettings.IgPlatform);
-        SetIg = TRUE;
+      if (GlobalConfig.IgPlatform != 0) {
+        devprop_add_value(device, "AAPL,ig-platform-id", (UINT8*)&GlobalConfig.IgPlatform, 4);
+		  MsgLog("  ig-platform-id = 0x%08x\n", GlobalConfig.IgPlatform);
+        SetIg = true;
       } else {
         DBG("  ig-platform-id: not set\n");
       }
       break;
   }
 
-  if (gSettings.NoDefaultProperties) {
+  if (gSettings.Devices.NoDefaultProperties) {
     MsgLog("  Intel: no default properties\n");
-    return TRUE;
+    return true;
   }
 
   devprop_add_value(device, "model", (UINT8*)model, (UINT32)AsciiStrLen(model));
   //devprop_add_value(device, "device_type", (UINT8*)"display", 7);  // this key displays two intel graphics cards in system report on 10.13.4+
   devprop_add_value(device, "subsystem-vendor-id", common_vals[2], 4);
   devprop_add_value(device, "class-code", (UINT8*)ClassFix, 4);
-  /*if (gSettings.Mobile) {
+  /*if (gSettings.Smbios.Mobile) {
     UINT32    IntelDisplay = 1;
     // these are not reference keys for all. why add these keys?
     devprop_add_value(device, "AAPL,backlight-control", (UINT8*)&IntelDisplay, 4);
@@ -1912,7 +1934,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
             break;
         }
       }
-      switch (gSettings.IgPlatform) {
+      switch (GlobalConfig.IgPlatform) {
         case (UINT32)0x00030030:
         case (UINT32)0x00050000:
           break;
@@ -1951,7 +1973,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
       break;
 
-
+#if IGPU_LESS == 0
       //============== 7th generation ============
       //----------------Ivy Bridge----------------
       //GT1
@@ -2026,7 +2048,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           break;
         default:
           if (!SetIg) {
-            if (gSettings.Mobile) {
+            if (gSettings.Smbios.Mobile) {
               devprop_add_value(device, "AAPL,ig-platform-id", ivy_bridge_ig_vals[7], 4);
               DBG("  Found ig-platform-id = 0x01660004\n");
             } else {
@@ -2036,7 +2058,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
       }
-      switch (gSettings.IgPlatform) {
+      switch (GlobalConfig.IgPlatform) {
         case (UINT32)0x01620006:
         case (UINT32)0x01620007:
           break;
@@ -2197,7 +2219,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
             break;
         }
       }
-      switch (gSettings.IgPlatform) {
+      switch (GlobalConfig.IgPlatform) {
         case (UINT32)0x04120004:
         case (UINT32)0x0412000B:
           break;
@@ -2336,13 +2358,13 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
       }
-      switch (MacModel) {
-        case MacBook81:
+ //     switch (MacModel) {
+ //       case MacBook81:
           //devprop_add_value(device, "AAPL,ig-tcon-scaler", broadwell_hd_vals[0], 4);
-          break;
-        default:
-          break;
-      }
+ //         break;
+ //       default:
+ //         break;
+ //     }
       //devprop_add_value(device, "graphic-options", broadwell_hd_vals[1], 4);
       break;
 
@@ -2504,7 +2526,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           break;
         default:
           if (!SetIg) {
-            if (gSettings.Mobile) {
+            if (gSettings.Smbios.Mobile) {
               devprop_add_value(device, "AAPL,ig-platform-id", skylake_ig_vals[1], 4);
               DBG("  Found ig-platform-id = 0x19120000\n");
             } else {
@@ -2514,25 +2536,25 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
       }
-      switch (gSettings.IgPlatform) {
-        case (UINT32)0x19020001:
-        case (UINT32)0x19120001:
-        case (UINT32)0x19170001:
-        case (UINT32)0x19320001:
-          break;
-        default:
-          switch (MacModel) {
-            case MacBook91:
+//      switch (GlobalConfig.IgPlatform) {
+//       case (UINT32)0x19020001:
+//        case (UINT32)0x19120001:
+//        case (UINT32)0x19170001:
+//        case (UINT32)0x19320001:
+//          break;
+//        default:
+ //         switch (MacModel) {
+ //           case MacBook91:
               //devprop_add_value(device, "AAPL00,PanelCycleDelay", skylake_hd_vals[2], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerDown", skylake_hd_vals[3], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerOff", skylake_hd_vals[4], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerOn", skylake_hd_vals[5], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerUp", skylake_hd_vals[6], 4);
               //devprop_add_value(device, "graphic-options", skylake_hd_vals[11], 4);
-              break;
-            case MacBookPro131:
-            case MacBookPro132:
-            case MacBookPro133:  // it has only the "graphic-options" value. However, we use built-in graphics.
+ //             break;
+ //           case MacBookPro131:
+ //           case MacBookPro132:
+ //           case MacBookPro133:  // it has only the "graphic-options" value. However, we use built-in graphics.
               //devprop_add_value(device, "AAPL,Gfx324", skylake_hd_vals[0], 4);
               //devprop_add_value(device, "AAPL00,PanelCycleDelay", skylake_hd_vals[2], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerDown", skylake_hd_vals[7], 4);
@@ -2540,15 +2562,15 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
               //devprop_add_value(device, "AAPL00,PanelPowerOn", skylake_hd_vals[9], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerUp", skylake_hd_vals[10], 4);
               //devprop_add_value(device, "graphic-options", skylake_hd_vals[11], 4);
-              break;
-            default:
-              break;
-          }
-          break;
-      }
+ //             break;
+ //           default:
+ //             break;
+ //         }
+ //         break;
+ //     }
 
       // if wakes up with an HDMI connected, sometimes this value causes force reboot in 10.14+
-      if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.14"_XS8) ) {
+      if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.14"_XS8) ) {
         devprop_add_value(device, "AAPL,GfxYTile", skylake_hd_vals[1], 4);
       }
       break;
@@ -2600,7 +2622,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       switch (gma_dev->device_id) {
         case 0x5902:
         case 0x5906:
-          if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.12.6"_XS8) ) {
+          if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12.6"_XS8) ) {
             if (!SetFake) {
               FakeID = 0x19028086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2627,7 +2649,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
         case 0x5912:
-          if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.12.6"_XS8)) {
+          if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12.6"_XS8)) {
             if (!SetFake) {
               FakeID = 0x19128086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2655,7 +2677,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           break;
         case 0x5916:
         case 0x5917:
-          if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.12.6"_XS8)) {
+          if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12.6"_XS8)) {
             if (!SetFake) {
               FakeID = 0x19168086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2684,7 +2706,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
         case 0x591A:
         case 0x591B:
         case 0x591D:
-          if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.12.6"_XS8)) {
+          if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12.6"_XS8)) {
             if (!SetFake) {
               FakeID = 0x191B8086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2712,7 +2734,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           break;
         case 0x591C:
         case 0x591E:
-          if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.12.6"_XS8)) {
+          if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12.6"_XS8)) {
             if (!SetFake) {
               FakeID = 0x191E8086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2739,7 +2761,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
         case 0x5923:
-          if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.12.6"_XS8)) {
+          if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12.6"_XS8)) {
             if (!SetFake) {
               FakeID = 0x19168086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2766,7 +2788,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
         case 0x5926:
-          if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.12.6"_XS8)) {
+          if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12.6"_XS8)) {
             if (!SetFake) {
               FakeID = 0x19268086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2793,8 +2815,8 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
         case 0x5927:
-          if (Entry->OSVersion.notEmpty() &&
-              Entry->OSVersion < MacOsVersion("10.12.6"_XS8)) {
+          if (macOSVersion.notEmpty() &&
+              macOSVersion < MacOsVersion("10.12.6"_XS8)) {
             if (!SetFake) {
               FakeID = 0x19278086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2822,7 +2844,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           break;
         case 0x87C0:
         case 0x87CA:
-          if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.12.6"_XS8)) {
+          if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.12.6"_XS8)) {
             if (!SetFake) {
               FakeID = 0x191E8086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2834,7 +2856,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
               devprop_add_value(device, "AAPL,ig-platform-id", skylake_ig_vals[8], 4);
               DBG("  Found ig-platform-id = 0x191E0000\n");
             }
-          } else if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.14"_XS8)) {
+          } else if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.14"_XS8)) {
             if (!SetFake) {
               FakeID = 0x591E8086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2862,7 +2884,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           break;
         default:
           if (!SetIg) {
-            if (gSettings.Mobile) {
+            if (gSettings.Smbios.Mobile) {
               devprop_add_value(device, "AAPL,ig-platform-id", kabylake_ig_vals[0], 4);
               DBG("  Found ig-platform-id = 0x59120000\n");
             } else {
@@ -2872,24 +2894,24 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
       }
-      switch (gSettings.IgPlatform) {
-        case (UINT32)0x59120003:
-        case (UINT32)0x59180002:
-          break;
-        default:
-          switch (MacModel) {
-            case MacBook101:
-            case MacBookAir81:
+//      switch (GlobalConfig.IgPlatform) {
+//        case (UINT32)0x59120003:
+//        case (UINT32)0x59180002:
+//          break;
+//        default:
+//          switch (MacModel) {
+//            case MacBook101:
+//            case MacBookAir81:
               //devprop_add_value(device, "AAPL00,PanelCycleDelay", kabylake_hd_vals[2], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerDown", kabylake_hd_vals[3], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerOff", kabylake_hd_vals[4], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerOn", kabylake_hd_vals[5], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerUp", kabylake_hd_vals[6], 4);
               //devprop_add_value(device, "graphic-options", kabylake_hd_vals[11], 4);
-              break;
-            case MacBookPro141:
-            case MacBookPro142:
-            case MacBookPro143:  // it has only the "graphic-options" value. However, we use built-in graphics.
+//              break;
+//            case MacBookPro141:
+//            case MacBookPro142:
+//            case MacBookPro143:  // it has only the "graphic-options" value. However, we use built-in graphics.
               //devprop_add_value(device, "AAPL,Gfx324", kabylake_hd_vals[0], 4);
               //devprop_add_value(device, "AAPL00,PanelCycleDelay", kabylake_hd_vals[2], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerDown", kabylake_hd_vals[7], 4);
@@ -2897,15 +2919,15 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
               //devprop_add_value(device, "AAPL00,PanelPowerOn", kabylake_hd_vals[9], 4);
               //devprop_add_value(device, "AAPL00,PanelPowerUp", kabylake_hd_vals[10], 4);
               //devprop_add_value(device, "graphic-options", kabylake_hd_vals[11], 4);
-              break;
-            default:
-              break;
-          }
-          break;
-      }
+//              break;
+//            default:
+//              break;
+//          }
+//          break;
+//      }
 
-      // if wakes up with an HDMI connected, somtimes this value causes force reboot in 10.14+
-      if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.14"_XS8)) {
+      // if wakes up with an HDMI connected, sometimes this value causes force reboot in 10.14+
+      if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.14"_XS8)) {
         devprop_add_value(device, "AAPL,GfxYTile", kabylake_hd_vals[1], 4);
       }
       break;
@@ -2964,8 +2986,8 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       switch (gma_dev->device_id) {
         case 0x3E90:
         case 0x3E93:
-          if (( Entry->OSVersion >= MacOsVersion("10.14"_XS8)) || (( Entry->OSVersion == MacOsVersion("10.13.6"_XS8)) &&
-              (Entry->BuildVersion.contains("17G2") || FileExists(Entry->Volume->RootDir, CFLFBPath)))) {
+          if (( macOSVersion >= MacOsVersion("10.14"_XS8)) || (( macOSVersion == MacOsVersion("10.13.6"_XS8)) &&
+              (BuildVersion.contains("17G2") || FileExists(RootDir, CFLFBPath)))) {
             if (!SetFake) {
               FakeID = 0x3E908086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -2992,8 +3014,8 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
         case 0x3E91:
-          if (( Entry->OSVersion >= MacOsVersion("10.14"_XS8)) || (( Entry->OSVersion == MacOsVersion("10.13.6"_XS8)) &&
-              (Entry->BuildVersion.contains("17G2") || FileExists(Entry->Volume->RootDir, CFLFBPath)))) {
+          if (( macOSVersion >= MacOsVersion("10.14"_XS8)) || (( macOSVersion == MacOsVersion("10.13.6"_XS8)) &&
+              (BuildVersion.contains("17G2") || FileExists(RootDir, CFLFBPath)))) {
             if (!SetFake) {
               FakeID = 0x3E918086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -3021,8 +3043,8 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           break;
         case 0x3E92:
         case 0x3E98:
-          if (( Entry->OSVersion >= MacOsVersion("10.14"_XS8)) || (( Entry->OSVersion == MacOsVersion("10.13.6"_XS8)) &&
-              (Entry->BuildVersion.contains("17G2") || FileExists(Entry->Volume->RootDir, CFLFBPath)))) {
+          if (( macOSVersion >= MacOsVersion("10.14"_XS8)) || (( macOSVersion == MacOsVersion("10.13.6"_XS8)) &&
+              (BuildVersion.contains("17G2") || FileExists(RootDir, CFLFBPath)))) {
             if (!SetFake) {
               FakeID = 0x3E928086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -3052,8 +3074,8 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
         case 0x3EA0:
         case 0x9B41:
         case 0x9BCA:
-          if (( Entry->OSVersion >= MacOsVersion("10.14"_XS8)) || (( Entry->OSVersion == MacOsVersion("10.13.6"_XS8)) &&
-              (Entry->BuildVersion.contains("17G2") || FileExists(Entry->Volume->RootDir, CFLFBPath)))) {
+          if (( macOSVersion >= MacOsVersion("10.14"_XS8)) || (( macOSVersion == MacOsVersion("10.13.6"_XS8)) &&
+              (BuildVersion.contains("17G2") || FileExists(RootDir, CFLFBPath)))) {
             if (!SetFake) {
               FakeID = 0x3E9B8086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -3080,8 +3102,8 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
         case 0x3EA5:
-          if (( Entry->OSVersion >= MacOsVersion("10.14"_XS8)) || (( Entry->OSVersion == MacOsVersion("10.13.6"_XS8)) &&
-              (Entry->BuildVersion.contains("17G2") || FileExists(Entry->Volume->RootDir, CFLFBPath)))) {
+          if (( macOSVersion >= MacOsVersion("10.14"_XS8)) || (( macOSVersion == MacOsVersion("10.13.6"_XS8)) &&
+              (BuildVersion.contains("17G2") || FileExists(RootDir, CFLFBPath)))) {
             if (!SetFake) {
               FakeID = 0x3EA58086 >> 16;
               DBG("  Found FakeID Intel GFX = 0x%04x8086\n", FakeID);
@@ -3109,7 +3131,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           break;
         default:
           if (!SetIg) {
-            if (gSettings.Mobile) {
+            if (gSettings.Smbios.Mobile) {
               devprop_add_value(device, "AAPL,ig-platform-id", coffeelake_ig_vals[6], 4);
               DBG("  Found ig-platform-id = 0x3E9B0000\n");
             } else {
@@ -3119,7 +3141,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
           }
           break;
       }
-      switch (gSettings.IgPlatform) {
+      switch (GlobalConfig.IgPlatform) {
         case (UINT32)0x3E910003:
         case (UINT32)0x3E920003:
         case (UINT32)0x3E980003:
@@ -3146,7 +3168,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }
 
       // if wakes up with an HDMI connected, somtimes this value causes force reboot in 10.14+
-      if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.14"_XS8)) {
+      if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.14"_XS8)) {
         devprop_add_value(device, "AAPL,GfxYTile", coffeelake_hd_vals[1], 4);
       }
       break;
@@ -3287,7 +3309,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
         default:
           break;
       }
-      /*switch (gSettings.IgPlatform) {
+      /*switch (GlobalConfig.IgPlatform) {
         case (UINT32)0x5A510003:
         case (UINT32)0x5A520003:
           break;
@@ -3311,7 +3333,7 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
       }*/
 
       // if wakes up with an HDMI connected, sometimes this value causes force reboot in 10.14+
-      if ( Entry->OSVersion.notEmpty() && Entry->OSVersion < MacOsVersion("10.14"_XS8)) {
+      if ( macOSVersion.notEmpty() && macOSVersion < MacOsVersion("10.14"_XS8)) {
         devprop_add_value(device, "AAPL,GfxYTile", cannonlake_hd_vals[1], 4);
       }
       break;
@@ -3342,15 +3364,52 @@ BOOLEAN setup_gma_devprop(LOADER_ENTRY *Entry, pci_dt_t *gma_dev)
     case 0x4500: // "Intel Jasper Lake"               //
       break;
 
-
+#endif
     default:
 		  DBG("  Intel card id=%hX unsupported, please report to the clover thread\n", gma_dev->device_id);
-      return FALSE;
+      return false;
   }
 
 #if DEBUG_GMA == 2
   gBS->Stall(5000000);
 #endif
 
-  return TRUE;
+  return true;
 }
+//thanks to jalavoui
+#if 0
+/*
+ * Some BIOS implementations leave the Intel GPU interrupts enabled,
+ * even though no one is handling them (f.e. i915 driver is never loaded).
+ * Additionally the interrupt destination is not set up properly
+ * and the interrupt ends up -somewhere-.
+ *
+ * These spurious interrupts are "sticky" and the kernel disables
+ * the (shared) interrupt line after 100.000+ generated interrupts.
+ *
+ * Fix it by disabling the still enabled interrupts.
+ * This resolves crashes often seen on monitor unplug.
+ */
+#define I915_DEIER_REG 0x4400c
+static void disable_igfx_irq(struct pci_dev *dev)
+{
+  void __iomem *regs = pci_iomap(dev, 0, 0);
+  if (regs == NULL) {
+    dev_warn(&dev->dev, "igfx quirk: Can't iomap PCI device\n");
+    return;
+  }
+  
+  /* Check if any interrupt line is still enabled */
+  if (readl(regs + I915_DEIER_REG) != 0) {
+    dev_warn(&dev->dev, "BIOS left Intel GPU interrupts enabled; "
+             "disabling\n");
+    
+    writel(0, regs + I915_DEIER_REG);
+  }
+  
+  pci_iounmap(dev, regs);
+}
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x0102, disable_igfx_irq);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x010a, disable_igfx_irq);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x0152, disable_igfx_irq);
+#endif

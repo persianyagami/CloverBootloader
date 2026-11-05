@@ -10,6 +10,9 @@
 
 #include "platformdata.h"
 #include <IndustryStandard/CpuId.h>
+#include <Register/Intel/ArchitecturalMsr.h>
+#include <IndustryStandard/ProcessorInfo.h>
+#include "../include/OC.h"
 
 #define CPU_MODEL_PENTIUM_M     0x09
 #define CPU_MODEL_DOTHAN        0x0D
@@ -38,38 +41,51 @@
 #define CPU_MODEL_IVY_BRIDGE    0x3A
 #define CPU_MODEL_HASWELL       0x3C  /* Haswell DT */
 #define CPU_MODEL_HASWELL_U5    0x3D  /* Haswell U5  5th generation Broadwell*/
-#define CPU_MODEL_IVY_BRIDGE_E5 0x3E  /* Ivy Bridge Xeon UN */
+#define CPU_MODEL_IVY_BRIDGE_E5 0x3E  /* Ivy Bridge Xeon E5-2650v2 */
 #define CPU_MODEL_HASWELL_E     0x3F  /* Haswell Extreme */
 //#define CPU_MODEL_HASWELL_H    0x??  // Haswell H
 #define CPU_MODEL_HASWELL_ULT   0x45  /* Haswell ULT */
 #define CPU_MODEL_CRYSTALWELL   0x46  /* Haswell ULX CPUID_MODEL_CRYSTALWELL */
-#define CPU_MODEL_BROADWELL_HQ  0x47  /* E3-1200 v4 */
+#define CPU_MODEL_BROADWELL_HQ  0x47  /* E3-1200 v4 5th */
 #define CPU_MODEL_MERRIFIELD    0x4A  /* Tangier */
 #define CPU_MODEL_AIRMONT       0x4C  /* CherryTrail / Braswell */
 #define CPU_MODEL_AVOTON        0x4D  /* Avaton/Rangely */
 #define CPU_MODEL_SKYLAKE_U     0x4E  /* Skylake Mobile */
-#define CPU_MODEL_BROADWELL_E5  0x4F  /* Xeon E5-2695 */
-#define CPU_MODEL_SKYLAKE_S     0x55  /* Skylake Server, Cooper Lake */
-#define CPU_MODEL_BROADWELL_DE  0x56  /* Xeon BroadWell */
+#define CPU_MODEL_BROADWELL_E5  0x4F  /* Xeon E5-2695 5th */
+#define CPU_MODEL_SKYLAKE_S     0x55  /* Skylake Server, Cooper Lake, Xeon(R) W-2140B */
+#define CPU_MODEL_BROADWELL_DE  0x56  /* Xeon BroadWell 5th */
 #define CPU_MODEL_KNIGHT        0x57  /* Knights Landing */
 #define CPU_MODEL_MOOREFIELD    0x5A  /* Annidale */
 #define CPU_MODEL_GOLDMONT      0x5C  /* Apollo Lake */
 #define CPU_MODEL_ATOM_X3       0x5D  /* Silvermont */
 #define CPU_MODEL_SKYLAKE_D     0x5E  /* Skylake Desktop */
 #define CPU_MODEL_DENVERTON     0x5F  /* Goldmont Microserver */
-#define CPU_MODEL_CANNONLAKE    0x66
+#define CPU_MODEL_CANNONLAKE    0x66  /* 8h generation Cannon Lake */
 #define CPU_MODEL_ICELAKE_A     0x6A  /* Xeon Ice Lake */
 #define CPU_MODEL_ICELAKE_C     0x6C  /* Xeon Ice Lake */
 #define CPU_MODEL_ATOM_GM       0x7A  /* Goldmont Plus */
-#define CPU_MODEL_ICELAKE_D     0x7D
-#define CPU_MODEL_ICELAKE       0x7E
+#define CPU_MODEL_ICELAKE_D     0x7D  /* 10h Ice Lake */
+#define CPU_MODEL_ICELAKE       0x7E  /* 10h Ice Lake */
 #define CPU_MODEL_XEON_MILL     0x85  /* Knights Mill */
 #define CPU_MODEL_ATOM_TM       0x86  /* Tremont */
-#define CPU_MODEL_KABYLAKE1     0x8E  /* Kabylake Mobile */
-#define CPU_MODEL_KABYLAKE2     0x9E  /* Kabylake Dektop, CoffeeLake */
+#define CPU_MODEL_TIGERLAKE_C   0x8C  /* 11h generation Tiger Lake */
+#define CPU_MODEL_TIGERLAKE_D   0x8D  /* 11h generation Tiger Lake */
+#define CPU_MODEL_KABYLAKE1     0x8E  /* 7h Kabylake Mobile */
+#define CPU_MODEL_ALDERLAKE     0x97  /* 12h generation Alder Lake */
+#define CPU_MODEL_ALDERLAKE_ULT 0x9A  /* 12h generation Alder Lake, i5-12500h */
+#define CPU_MODEL_KABYLAKE2     0x9E  /* 7h CoffeeLake */
+#undef CPU_MODEL_COMETLAKE_S // Jief : mistake in ProcessorInfo.h ?
 #define CPU_MODEL_COMETLAKE_S   0x9F  /* desktop Comet Lake */
-#define CPU_MODEL_COMETLAKE_Y   0xA5  /* aka 10th generation Amber Lake Y */
-#define CPU_MODEL_COMETLAKE_U   0xA6
+#define CPU_MODEL_COMETLAKE_Y   0xA5  /* 10h Comet Lake */
+#define CPU_MODEL_COMETLAKE_U   0xA6  /* 10h Comet Lake */
+#define CPU_MODEL_ROCKETLAKE    0xA7  /* 11h Rocket Lake */
+#define CPU_MODEL_METEORLAKE    0xAA  /* 14h Meteor Lake */
+#define CPU_MODEL_RAPTORLAKE    0xB7  /* 13h Raptor Lake */
+#define CPU_MODEL_RAPTORLAKE_M  0xBA    // Raptor Lake Mobile
+#define CPU_MODEL_RAPTORLAKE_B  0xBF  /* 13h Raptor Lake, i5-13400h */
+#define CPU_MODEL_ARROWLAKE		0xC6
+#define CPU_MODEL_ARROWLAKE_X	0xC5  /* 15h Arrow Lake */
+#define CPU_MODEL_ARROWLAKE_U	0xB5  /* 15h Arrow Lake */
 
 #define CPU_VENDOR_INTEL        0x756E6547
 #define CPU_VENDOR_AMD          0x68747541
@@ -179,11 +195,11 @@ const char CPU_STRING_UNKNOWN[] = "Unknown CPU Type";
 #define CPUID_MWAIT_BREAK  _Bit(1)  /* interrupts are break events     */
 
 /* Known MSR registers */
-#define MSR_IA32_PLATFORM_ID        0x0017
+//#define MSR_IA32_PLATFORM_ID        0x0017
 //#define IA32_APIC_BASE              0x001B  /* used also for AMD */
-#define MSR_CORE_THREAD_COUNT       0x0035   /* limited use - not for Penryn or older  */
-#define IA32_TSC_ADJUST             0x003B
-#define MSR_IA32_BIOS_SIGN_ID       0x008B   /* microcode version */
+//#define MSR_CORE_THREAD_COUNT       0x0035   /* limited use - not for Penryn or older  */
+//#define IA32_TSC_ADJUST             0x003B
+//#define MSR_IA32_BIOS_SIGN_ID       0x008B   /* microcode version */
 #define MSR_FSB_FREQ                0x00CD   /* limited use - not for i7            */
 /*
 •  101B: 100 MHz (FSB 400)
@@ -201,22 +217,26 @@ const char CPU_STRING_UNKNOWN[] = "Unknown CPU Type";
 //Low Frequency Mode. LFM is Pn in the P-state table. It can be read at MSR CEh [47:40].
 //Minimum Frequency Mode. MFM is the minimum ratio supported by the processor and can be read from MSR CEh [55:48].
 #define MSR_PKG_CST_CONFIG_CONTROL  0x00E2   /* sandy and up */
-#define MSR_PMG_IO_CAPTURE_BASE     0x00E4  /* sandy and up */
+//#define MSR_PMG_IO_CAPTURE_BASE     0x00E4  /* sandy and up */
 #define IA32_MPERF                  0x00E7   /* TSC in C0 only */
 #define IA32_APERF                  0x00E8   /* actual clocks in C0 */
-#define MSR_IA32_EXT_CONFIG         0x00EE   /* limited use - not for i7            */
-#define MSR_FLEX_RATIO              0x0194   /* limited use - not for Penryn or older      */
+//#define MSR_IA32_EXT_CONFIG         0x00EE   /* limited use - not for i7            */
+//#define MSR_FLEX_RATIO              0x0194   /* limited use - not for Penryn or older      */
                                              //see no value on most CPUs
-#define MSR_IA32_PERF_STATUS        0x0198
-#define MSR_IA32_PERF_CONTROL       0x0199
-#define MSR_IA32_CLOCK_MODULATION   0x019A
+//#define MSR_IA32_PERF_STATUS        0x0198
+//#define MSR_IA32_PERF_CONTROL       0x0199
+//#define MSR_IA32_CLOCK_MODULATION   0x019A
 #define MSR_THERMAL_STATUS          0x019C
-#define MSR_IA32_MISC_ENABLE        0x01A0
+//#define MSR_IA32_MISC_ENABLE        0x01A0
 #define MSR_THERMAL_TARGET          0x01A2   /* TjMax limited use - not for Penryn or older      */
 #define MSR_TURBO_RATIO_LIMIT       0x01AD   /* limited use - not for Penryn or older      */
+//#define MSR_MISC_PWR_MGMT           0x01AA   /* EIST Hardware Coordination Disable (R/W) */
+/* defined for Goldmont, Nehalem, Sandy and up
+ * bit0=1 == disable
+ * bit1=1 == enable MSR 1B0
+ */
 
-
-#define IA32_ENERGY_PERF_BIAS       0x01B0
+#define IA32_ENERGY_PERF_BIAS       0x01B0  /* 0=fast 15=low energy If CPUID.6H:ECX[3] = 1 */
 //MSR 000001B0                                      0000-0000-0000-0005
 #define MSR_PACKAGE_THERM_STATUS    0x01B1
 //MSR 000001B1                                      0000-0000-8838-0000
@@ -270,8 +290,8 @@ const char CPU_STRING_UNKNOWN[] = "Unknown CPU Type";
 
 //Skylake
 #define BASE_ART_CLOCK_SOURCE   24000000ULL  /* 24Mhz */
-#define MSR_IA32_PM_ENABLE          0x770
-#define MSR_IA32_HWP_REQUEST        0x774
+//#define MSR_IA32_PM_ENABLE          0x770
+//#define MSR_IA32_HWP_REQUEST        0x774
 
 //AMD
 #define K8_FIDVID_STATUS            0xC0010042
@@ -331,69 +351,68 @@ MSR C001006B  0000-0000-0000-0000
 
 
 
-typedef struct {
+typedef struct CPU_STRUCTURE {
  //values from CPUID
-  UINT32                  CPUID[CPUID_MAX][4];
-  UINT32                  Vendor;
-  UINT32                  Signature;
-  UINT32                  Family;
-  UINT32                  Model;
-  UINT32                  Stepping;
-  UINT32                  Type;
-  UINT32                  Extmodel;
-  UINT32                  Extfamily;
-  UINT64                  Features;
-  UINT64                  ExtFeatures;
-  UINT32                  CoresPerPackage;
-  UINT32                  LogicalPerPackage;
-  CHAR8                   BrandString[48];
+  UINT32                  CPUID[CPUID_MAX][4] = {{0}};
+  UINT32                  Vendor = 0;
+  UINT32                  Signature = 0;
+  UINT32                  Family = 0;
+  UINT32                  Model = 0;
+  UINT32                  Stepping = 0;
+  UINT32                  Type = 0;
+  UINT32                  Extmodel = 0;
+  UINT32                  Extfamily = 0;
+  UINT64                  Features = 0;
+  UINT64                  ExtFeatures = 0;
+  UINT32                  CoresPerPackage = 0;
+  UINT32                  LogicalPerPackage = 0;
+  XString8                BrandString = XString8();
 
   //values from BIOS
-  UINT64                  ExternalClock;
-  UINT32                  MaxSpeed;       //MHz
-  UINT32                  CurrentSpeed;   //MHz
-//  UINT32                  Pad;
+  UINT64                  ExternalClock = 0;
+  UINT32                  MaxSpeed = 0;       //MHz
+  UINT32                  CurrentSpeed = 0;   //MHz
+//  UINT32                  Pad = 0;
 
   //calculated from MSR
-  UINT64                  MicroCode;
-  UINT64                  ProcessorFlag;
-  UINT32                  MaxRatio;
-  UINT32                  SubDivider;
-  UINT32                  MinRatio;
-  UINT32                  DynFSB;
-  UINT64                  ProcessorInterconnectSpeed; //MHz
-  UINT64                  FSBFrequency; //Hz
-  UINT64                  CPUFrequency;
-  UINT64                  TSCFrequency;
-  UINT8                   Cores;
-  UINT8                   EnabledCores;
-  UINT8                   Threads;
-  UINT8                   Mobile;  //not for i3-i7
-  BOOLEAN                 Turbo;
-  UINT8                   Pad2[3];
+  UINT64                  MicroCode = 0;
+  UINT64                  ProcessorFlag = 0;
+  UINT32                  MaxRatio = 0;
+  UINT32                  SubDivider = 0;
+  UINT32                  MinRatio = 0;
+  UINT32                  DynFSB = 0;
+  UINT64                  ProcessorInterconnectSpeed = 0; //MHz
+  UINT64                  FSBFrequency = 0; //Hz
+  UINT64                  CPUFrequency = 0;
+  UINT64                  TSCFrequency = 0;
+  UINT8                   Cores = 0;
+  UINT8                   EnabledCores = 0;
+  UINT8                   Threads = 0;
+  UINT8                   Mobile = 0;  //not for i3-i7
+  XBool                   Turbo = false;
+  UINT8                   Pad2[3] = {0};
 
   /* Core i7,5,3 */
-  UINT16                  Turbo1; //1 Core
-  UINT16                  Turbo2; //2 Core
-  UINT16                  Turbo3; //3 Core
-  UINT16                  Turbo4; //4 Core
+  UINT16                  Turbo1 = 0; //1 Core
+  UINT16                  Turbo2 = 0; //2 Core
+  UINT16                  Turbo3 = 0; //3 Core
+  UINT16                  Turbo4 = 0; //4 Core
 
-  UINT64                  TSCCalibr;
-  UINT64                  ARTFrequency;
+  UINT64                  TSCCalibr = 0;
+  UINT64                  ARTFrequency = 0;
 
 } CPU_STRUCTURE;
 
-
-
+#ifndef DONT_DEFINE_GLOBALS
 extern UINT64                         TurboMsr;
 extern CPU_STRUCTURE                  gCPUStructure;
-
+#endif
 
 void
 GetCPUProperties (void);
 
-MACHINE_TYPES
-GetDefaultModel (void);
+MacModel
+GetDefaultModel ();
 
 UINT16
 GetAdvancedCpuType (void);
@@ -401,6 +420,7 @@ GetAdvancedCpuType (void);
 void
 SetCPUProperties (void);
 
-
+void
+FillOCCpuInfo(OC_CPU_INFO* CpuInfo);
 
 #endif /* PLATFORM_CPU_H_ */

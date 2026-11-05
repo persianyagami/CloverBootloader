@@ -9,7 +9,7 @@
 #include "boot.h"
 
 //#define DBG_RT( ...)    if ((KernelAndKextPatches != NULL) && KernelAndKextPatches->KPDebug) { printf(__VA_ARGS__); }
-#define DBG_RT(...)    if ( KernelAndKextPatches.KPDebug ) { printf(__VA_ARGS__); }
+#define DBG_RT(...)    if ( gSettings.KernelAndKextPatches.KPDebug ) { printf(__VA_ARGS__); }
 
 
 #define CPUFAMILY_INTEL_6_13		  0xaa33392b
@@ -93,10 +93,17 @@ typedef struct _BooterKextFileInfo {
     UINT32  bundlePathLength;
 } _BooterKextFileInfo;
 
-typedef struct _DeviceTreeBuffer {
-    uint32_t paddr;
-    uint32_t length;
-} _DeviceTreeBuffer;
+class _DeviceTreeBuffer
+{
+  public:
+    uint32_t paddr = 0;
+    uint32_t length = 0;
+
+    _DeviceTreeBuffer() { }
+    _DeviceTreeBuffer(const _DeviceTreeBuffer& other) = default; // default is fine if there is only native type and objects that have copy ctor
+    _DeviceTreeBuffer& operator = ( const _DeviceTreeBuffer & ) = default; // default is fine if there is only native type and objects that have copy ctor
+    ~_DeviceTreeBuffer() {}
+};
 
 typedef struct VTABLE {
   UINT32 NameOffset;
@@ -124,8 +131,6 @@ typedef struct SEGMENT {
   UINT32 SizeNamesTable;
 } SEGMENT;
 
-extern LIST_ENTRY gKextList; // Jief : globals variables... not great.
-
 //extern EFI_PHYSICAL_ADDRESS KernelRelocBase;
 //extern BootArgs1    *bootArgs1;
 //extern BootArgs2    *bootArgs2;
@@ -133,16 +138,16 @@ extern LIST_ENTRY gKextList; // Jief : globals variables... not great.
 //extern UINT32       *dtLength;
 //extern UINT8        *KernelData;
 //extern UINT32       KernelSlide;
-//extern BOOLEAN      isKernelcache;
-//extern BOOLEAN      is64BitKernel;
-//extern BOOLEAN      gSNBEAICPUFixRequire; // SandyBridge-E AppleIntelCpuPowerManagement patch require or not
-//extern BOOLEAN      gBDWEIOPCIFixRequire; // Broadwell-E IOPCIFamily fix require or not
+//extern XBool        isKernelcache;
+//extern XBool        is64BitKernel;
+//extern XBool        gSNBEAICPUFixRequire; // SandyBridge-E AppleIntelCpuPowerManagement patch require or not
+//extern XBool        gBDWEIOPCIFixRequire; // Broadwell-E IOPCIFamily fix require or not
 
 
 //extern UINT32       DisplayVendor[];
 //void findCPUfamily();
 
-//extern BOOLEAN                         SSSE3;
+//extern XBool        SSSE3;
 
 
 //UINT64 kernelsize;

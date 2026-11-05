@@ -12,26 +12,28 @@
 
 class TagArray : public TagStruct
 {
-  static XObjArray<TagArray> tagsFree;
   XObjArray<TagStruct> _arrayContent;
 
 public:
+#ifdef TagStruct_USE_CACHE
+  static XObjArray<TagArray> tagsFree;
+#endif
 
   TagArray() : _arrayContent() {}
   TagArray(const TagArray& other) = delete; // Can be defined if needed
   const TagArray& operator = (const TagArray&); // Can be defined if needed
   virtual ~TagArray() { }
 
-  virtual bool operator == (const TagStruct& other) const;
-  virtual bool debugIsEqual(const TagStruct& other, const XString8& label) const;
+  virtual XBool operator == (const TagStruct& other) const;
+  virtual XBool debugIsEqual(const TagStruct& other, const XString8& label) const;
 
   virtual TagArray* getArray() { return this; }
   virtual const TagArray* getArray() const { return this; }
 
-  virtual bool isArray() const { return true; }
+  virtual XBool isArray() const { return true; }
   virtual const XString8 getTypeAsXString8() const { return "Array"_XS8; }
   static TagArray* getEmptyTag();
-  virtual void FreeTag();
+  virtual void ReleaseTag();
   
   virtual void sprintf(unsigned int ident, XString8* s) const;
 

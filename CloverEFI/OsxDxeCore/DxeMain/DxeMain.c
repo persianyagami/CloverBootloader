@@ -123,6 +123,7 @@ EFI_DXE_SERVICES mDxeServices = {
   (EFI_SCHEDULE)                     CoreSchedule,                        // Schedule
   (EFI_TRUST)                        CoreTrust,                           // Trust
   (EFI_PROCESS_FIRMWARE_VOLUME)      CoreProcessFirmwareVolume,           // ProcessFirmwareVolume
+  NULL,
 };
 
 EFI_SYSTEM_TABLE mEfiSystemTableTemplate = {
@@ -206,6 +207,7 @@ EFI_SYSTEM_TABLE      *gDxeCoreST = NULL;
 EFI_RUNTIME_SERVICES  *gDxeCoreRT = &mEfiRuntimeServicesTableTemplate;
 EFI_HANDLE            gDxeCoreImageHandle = NULL;
 
+static BOOLEAN  mExitBootServicesCalled = FALSE;
 
 //
 // EFI Decompress Protocol
@@ -777,9 +779,13 @@ CoreExitBootServices (
   Status = CoreTerminateMemoryMap (MapKey);
   if (EFI_ERROR(Status)) {
     //
-    // Notify other drivers that ExitBootServices fail 
+    // Notify other drivers that ExitBootServices fail. Do this ones
     //
-    CoreNotifySignalList (&gEventExitBootServicesFailedGuid);
+    //CoreNotifySignalList (&gEventExitBootServicesFailedGuid);
+    if (!mExitBootServicesCalled) {
+       CoreNotifySignalList (&gEventExitBootServicesFailedGuid);
+       mExitBootServicesCalled = TRUE;
+     }
     return Status;
   }
 

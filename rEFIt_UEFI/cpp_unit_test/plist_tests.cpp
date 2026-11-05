@@ -4,7 +4,7 @@
 #include "../Platform/plist/plist.h"
 
 #ifndef _MSC_VER
-const char* config_all =
+static const char* config_all =
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?> \
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"> \
 <plist version=\"1.0\"> \
@@ -908,15 +908,18 @@ kk</string> \
 </dict> \
 </plist>";
 
-int plist_tests()
+int ParseXML_tests()
 {
   TagDict* dict = NULL;
-  EFI_STATUS Status = ParseXML(config_all, &dict, (UINT32)strlen(config_all));
+  EFI_STATUS Status = ParseXML((UINT8*)config_all, &dict, (UINT32)strlen(config_all));
+  dict->ReleaseTag();
+  TagStruct::EmptyCache();
+
   if ( !EFI_ERROR(Status) ) {
     XString8 s;
     dict->sprintf(0, &s);
     TagDict* dict2 = NULL;
-    Status = ParseXML(s.c_str(), &dict2, s.length());
+    Status = ParseXML((UINT8*)s.c_str(), &dict2, s.length());
     if ( !EFI_ERROR(Status) ) {
       if ( !(*dict).debugIsEqual(*dict2, "plist"_XS8) ) {
 //        printf("%s", s.c_str());
@@ -929,7 +932,7 @@ int plist_tests()
 }
 
 #else
-int plist_tests()
+int ParseXML_tests()
 {
 	// TODO with VS, I get a string too big.
 	return 0;

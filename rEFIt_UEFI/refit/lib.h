@@ -56,14 +56,13 @@
 */
 
 // Experimental <--
-#include "../include/Efi.h"
-#include "../libeg/libeg.h"
+#include <Efi.h>
+#include "../libeg/libeg.h" // for REFIT_DIR_ITER
+#include "../Platform/Volumes.h"
 
 #ifdef __cplusplus
 #include "../cpp_foundation/XObjArray.h"
 #include "../cpp_foundation/XString.h"
-#include "../libeg/XTheme.h"
-extern XTheme ThemeX; //global variable defined in lib.cpp
 #endif
 
 #define REFIT_DEBUG (2)
@@ -87,22 +86,6 @@ extern XTheme ThemeX; //global variable defined in lib.cpp
 #define BOOTING_BY_MBR          (4)
 #define BOOTING_BY_PBR          (5)
 #define BOOTING_BY_CD           (6)
-
-#define OSFLAG_ISSET(flags, flag) ((flags & flag) == flag)
-#define OSFLAG_ISUNSET(flags, flag) ((flags & flag) != flag)
-#define OSFLAG_SET(flags, flag) (flags | flag)
-#define OSFLAG_UNSET(flags, flag) (flags & (~flag))
-#define OSFLAG_TOGGLE(flags, flag) (flags ^ flag)
-#define OSFLAG_USEGRAPHICS    (1 << 0)
-#define OSFLAG_WITHKEXTS      (1 << 1)
-#define OSFLAG_CHECKFAKESMC   (1 << 2)
-#define OSFLAG_NOCACHES       (1 << 3)
-#define OSFLAG_NODEFAULTARGS  (1 << 4)
-#define OSFLAG_NODEFAULTMENU  (1 << 5)
-//#define OSFLAG_HIDDEN         (1 << 6)
-#define OSFLAG_DISABLED       (1 << 7)
-#define OSFLAG_HIBERNATED     (1 << 8)
-#define OSFLAG_NOSIP          (1 << 9)
 
 #define CUSTOM_BOOT_DISABLED       0
 #define CUSTOM_BOOT_USER_DISABLED  1
@@ -164,57 +147,42 @@ typedef enum {
 #define SVALUE_MAX_SIZE 512
 
 
-#define SCREEN_UNKNOWN    0
-#define SCREEN_MAIN       1
-#define SCREEN_ABOUT      2
-#define SCREEN_HELP       3
-#define SCREEN_OPTIONS    4
-#define SCREEN_GRAPHICS   5
-#define SCREEN_CPU        6
-#define SCREEN_BINARIES   7
-#define SCREEN_DSDT       8
-#define SCREEN_BOOT       9
-#define SCREEN_SMBIOS     10
-#define SCREEN_TABLES     11
-#define SCREEN_RC_SCRIPTS 12
-#define SCREEN_USB        13
-#define SCREEN_THEME      14
-#define SCREEN_SYSVARS    15
-#define SCREEN_CSR        16
-#define SCREEN_BLC        17
-#define SCREEN_DSM        18
-#define SCREEN_ACPI       19
-#define SCREEN_GUI        20
-#define SCREEN_SYSTEM     21
-#define SCREEN_AUDIO      22
-#define SCREEN_KEXTS      23
-#define SCREEN_KERNELS    24
-#define SCREEN_DSDT_PATCHES 25
-#define SCREEN_DEVICES      26
-#define SCREEN_BOOTER       27
-#define SCREEN_KEXT_INJECT  28
-#define SCREEN_KEXTS_MAN    29
-#define SCREEN_AUDIOPORTS   30
-#define SCREEN_QUIRKS       31
+#define SCREEN_UNKNOWN        0
+#define SCREEN_MAIN           1
+#define SCREEN_ABOUT          2
+#define SCREEN_HELP           3
+#define SCREEN_OPTIONS        4
+#define SCREEN_GRAPHICS       5
+#define SCREEN_CPU            6
+#define SCREEN_BINARIES       7
+#define SCREEN_DSDT           8
+#define SCREEN_BOOT           9
+#define SCREEN_SMBIOS         10
+#define SCREEN_TABLES         11
+#define SCREEN_RC_SCRIPTS     12
+#define SCREEN_USB            13
+#define SCREEN_THEME          14
+#define SCREEN_SYSVARS        15
+#define SCREEN_CSR            16
+#define SCREEN_CHOOSE_SMBIOS  17
+#define SCREEN_DSM            18
+#define SCREEN_ACPI           19
+#define SCREEN_GUI            20
+#define SCREEN_SYSTEM         21
+#define SCREEN_AUDIO          22
+#define SCREEN_KEXTS          23
+#define SCREEN_KERNELS        24
+#define SCREEN_DSDT_PATCHES   25
+#define SCREEN_DEVICES        26
+#define SCREEN_BOOTER         27
+#define SCREEN_KEXT_INJECT    28
+#define SCREEN_KEXTS_MAN      29
+#define SCREEN_AUDIOPORTS     30
+#define SCREEN_QUIRKS         31
+#define SCREEN_KEXTS_BLOCK    32
+
 
 #define MAX_ANIME  41
-
-#define QUIRK_DEFRAG  bit(0)
-#define QUIRK_MMIO    bit(1)
-#define QUIRK_SU      bit(2)
-#define QUIRK_VAR     bit(3)
-#define QUIRK_HIBER   bit(4)
-#define QUIRK_SAFE    bit(5)
-#define QUIRK_UNPROT  bit(6)
-#define QUIRK_EXIT    bit(7)
-#define QUIRK_REGION  bit(8)
-#define QUIRK_SECURE  bit(9)
-#define QUIRK_UEFI    bit(10)
-#define QUIRK_CUSTOM  bit(11)
-#define QUIRK_MAP     bit(12)
-#define QUIRK_VIRT    bit(13)
-#define QUIRK_OS      bit(14)
-#define QUIRK_PERM    bit(15)
 
 
 //some unreal values
@@ -225,11 +193,6 @@ typedef enum {
 //#define FILM_BOTTOM   60000
 //#define FILM_PERCENT 100000
 #define INITVALUE       40000
-
-#define VOLTYPE_INTERNAL   (0x0001)
-#define VOLTYPE_EXTERNAL   (0x0002)
-#define VOLTYPE_OPTICAL    (0x0004)
-#define VOLTYPE_FIREWIRE   (0x0008)
 
 #define HIDEUI_FLAG_SHELL             (0x0010)
 #define HIDEUI_FLAG_TOOLS             (0x0020)
@@ -258,28 +221,11 @@ typedef enum {
 #define SCREEN_EDGE_RIGHT   70000
 #define SCREEN_EDGE_BOTTOM  80000
 
-extern REFIT_VOLUME     *SelfVolume;
 
-#ifdef __cplusplus
-class VolumesArrayClass : public XObjArray<REFIT_VOLUME>
-{
-  public:
-//    REFIT_VOLUME* getApfsPartitionWithUUID(const XString8& ApfsContainerUUID, const XString8& APFSTargetUUID);
 
-};
-
-extern VolumesArrayClass Volumes;
-
-#endif
-
-//extern UINTN            VolumesCount;
-
-extern BOOLEAN          gThemeChanged;
-//extern BOOLEAN          gBootArgsChanged;
-extern BOOLEAN          gBootChanged;
-extern BOOLEAN          gThemeOptionsChanged;
+//extern XBool         gBootArgsChanged;
+extern XBool           gThemeOptionsChanged;
 //extern POINTERS         gPointer;
-//extern EFI_GUID gEfiAppleBootGuid;
 
 
 EFI_STATUS  InitRefitLib(IN EFI_HANDLE ImageHandle);
@@ -300,18 +246,19 @@ void ScanVolumes(void);
 
 REFIT_VOLUME *FindVolumeByName(IN CONST CHAR16 *VolName);
 
-BOOLEAN FileExists(const EFI_FILE *BaseDir, const CHAR16 *RelativePath);
-BOOLEAN FileExists(const EFI_FILE *BaseDir, const XStringW& RelativePath);
-BOOLEAN FileExists(const EFI_FILE& Root, const XStringW& RelativePath);
+XBool FileExists(const EFI_FILE *BaseDir, const CHAR16 *RelativePath);
+XBool FileExists(const EFI_FILE *BaseDir, const XStringW& RelativePath);
+XBool FileExists(const EFI_FILE& Root, const XStringW& RelativePath);
 
-inline EFI_DEVICE_PATH_PROTOCOL* FileDevicePath (IN EFI_HANDLE Device, IN CONST XStringW& FileName) { return FileDevicePath(Device, FileName.wc_str()); }
+//inline EFI_DEVICE_PATH_PROTOCOL* FileDevicePath (IN EFI_HANDLE Device, IN CONST XStringW& FileName) { return FileDevicePath(Device, FileName.wc_str()); }
+EFI_DEVICE_PATH_PROTOCOL* FileDevicePath (IN EFI_HANDLE Device, IN CONST XStringW& FileName);
 
-BOOLEAN DeleteFile(const EFI_FILE *Root, IN CONST CHAR16 *RelativePath);
+XBool DeleteFile(const EFI_FILE *Root, IN CONST CHAR16 *RelativePath);
 
 EFI_STATUS DirNextEntry(const EFI_FILE *Directory, IN OUT EFI_FILE_INFO **DirEntry, IN UINTN FilterMode);
 
 void    DirIterOpen(const EFI_FILE *BaseDir, IN CONST CHAR16 *RelativePath OPTIONAL, OUT REFIT_DIR_ITER *DirIter);
-BOOLEAN DirIterNext(IN OUT REFIT_DIR_ITER *DirIter, IN UINTN FilterMode, IN CONST CHAR16 *FilePattern OPTIONAL, OUT EFI_FILE_INFO **DirEntry);
+XBool DirIterNext(IN OUT REFIT_DIR_ITER *DirIter, IN UINTN FilterMode, IN CONST CHAR16 *FilePattern OPTIONAL, OUT EFI_FILE_INFO **DirEntry);
 EFI_STATUS DirIterClose(IN OUT REFIT_DIR_ITER *DirIter);
 
 CONST CHAR16 * Basename(IN CONST CHAR16 *Path);
@@ -350,6 +297,8 @@ EFI_STATUS InitializeUnicodeCollationProtocol (void);
 //extern INTN FontWidth;
 //extern INTN FontHeight;
 
+#ifndef DONT_DEFINE_GLOBALS
+
 extern const INTN BCSMargin;
 extern const EFI_GRAPHICS_OUTPUT_BLT_PIXEL StdBackgroundPixel;
 extern const EFI_GRAPHICS_OUTPUT_BLT_PIXEL MenuBackgroundPixel;
@@ -368,7 +317,9 @@ extern CHAR16 *BlankLine;
 
 extern INTN UGAWidth;
 extern INTN UGAHeight;
-extern BOOLEAN AllowGraphicsMode;
+extern XBool AllowGraphicsMode;
+
+#endif
 
 #if REFIT_DEBUG > 0
 void DebugPause(void);
@@ -411,6 +362,12 @@ void DebugPause(void);
 #define ICON_OTHER_OS                          (51)
 #define ICON_CLOVER                            (52)
 #define ICON_BIGSUR                            (53)
+#define ICON_MONTEREY                          (54)
+#define ICON_VENTURA                           (55)
+#define ICON_SONOMA                            (56)
+#define ICON_SEQUOIA                           (57)
+#define ICON_TAHOE		                       (58)
+#define ICON_ARCH		                       (59)
 #define BUILTIN_ICON_BACKGROUND                (100)
 #define BUILTIN_ICON_SELECTION                 (101)
 #define BUILTIN_ICON_ANIME                     (102)
@@ -432,11 +389,11 @@ void DebugPause(void);
 #define X_IS_CENTER  1
 #define BADGE_DIMENSION 64
 
-// IconFormat
-#define ICON_FORMAT_DEF       (0)
-#define ICON_FORMAT_ICNS      (1)
-#define ICON_FORMAT_PNG       (2)
-#define ICON_FORMAT_BMP       (3)
+//// IconFormat
+//#define ICON_FORMAT_DEF       (0)
+//#define ICON_FORMAT_ICNS      (1)
+//#define ICON_FORMAT_PNG       (2)
+//#define ICON_FORMAT_BMP       (3)
 
 
 
@@ -445,7 +402,7 @@ void DebugPause(void);
 // BmLib
 //
 
-extern BOOLEAN DumpVariable(CHAR16* Name, EFI_GUID* Guid, INTN DevicePathAt);
+extern XBool DumpVariable(CHAR16* Name, const EFI_GUID& Guid, INTN DevicePathAt);
 //void FilterKextPatches(IN LOADER_ENTRY *Entry);
 
 
@@ -453,8 +410,6 @@ extern BOOLEAN DumpVariable(CHAR16* Name, EFI_GUID* Guid, INTN DevicePathAt);
 
 void ReinitVolumes(void);
 
-
-void DbgHeader(CONST CHAR8 *str);
 
 UINTN
 NodeParser  (UINT8 *DevPath, UINTN PathSize, UINT8 Type);

@@ -4,12 +4,12 @@
  */
 
 #include "MemoryOperation.h"
-#include <BootLog.h>
+#include "BootLog.h"
 
 #include <Library/BaseMemoryLib.h>
 
 #ifndef DEBUG_MEMORYOPERATION
-# ifdef UNIT_TESTS
+# ifdef UNIT_TESTS_MACOS
 #   define DEBUG_MEMORYOPERATION 0
 # else
 #   define DEBUG_MEMORYOPERATION 1
@@ -27,7 +27,7 @@
 
 //
 // Searches Source for Search pattern of size SearchSize
-// and returns the number of occurences.
+// and returns the number of occurrences.
 //
 UINTN SearchAndCount(const UINT8 *Source, UINT64 SourceSize, const UINT8 *Search, UINTN SearchSize)
 {

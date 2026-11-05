@@ -22,11 +22,14 @@
  * SOFTWARE.
  */
 
+#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
+#include <Efi.h>
+
 #include "HdaCodecDump.h"
 #include "StateGenerator.h"
 #include "AmlGenerator.h"
 #include "../Platform/Settings.h"
-#include "Self.h"
+#include "../Settings/Self.h"
 
 CONST CHAR8 *gWidgetNames[HDA_WIDGET_TYPE_VENDOR + 1] = {
 	"Audio Output", "Audio Input", "Audio Mixer",
@@ -53,7 +56,14 @@ CONST CHAR8 *gColors[HDA_CONFIG_DEFAULT_COLOR_OTHER + 1] = {
 	"Reserved", "White", "Other" };	
 
 #define HDC_ID        { 'H','D','C','O' }
-#define HdaLog(format, ...)	MemLogf(FALSE, 0, format, ##__VA_ARGS__)
+
+//#pragma clang diagnostic push
+//#pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
+
+#define HdaLog(format, ...)  MemLogf(false, 0, format, ##__VA_ARGS__)
+
+//#pragma clang diagnostic pop
+
 
 CONST CHAR8  hdcID[4]       = HDC_ID;
 
@@ -373,7 +383,7 @@ EFI_STATUS SaveHdaDumpBin()
 			continue;
 
 		HdaCodecDev = AudioIoPrivateData->HdaCodecDev;
-		if(!HdaCodecDev || !HdaCodecDev->AudioFuncGroup)
+		if(!HdaCodecDev->AudioFuncGroup)
 			continue;
 		
 //		HdaCodecInfo = &HdaCodecDev->HdaCodecInfoData->HdaCodecInfo;
@@ -436,7 +446,7 @@ EFI_STATUS SaveHdaDumpBin()
 			HdaWidget.ConnectionSelect = 0;
 			HdaWidget.SupportedPowerStates = Widgets[w].SupportedPowerStates;
 			HdaWidget.DefaultPowerState = Widgets[w].DefaultPowerState;
-			HdaWidget.AmpOverride = Widgets[w].AmpOverride;
+			HdaWidget.AmpOverride = Widgets[w].AmpOverride != 0;
 			HdaWidget.AmpInCapabilities = Widgets[w].AmpInCapabilities;
 			HdaWidget.AmpOutCapabilities = Widgets[w].AmpOutCapabilities;
 			HdaWidget.AmpOutLeftDefaultGainMute = Widgets[w].AmpOutLeftDefaultGainMute;

@@ -10,9 +10,10 @@ extern "C" {
 #include "../Platform/plist/plist.h"
 #include "../Platform/Settings.h"
 #include "../Platform/guid.h"
-#include "../Platform/SelfOem.h"
+#include "../Settings/SelfOem.h"
+#include "../Platform/KextList.h"
 #include "MemoryOperation.h"
-#include "../include/OsType.h"
+#include "../include/OSTypes.h"
 
 #ifndef DEBUG_ALL
 #define KEXT_INJECT_DEBUG 1
@@ -35,7 +36,8 @@ extern "C" {
 ////////////////////
 // globals
 ////////////////////
-LIST_ENTRY gKextList = INITIALIZE_LIST_HEAD_VARIABLE (gKextList);
+//LIST_ENTRY gKextList = INITIALIZE_LIST_HEAD_VARIABLE (gKextList);
+XObjArray<KEXT_ENTRY> gKextList;
 
 
 ////////////////////
@@ -105,9 +107,9 @@ void toLowerStr(CHAR8 *tstr, IN CONST CHAR8 *str) {
     *tstr = '\0';
 }
 
-BOOLEAN LOADER_ENTRY::checkOSBundleRequired(const TagDict* dict)
+XBool LOADER_ENTRY::checkOSBundleRequired(const TagDict* dict)
 {
-    BOOLEAN inject = TRUE;
+    XBool inject = true;
     const TagStruct*  osBundleRequiredTag;
     XString8 osbundlerequired;
     
@@ -123,7 +125,7 @@ BOOLEAN LOADER_ENTRY::checkOSBundleRequired(const TagDict* dict)
              osbundlerequired != "local"_XS8  &&
              osbundlerequired != "console"_XS8  &&
              osbundlerequired != "network-root"_XS8 ) {
-            inject = FALSE;
+            inject = false;
         }
     }
     
@@ -133,40 +135,44 @@ BOOLEAN LOADER_ENTRY::checkOSBundleRequired(const TagDict* dict)
 //extern void KernelAndKextPatcherInit(IN LOADER_ENTRY *Entry);
 //extern void AnyKextPatch(UINT8 *Driver, UINT32 DriverSize, CHAR8 *InfoPlist, UINT32 InfoPlistSize, INT32 N, LOADER_ENTRY *Entry);
 
-//XStringW infoPlistPath = getKextPlist(dir, KextEntry, &NoContents);
-XStringW LOADER_ENTRY::getKextPlist(const XStringW& dirPath, const SIDELOAD_KEXT& KextEntry, BOOLEAN* NoContents)
+//XStringW infoPlistPath = getKextPlist(&self.getCloverDir(), dir, KextEntry, &NoContents);
+XStringW LOADER_ENTRY::getKextPlist(const EFI_FILE* Root, const XStringW& dirPath, const XStringW& FileName, XBool* NoContents)
 {
   XStringW    TempName;
+  XStringW    FullName;
+  if (dirPath.isEmpty()) {  //dirPath.isEmpty()
+    FullName = SWPrintf("\\%ls", FileName.wc_str());
+  } else {
+    FullName = SWPrintf("%ls\\%ls", dirPath.wc_str(), FileName.wc_str());
+  }
   
-  TempName = SWPrintf("%ls\\%ls\\%ls", dirPath.wc_str(), KextEntry.FileName.wc_str(), L"Contents\\Info.plist");
-#ifndef LESS_DEBUG
-  MsgLog("info plist path: %ls\n", TempName.wc_str());
-#endif
-  if (!FileExists(&self.getCloverDir(), TempName)) {
+  TempName = SWPrintf("%ls\\%ls",  FullName.wc_str(), L"Contents\\Info.plist");
+
+  if (!FileExists(Root, TempName)) {
     //try to find a planar kext, without Contents
-    TempName = SWPrintf("%ls\\%ls\\%ls", dirPath.wc_str(), KextEntry.FileName.wc_str(), L"Info.plist");
-    if (!FileExists(&self.getCloverDir(), TempName)) {
-      MsgLog("Failed to load extra kext : %ls \n", TempName.wc_str());
+    TempName = SWPrintf("%ls\\%ls", FullName.wc_str(), L"Info.plist");
+    if (!FileExists(Root, TempName)) {
+      MsgLog("Failed to load file : %ls \n", TempName.wc_str());
       return L""_XSW;
     }
-    *NoContents = TRUE;
+    *NoContents = true;
   } else {
-    *NoContents = FALSE;
+    *NoContents = false;
   }
   return TempName;
 }
 
-//TagDict*    dict = getInfoPlist(infoPlistPath);
-TagDict* LOADER_ENTRY::getInfoPlist(const XStringW& infoPlistPath)
+//TagDict*    dict = getInfoPlist(Root, infoPlistPath);
+TagDict* LOADER_ENTRY::getInfoPlist(const EFI_FILE* Root, const XStringW& infoPlistPath)
 {
   EFI_STATUS  Status;
   UINT8*      infoDictBuffer = NULL;
   UINTN       infoDictBufferLength = 0;
   TagDict*    dict = NULL;
 
-  Status = egLoadFile(&self.getCloverDir(), infoPlistPath.wc_str(), &infoDictBuffer, &infoDictBufferLength);
+  Status = egLoadFile(Root, infoPlistPath.wc_str(), &infoDictBuffer, &infoDictBufferLength);
   if (!EFI_ERROR(Status)) {  //double check
-    if( ParseXML((CHAR8*)infoDictBuffer, &dict, infoDictBufferLength)!=0 ) {
+    if( ParseXML(infoDictBuffer, &dict, infoDictBufferLength)!=0 ) {
       MsgLog("Failed to parse Info.plist: %ls\n", infoPlistPath.wc_str());
       dict =  NULL;
     }
@@ -176,8 +182,8 @@ TagDict* LOADER_ENTRY::getInfoPlist(const XStringW& infoPlistPath)
   return NULL;
 }
 
-//XString8 execpath = getKextExecPath(dir, KextEntry, dict, NoContents);
-XString8  LOADER_ENTRY::getKextExecPath(const XStringW& dirPath, const SIDELOAD_KEXT& KextEntry, TagDict* dict, BOOLEAN NoContents)
+//XString8 execpath = getKextExecPath(dir, KextEntry.FileName, dict, NoContents);
+XString8  LOADER_ENTRY::getKextExecPath(const EFI_FILE* Root, const XStringW& dirPath, const XStringW& FileName, TagDict* dict, XBool NoContents)
 {
   const TagStruct* prop = NULL;
   XString8    TempName;
@@ -190,16 +196,37 @@ XString8  LOADER_ENTRY::getKextExecPath(const XStringW& dirPath, const SIDELOAD_
     } else {
       TempName = S8Printf("Contents\\MacOS\\%s", Executable.c_str());
     }
-    const XStringW& fullPath = SWPrintf("%ls\\%ls\\%s", dirPath.wc_str(), KextEntry.FileName.wc_str(), TempName.c_str());
-    if (!FileExists(&self.getCloverDir(), fullPath)) {
-      MsgLog("Failed to load kext executable: %ls\n", KextEntry.FileName.wc_str());
-      return ""_XS8; //no executable
+    XStringW fullPath = SWPrintf("%ls\\%ls\\%ls\\%s", selfOem.getKextsDirPathRelToSelfDir().wc_str(), dirPath.wc_str(), FileName.wc_str(), TempName.c_str());
+    if (!FileExists(Root, fullPath)) {
+
+      // kext from OpenCoreLegacyPatcher renamed the executable without updating CFBundleExecutable
+      // let's see if there is an executable that has the same name as the kext.
+      XString8 TempName2;
+      XStringW FileNameWithoutExt;
+      if ( FileName.indexOf('.') != MAX_XSIZE ) FileNameWithoutExt = FileName.subString(0, FileName.indexOf('.'));
+      else FileNameWithoutExt = FileName;
+      if (NoContents) {
+        TempName2 = S8Printf("%ls", FileNameWithoutExt.wc_str());
+      } else {
+        TempName2 = S8Printf("Contents\\MacOS\\%ls", FileNameWithoutExt.wc_str());
+      }
+      fullPath = SWPrintf("%ls\\%ls\\%ls\\%s", selfOem.getKextsDirPathRelToSelfDir().wc_str(), dirPath.wc_str(), FileName.wc_str(), TempName2.c_str());
+
+      if (!FileExists(Root, fullPath)) {
+        MsgLog("Failed to load kext executable: %ls\n", FileName.wc_str());
+        return ""_XS8; //no executable
+      }else{
+        MsgLog("Warning : wrong value for CFBundleExecutable for kext %ls. It's %s and should be %ls\n", FileName.wc_str(), Executable.c_str(), FileName.wc_str());
+        return TempName2;
+      }
     }
   }
   return TempName;
 }
 
 //it seems no more used? Or???
+// FileName is better as a XString8 instead of XStringW because _BooterKextFileInfo will need an utf8.
+/*
 EFI_STATUS LOADER_ENTRY::LoadKext(const EFI_FILE *RootDir, const XString8& FileName, IN cpu_type_t archCpuType, IN OUT void *kext_v)
 {
   EFI_STATUS  Status;
@@ -210,11 +237,11 @@ EFI_STATUS LOADER_ENTRY::LoadKext(const EFI_FILE *RootDir, const XString8& FileN
   UINTN       executableBufferLength = 0;
 //  CHAR8*      bundlePathBuffer = NULL;
 //  UINTN       bundlePathBufferLength = 0;
-  XStringW    TempName;
-  TagDict*    dict = NULL;
+  XStringW              TempName;
+  TagDict*              dict = NULL;
   const TagStruct*      prop = NULL;
-  BOOLEAN     NoContents = FALSE;
-  BOOLEAN     inject = FALSE;
+  XBool                 NoContents = false;
+  XBool                 inject = false;
   _BooterKextFileInfo *infoAddr = NULL;
   _DeviceTreeBuffer *kext = (_DeviceTreeBuffer *)kext_v;
 
@@ -229,7 +256,7 @@ EFI_STATUS LOADER_ENTRY::LoadKext(const EFI_FILE *RootDir, const XString8& FileN
       MsgLog("Failed to load extra kext : %ls status=%s\n", TempName.wc_str(), efiStrError(Status));
       return EFI_NOT_FOUND;
     }
-    NoContents = TRUE;
+    NoContents = true;
   }
   if( ParseXML((CHAR8*)infoDictBuffer, &dict,infoDictBufferLength)!=0 ) {
     FreePool(infoDictBuffer);
@@ -295,18 +322,18 @@ EFI_STATUS LOADER_ENTRY::AddKext(const EFI_FILE *RootDir, const XString8& FileNa
   EFI_STATUS  Status;
   KEXT_ENTRY  *KextEntry;
 
-  KextEntry = (__typeof__(KextEntry))AllocatePool (sizeof(KEXT_ENTRY));
+  KextEntry = new KEXT_ENTRY;
   KextEntry->Signature = KEXT_SIGNATURE;
   Status = LoadKext(RootDir, FileName, archCpuType, &KextEntry->kext);
   if(EFI_ERROR(Status)) {
-    FreePool(KextEntry);
+    delete KextEntry;
   } else {
-    InsertTailList (&gKextList, &KextEntry->Link);
+    gKextList.AddReference(KextEntry, true);
   }
 
   return Status;
 }
-
+*/
 UINT32 GetListCount(LIST_ENTRY const* List)
 {
   LIST_ENTRY    *Link;
@@ -320,27 +347,22 @@ UINT32 GetListCount(LIST_ENTRY const* List)
   return Count;
 }
 
-UINT32 GetKextCount()
-{
-  return (UINT32)GetListCount(&gKextList);
-}
-
-UINT32 GetKextsSize()
-{
-  LIST_ENTRY    *Link;
-  KEXT_ENTRY    *KextEntry;
-  UINT32        kextsSize=0;
-
-  if(!IsListEmpty(&gKextList)) {
-    for (Link = gKextList.ForwardLink; Link != &gKextList; Link = Link->ForwardLink) {
-      KextEntry = CR(Link, KEXT_ENTRY, Link, KEXT_SIGNATURE);
-      kextsSize += RoundPage(KextEntry->kext.length);
-    }
-  }
-  return kextsSize;
-}
-
-void LOADER_ENTRY::LoadPlugInKexts(const EFI_FILE *RootDir, const XString8& DirName, IN cpu_type_t archCpuType, IN BOOLEAN Force)
+//UINT32 GetKextsSize()
+//{
+//  LIST_ENTRY    *Link;
+//  KEXT_ENTRY    *KextEntry;
+//  UINT32        kextsSize=0;
+//
+//  if(!IsListEmpty(&gKextList)) {
+//    for (Link = gKextList.ForwardLink; Link != &gKextList; Link = Link->ForwardLink) {
+//      KextEntry = CR(Link, KEXT_ENTRY, Link, KEXT_SIGNATURE);
+//      kextsSize += RoundPage(KextEntry->kext.length);
+//    }
+//  }
+//  return kextsSize;
+//}
+/*
+void LOADER_ENTRY::LoadPlugInKexts(const EFI_FILE *RootDir, const XString8& DirName, IN cpu_type_t archCpuType, IN XBool Force)
 {
    REFIT_DIR_ITER          PlugInIter;
    EFI_FILE_INFO           *PlugInFile;
@@ -359,7 +381,7 @@ void LOADER_ENTRY::LoadPlugInKexts(const EFI_FILE *RootDir, const XString8& DirN
    }
    DirIterClose(&PlugInIter);
 }
-
+*/
 //void LOADER_ENTRY::AddKexts(const XStringW& SrcDir, const XStringW& Path, cpu_type_t archCpuType)
 //{
 //  XStringW                 FileName;
@@ -408,7 +430,7 @@ void LOADER_ENTRY::LoadPlugInKexts(const EFI_FILE *RootDir, const XString8& DirN
 //}
 
 // Jief : this should replace LOADER_ENTRY::AddKexts
-void LOADER_ENTRY::AddKextsFromDirInArray(const XString8& SrcDir, const XString8& Path, cpu_type_t archCpuType, XObjArray<SIDELOAD_KEXT>* kextArray)
+void LOADER_ENTRY::AddKextsFromDirInArray(const XString8& SrcDir, cpu_type_t archCpuType, XObjArray<SIDELOAD_KEXT>* kextArray)
 {
   XStringW                 FileName;
   XStringW                 PlugInName;
@@ -417,7 +439,7 @@ void LOADER_ENTRY::AddKextsFromDirInArray(const XString8& SrcDir, const XString8
   for ( size_t idx = 0 ; idx < InjectKextList.size() ; idx ++ ) {
     SIDELOAD_KEXT& CurrentKext = InjectKextList[idx];
 //    DBG("  current kext name=%ls path=%ls, match against=%s\n", CurrentKext.FileName.wc_str(), CurrentKext.KextDirNameUnderOEMPath.wc_str(), Path.c_str());
-    if ( CurrentKext.KextDirNameUnderOEMPath == Path ) {
+    if ( CurrentKext.KextDirNameUnderOEMPath == SrcDir ) {
       FileName = SWPrintf("%s\\%ls", SrcDir.c_str(), CurrentKext.FileName.wc_str());
       if (!(CurrentKext.MenuItem.BValue)) {
         // inject require
@@ -449,13 +471,14 @@ void LOADER_ENTRY::AddKextsFromDirInArray(const XString8& SrcDir, const XString8
 
 }
 
+
 void LOADER_ENTRY::AddKextsInArray(XObjArray<SIDELOAD_KEXT>* kextArray)
 {
   XStringW                SrcDir;
-  REFIT_DIR_ITER          PlugInIter;
-  EFI_FILE_INFO          *PlugInFile;
-  XString8                FileName;
-  XString8                PlugIns;
+//  REFIT_DIR_ITER          PlugInIter;
+//  EFI_FILE_INFO          *PlugInFile;
+//  XString8                FileName;
+//  XString8                PlugIns;
 //  CONST CHAR16                  *Arch = NULL;
 //  CONST CHAR16                  *Ptr = NULL;
 
@@ -479,144 +502,100 @@ void LOADER_ENTRY::AddKextsInArray(XObjArray<SIDELOAD_KEXT>* kextArray)
 //  } else if (Arch != NULL && StrnCmp(Arch,L"i386",StrLen(L"i386")) == 0) {
   } else if (LoadOptions.contains("arch=i386")) {
     archCpuType = CPU_TYPE_I386;
-  } else if (OSVersion.notEmpty()) {
-//    UINT64 os_version = AsciiOSVersionToUint64(OSVersion);
-    if (OSVersion.isEmpty() || OSVersion >= MacOsVersion("10.8"_XS8)) {
-      archCpuType = CPU_TYPE_X86_64; // For OSVersion >= 10.8, only x86_64 exists
-    } else if (OSVersion < MacOsVersion("10.7"_XS8)) {
-      archCpuType = CPU_TYPE_I386; // For OSVersion < 10.7, use default of i386
+  } else if (macOSVersion.notEmpty()) {
+//    UINT64 os_version = AsciiOSVersionToUint64(macOSVersion);
+    if (macOSVersion.isEmpty() || macOSVersion >= MacOsVersion("10.8"_XS8)) {
+      archCpuType = CPU_TYPE_X86_64; // For macOSVersion >= 10.8, only x86_64 exists
+    } else if (macOSVersion < MacOsVersion("10.7"_XS8)) {
+      archCpuType = CPU_TYPE_I386; // For macOSVersion < 10.7, use default of i386
     }
   }
 
   // Force kexts to load
-  if ( KernelAndKextPatches.ForceKexts.notEmpty() ) {
-    for (size_t i = 0; i < KernelAndKextPatches.ForceKexts.size(); ++i) {
-      MsgLog("  Force kext: %ls\n", KernelAndKextPatches.ForceKexts[i].wc_str());
+
+  /*
+  if ( KernelAndKextPatches.ForceKextsToLoad.notEmpty() ) {
+    for (size_t i = 0; i < KernelAndKextPatches.ForceKextsToLoad.size(); ++i) {
+      MsgLog("  Force kext: %ls\n", KernelAndKextPatches.ForceKextsToLoad[i].wc_str());
       if (Volume && Volume->RootDir) {
         // Check if the entry is a directory
-        if (StrStr(KernelAndKextPatches.ForceKexts[i].wc_str(), L".kext") == NULL) {
-          DirIterOpen(Volume->RootDir, KernelAndKextPatches.ForceKexts[i].wc_str(), &PlugInIter);
+        const wchar_t* p;
+        if ( KernelAndKextPatches.ForceKextsToLoad[i].startWith('\\') ) p = KernelAndKextPatches.ForceKextsToLoad[i].wc_str(1);
+        else p = KernelAndKextPatches.ForceKextsToLoad[i].wc_str();
+        if (StrStr(p, L".kext") == NULL) {
+          DirIterOpen(Volume->RootDir, p, &PlugInIter);
           while (DirIterNext(&PlugInIter, 1, L"*.kext", &PlugInFile)) {
             if (PlugInFile->FileName[0] == '.' || StrStr(PlugInFile->FileName, L".kext") == NULL)
               continue;   // skip this
-            FileName = SWPrintf("%ls\\%ls", KernelAndKextPatches.ForceKexts[i].wc_str(), PlugInFile->FileName);
-            //    snwprintf(FileName, 512, "%s\\%s", KernelAndKextPatches.ForceKexts[i], PlugInFile->FileName);
+            XString8 FileName = S8Printf("%ls\\%ls", p, PlugInFile->FileName);
             MsgLog("  Force kext: %s\n", FileName.c_str());
-            AddKext( Volume->RootDir, FileName, archCpuType);
-            PlugIns = SWPrintf("%s\\Contents\\PlugIns", FileName.c_str());
-            //  snwprintf(PlugIns, 512, "%s\\Contents\\PlugIns", FileName);
-            LoadPlugInKexts(Volume->RootDir, PlugIns, archCpuType, TRUE);
+            AddKext( Volume->RootDir, FileName, archCpuType, kextForceArray);
+            XString8 PlugIns = S8Printf("%s\\Contents\\PlugIns", FileName.c_str());
+            LoadPlugInKexts(Volume->RootDir, PlugIns, archCpuType, true);
           }
           DirIterClose(&PlugInIter);
         } else {
-          AddKext( Volume->RootDir, KernelAndKextPatches.ForceKexts[i], archCpuType);
-          PlugIns = SWPrintf("%ls\\Contents\\PlugIns", KernelAndKextPatches.ForceKexts[i].wc_str());
-          //  snwprintf(PlugIns, 512, "%s\\Contents\\PlugIns", KernelAndKextPatches.ForceKexts[i]);
-          LoadPlugInKexts(Volume->RootDir, PlugIns, archCpuType, TRUE);
+          XString8 Path = S8Printf("%ls", p);
+          AddKext( Volume->RootDir, Path, archCpuType, kextForceArray);
+          XString8 PlugIns = S8Printf("%s\\Contents\\PlugIns", Path.c_str());
+          LoadPlugInKexts(Volume->RootDir, PlugIns, archCpuType, true);
         }
       }
     }
   }
+  */
 
-//  XStringW UniOSVersion;
-//  UniOSVersion = OSVersion;
-//  DBG("UniOSVersion == %ls\n", UniOSVersion.wc_str());
-//
-//  XStringW UniShortOSVersion;
-////  XString8 ShortOSVersion;
-//  if ( OSVersion  < MacOsVersion("10.10"_XS8)) {
-//    // OSVersion that are earlier than 10.10(form: 10.x.y)
-////    ShortOSVersion.strncpy(OSVersion.c_str(), 4);
-//    UniShortOSVersion.strncpy(OSVersion.c_str(), 4);
-//  } else {
-////    ShortOSVersion.strncpy(OSVersion.c_str(), 5);
-//    UniShortOSVersion.strncpy(OSVersion.c_str(), 5);
-//  }
-////  DBG("ShortOSVersion == %s\n", ShortOSVersion.c_str());
-//  DBG("UniShortOSVersion == %ls\n", UniShortOSVersion.wc_str());
-
-  // syscl - allow specific load inject kext
-  // Clover/Kexts/Other is for general injection thus we need to scan both Other and OSVersion folder
-  SrcDir = GetOtherKextsDir(TRUE);
+  // Clover/Kexts/Other is for general injection thus we need to scan both Other and macOSVersion folder
+  SrcDir = GetOtherKextsDir(true);
   if ( SrcDir.notEmpty() ) {
-    AddKextsFromDirInArray(SrcDir, "Other"_XS8, archCpuType, kextArray);
+    AddKextsFromDirInArray(SrcDir, archCpuType, kextArray);
   } else {
-    DBG("GetOtherKextsDir(TRUE) return NULL\n");
+    DBG("GetOtherKextsDir(true) return NULL\n");
   }
     // slice: CLOVER/kexts/Off keep disabled kext which can be allowed
-  SrcDir = GetOtherKextsDir(FALSE);
+  SrcDir = GetOtherKextsDir(false);
   if ( SrcDir.notEmpty() ) {
-    AddKextsFromDirInArray(SrcDir, "Off"_XS8, archCpuType, kextArray);
+    AddKextsFromDirInArray(SrcDir, archCpuType, kextArray);
   } else {
-    DBG("GetOtherKextsDir(FALSE) return NULL\n");
+    DBG("GetOtherKextsDir(false) return NULL\n");
   }
 
-  if ( OSVersion.notEmpty() )
+  if ( macOSVersion.notEmpty() )
   {
-  // Add kext from 10 or 11
-    XStringW osMajorVersion = OSVersion.asString(1);
+    XString8 OSVersionKextsDirName; // declare here to avoid multiple allocation
 
-    XStringW OSAllVersionKextsDir;
-    XStringW OSShortVersionKextsDir;
-    XStringW DirName;
-    XStringW DirPath;
 
-    OSAllVersionKextsDir = SWPrintf("%ls", osMajorVersion.wc_str());
-    AddKextsFromDirInArray(OSAllVersionKextsDir, osMajorVersion, archCpuType, kextArray);
-    DirName = S8Printf("%ls_%s", osMajorVersion.wc_str(), getSuffixForMacOsVersion(LoaderType).c_str());
+    // Add kexts from 10, 11, 12, 13...
 
-//    if (OSTYPE_IS_OSX_INSTALLER(LoaderType)) {
-//      DirName = SWPrintf("%ls_install", osMajorVersion.wc_str());
-//    } else if (OSTYPE_IS_OSX_RECOVERY(LoaderType)) {
-//      DirName = SWPrintf("%ls_recovery", osMajorVersion.wc_str());
-//    } else {
-//      DirName = SWPrintf("%ls_normal", osMajorVersion.wc_str());
-//    }
-    DirPath = SWPrintf("%ls", DirName.wc_str());
-    AddKextsFromDirInArray(DirPath, DirName, archCpuType, kextArray);
+    OSVersionKextsDirName = macOSVersion.asString(1);
+    AddKextsFromDirInArray(OSVersionKextsDirName, archCpuType, kextArray);
+    OSVersionKextsDirName.S8Catf("_%s", getSuffixForMacOsVersion(LoaderType).c_str());
+    AddKextsFromDirInArray(OSVersionKextsDirName, archCpuType, kextArray);
 
 
     // Add kext from ${osMajorVersion}.{version}
 
-    OSShortVersionKextsDir = OSVersion.asString(2);
-    AddKextsFromDirInArray( OSShortVersionKextsDir, OSShortVersionKextsDir, archCpuType, kextArray);
-    DirName = S8Printf("%ls_%s", OSShortVersionKextsDir.wc_str(), getSuffixForMacOsVersion(LoaderType).c_str());
-
-//    if (OSTYPE_IS_OSX_INSTALLER(LoaderType)) {
-//      DirName = SWPrintf("%ls_install", OSShortVersionKextsDir.wc_str());
-//    } else if (OSTYPE_IS_OSX_RECOVERY(LoaderType)) {
-//      DirName = SWPrintf("%ls_recovery", OSShortVersionKextsDir.wc_str());
-//    } else {
-//      DirName = SWPrintf("%ls_normal", OSShortVersionKextsDir.wc_str());
-//    }
-    DirPath = SWPrintf("%ls", DirName.wc_str());
-    AddKextsFromDirInArray(DirPath, DirName, archCpuType, kextArray);
+    OSVersionKextsDirName = macOSVersion.asString(2);
+    if ( macOSVersion.elementAt(1) == -1 ) OSVersionKextsDirName.S8Catf(".0");
+    AddKextsFromDirInArray( OSVersionKextsDirName, archCpuType, kextArray);
+    OSVersionKextsDirName.S8Catf("_%s", getSuffixForMacOsVersion(LoaderType).c_str());
+    AddKextsFromDirInArray(OSVersionKextsDirName, archCpuType, kextArray);
 
 
     // Add kext from :
     // ${osMajorVersion}.{version}.0 if NO minor version
     // ${osMajorVersion}.{version}.{minor version} if minor version is > 0
 
-    XString8 OSVersionKextsDirName;
-    OSVersionKextsDirName = OSVersion.asString(3);
-    if ( OSVersion.elementAt(2) == -1 ) OSVersionKextsDirName.S8Catf(".0");
+    OSVersionKextsDirName = macOSVersion.asString(3);
+    if ( macOSVersion.elementAt(1) == -1 ) OSVersionKextsDirName.S8Catf(".0");
+    if ( macOSVersion.elementAt(2) == -1 ) OSVersionKextsDirName.S8Catf(".0");
 
-    DirPath = SWPrintf("%s", OSVersionKextsDirName.c_str());
-    AddKextsFromDirInArray(DirPath, OSVersionKextsDirName, archCpuType, kextArray);
-    DirName = S8Printf("%s_%s", OSVersionKextsDirName.c_str(), getSuffixForMacOsVersion(LoaderType).c_str());
-
-//    if ( OSTYPE_IS_OSX_INSTALLER(LoaderType)) {
-//      DirName = SWPrintf("%s_install", OSVersionKextsDirName.c_str());
-//    } else if (OSTYPE_IS_OSX_RECOVERY(LoaderType)) {
-//      DirName = SWPrintf("%s_recovery", OSVersionKextsDirName.c_str());
-//    } else {
-//      DirName = SWPrintf("%s_normal", OSVersionKextsDirName.c_str());
-//    }
-    DirPath = SWPrintf("%ls", DirName.wc_str());
-    AddKextsFromDirInArray(DirPath, DirName, archCpuType, kextArray);
+    AddKextsFromDirInArray(OSVersionKextsDirName, archCpuType, kextArray);
+    OSVersionKextsDirName.S8Catf("_%s", getSuffixForMacOsVersion(LoaderType).c_str());
+    AddKextsFromDirInArray(OSVersionKextsDirName, archCpuType, kextArray);
   }else{
     //MsgLog("No os version is detected\n");
-    AddKextsFromDirInArray("Unknown"_XS8, "Unknown"_XS8, archCpuType, kextArray);
+    AddKextsFromDirInArray("Unknown"_XS8, archCpuType, kextArray);
   }
 
 }
@@ -643,12 +622,12 @@ void LOADER_ENTRY::AddKextsInArray(XObjArray<SIDELOAD_KEXT>* kextArray)
 //  //  } else if (Arch != NULL && StrnCmp(Arch,L"i386",StrLen(L"i386")) == 0) {
 //    } else if (LoadOptions.contains("arch=i386")) {
 //      archCpuType = CPU_TYPE_I386;
-//    } else if (OSVersion.notEmpty()) {
-////      UINT64 os_version = AsciiOSVersionToUint64(OSVersion);
-//      if (OSVersion.isEmpty() || OSVersion >= MacOsVersion("10.8"_XS8)) {
-//        archCpuType = CPU_TYPE_X86_64; // For OSVersion >= 10.8, only x86_64 exists
-//      } else if (OSVersion < MacOsVersion("10.7"_XS8)) {
-//        archCpuType = CPU_TYPE_I386; // For OSVersion < 10.7, use default of i386
+//    } else if (macOSVersion.notEmpty()) {
+////      UINT64 os_version = AsciiOSVersionToUint64(macOSVersion);
+//      if (macOSVersion.isEmpty() || macOSVersion >= MacOsVersion("10.8"_XS8)) {
+//        archCpuType = CPU_TYPE_X86_64; // For macOSVersion >= 10.8, only x86_64 exists
+//      } else if (macOSVersion < MacOsVersion("10.7"_XS8)) {
+//        archCpuType = CPU_TYPE_I386; // For macOSVersion < 10.7, use default of i386
 //      }
 //    }
 //
@@ -828,6 +807,7 @@ void LOADER_ENTRY::patch_mkext_v1(UINT8 *drvPtr)
 ////////////////////
 // OnExitBootServices
 ////////////////////
+#if 0
 EFI_STATUS LOADER_ENTRY::InjectKexts(IN UINT32 deviceTreeP, IN UINT32* deviceTreeLength)
 {
   UINT8                             *dtEntry = (UINT8*)(UINTN) deviceTreeP;
@@ -845,27 +825,23 @@ EFI_STATUS LOADER_ENTRY::InjectKexts(IN UINT32 deviceTreeP, IN UINT32* deviceTre
   UINT8                             *drvPtr = 0;
   UINTN                             offset = 0;
 
-  LIST_ENTRY                        *Link;
-  KEXT_ENTRY                        *KextEntry;
   UINTN                             KextBase = 0;
   _DeviceTreeBuffer                 *mm;
   _BooterKextFileInfo               *drvinfo;
 
-  UINT32                            KextCount;
   UINTN                             Index;
 
 
   DBG_RT("\nInjectKexts: ");
   DBG("\nInjectKexts: ");
-  KextCount = GetKextCount();
-  if (KextCount == 0) {
+  if (gKextList.size() == 0) {
     DBG_RT("no kexts to inject.\nPausing 5 secs ...\n");
     if (KernelAndKextPatches.KPDebug) {
       gBS->Stall(5000000);
     }
     return EFI_NOT_FOUND;
   }
-  DBG_RT("%d kexts ...\n", KextCount);
+  DBG_RT("%zu kexts ...\n", gKextList.size());
 
   // kextsBase = Desc->PhysicalStart + (((UINTN) Desc->NumberOfPages) * EFI_PAGE_SIZE);
   // kextsPages = EFI_SIZE_TO_PAGES(kext.length);
@@ -923,10 +899,10 @@ EFI_STATUS LOADER_ENTRY::InjectKexts(IN UINT32 deviceTreeP, IN UINT32* deviceTre
   *deviceTreeLength -= (UINT32)offset;
 
   KextBase = RoundPage(dtEntry + *deviceTreeLength);
-  if(!IsListEmpty(&gKextList)) {
+  if( gKextList.notEmpty() ) {
     Index = 1;
-    for (Link = gKextList.ForwardLink; Link != &gKextList; Link = Link->ForwardLink) {
-      KextEntry = CR(Link, KEXT_ENTRY, Link, KEXT_SIGNATURE);
+    for (size_t gKextListIdx = 0; gKextListIdx < gKextList.size(); ++gKextListIdx) {
+      KEXT_ENTRY* KextEntry = &gKextList[gKextListIdx];
 
       CopyMem((void*) KextBase, (void*)(UINTN) KextEntry->kext.paddr, KextEntry->kext.length);
       drvinfo = (_BooterKextFileInfo*) KextBase;
@@ -946,14 +922,14 @@ EFI_STATUS LOADER_ENTRY::InjectKexts(IN UINT32 deviceTreeP, IN UINT32* deviceTre
       KextBase = RoundPage(KextBase + KextEntry->kext.length);
       DBG_RT(" %llu - %s\n", Index, (CHAR8 *)(UINTN)drvinfo->bundlePathPhysAddr);
       DBG(" %llu - %s\n", Index, (CHAR8 *)(UINTN)drvinfo->bundlePathPhysAddr);
-      if (gSettings.KextPatchesAllowed) {
+      if (GlobalConfig.KextPatchesAllowed) {
         CHAR8  SavedValue;
         CHAR8 *InfoPlist = (CHAR8*)(UINTN)drvinfo->infoDictPhysAddr;
         SavedValue = InfoPlist[drvinfo->infoDictLength];
         InfoPlist[drvinfo->infoDictLength] = '\0';
  //       KernelAndKextPatcherInit();
         for (size_t i = 0; i < KernelAndKextPatches.KextPatches.size(); i++) {
-          if ((KernelAndKextPatches.KextPatches[i].Data.size() > 0) &&
+          if ((KernelAndKextPatches.KextPatches[i].Find.size() > 0) &&
               (AsciiStrStr(InfoPlist, KernelAndKextPatches.KextPatches[i].Name.c_str()) != NULL)) {
             AnyKextPatch(
                          (UINT8*)(UINTN)drvinfo->executablePhysAddr,
@@ -975,7 +951,7 @@ EFI_STATUS LOADER_ENTRY::InjectKexts(IN UINT32 deviceTreeP, IN UINT32* deviceTre
   return EFI_SUCCESS;
 }
 
-
+#endif
 ////////////////////////////////////
 //
 // KernelBooterExtensionsPatch to load extra kexts besides kernelcache
@@ -1000,7 +976,7 @@ const UINT8   KBELionReplaceEXT_X64[]  = { 0xE8, 0x0C, 0xFD, 0xFF, 0xFF, 0x90, 0
 
 
 //
-// We can not rely on OSVersion global variable for OS version detection,
+// We can not rely on macOSVersion global variable for OS version detection,
 // since in some cases it is not correct (install of ML from Lion, for example).
 // So, we'll use "brute-force" method - just try to patch.
 // Actually, we'll at least check that if we can find only one instance of code that

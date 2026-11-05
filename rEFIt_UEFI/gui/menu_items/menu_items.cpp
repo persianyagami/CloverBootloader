@@ -35,6 +35,7 @@
 
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 #include "menu_items.h"
+#include "../REFIT_MENU_SCREEN.h"
 
 #include "../../libeg/libeg.h"
 #include "../../refit/lib.h"
@@ -45,38 +46,57 @@
 #include "../../libeg/XPointer.h"
 #endif
 
-REFIT_MENU_ENTRY_CLOVER* REFIT_MENU_ENTRY_CLOVER::getPartiallyDuplicatedEntry() const
-{
-	REFIT_MENU_ENTRY_CLOVER* DuplicateEntry = new REFIT_MENU_ENTRY_CLOVER();
+#ifndef DEBUG_ALL
+#define DEBUG_SCAN_MENU 1
+#else
+#define DEBUG_SCAN_LOADER DEBUG_ALL
+#endif
 
-  DuplicateEntry->AtClick      = ActionEnter;
-  DuplicateEntry->Volume          = Volume;
-  DuplicateEntry->DevicePathString= DevicePathString;
-  DuplicateEntry->LoadOptions     = LoadOptions;
-  DuplicateEntry->LoaderPath      = LoaderPath;
-	DuplicateEntry->VolName         = VolName;
-	DuplicateEntry->DevicePath      = DevicePath;
-	DuplicateEntry->Flags           = Flags;
-	return DuplicateEntry;
+#if DEBUG_SCAN_MENU == 0
+#define DBG(...)
+#else
+#define DBG(...) DebugLog(DEBUG_SCAN_MENU, __VA_ARGS__)
+#endif
+
+REFIT_ABSTRACT_MENU_ENTRY::~REFIT_ABSTRACT_MENU_ENTRY() {
+  delete SubScreen;
+};
+
+REFIT_MENU_ENTRY_CLOVER *
+REFIT_MENU_ENTRY_CLOVER::getPartiallyDuplicatedEntry() const {
+  REFIT_MENU_ENTRY_CLOVER *DuplicateEntry = new REFIT_MENU_ENTRY_CLOVER;
+
+  DuplicateEntry->AtClick = ActionEnter;
+  DuplicateEntry->Volume = Volume;
+  DuplicateEntry->DevicePathString = DevicePathString;
+  DuplicateEntry->LoadOptions = LoadOptions;
+  DuplicateEntry->LoaderPath = LoaderPath;
+  DuplicateEntry->VolName = VolName;
+  DuplicateEntry->DevicePath = DuplicateDevicePath(DevicePath);
+  DuplicateEntry->Flags = Flags;
+  return DuplicateEntry;
 }
 
-LOADER_ENTRY* LOADER_ENTRY::getPartiallyDuplicatedEntry() const
-{
-	LOADER_ENTRY* DuplicateEntry = new LOADER_ENTRY();
+LOADER_ENTRY *LOADER_ENTRY::getPartiallyDuplicatedEntry() const {
+  LOADER_ENTRY *DuplicateEntry = new LOADER_ENTRY;
+  DuplicateEntry->AtClick = ActionEnter;
+  DuplicateEntry->Volume = Volume;
+  DuplicateEntry->DevicePathString = DevicePathString;
+  DuplicateEntry->LoadOptions = LoadOptions;
+  DuplicateEntry->LoaderPath = LoaderPath;
+  DuplicateEntry->DisplayedVolName = DisplayedVolName;
+  DuplicateEntry->DevicePath = DuplicateDevicePath(DevicePath);
+  DuplicateEntry->Flags = Flags;
+  DuplicateEntry->LoaderType = LoaderType;
+  DuplicateEntry->macOSVersion = macOSVersion;
+  DuplicateEntry->BuildVersion = BuildVersion;
+  DuplicateEntry->Title = Title;
+  DuplicateEntry->OSName = OSName;
 
-  DuplicateEntry->AtClick      = ActionEnter;
-  DuplicateEntry->Volume          = Volume;
-  DuplicateEntry->DevicePathString= DevicePathString;
-  DuplicateEntry->LoadOptions     = LoadOptions;
-  DuplicateEntry->LoaderPath      = LoaderPath;
-	DuplicateEntry->DisplayedVolName         = DisplayedVolName;
-	DuplicateEntry->DevicePath      = DevicePath;
-	DuplicateEntry->Flags           = Flags;
-	DuplicateEntry->LoaderType      = LoaderType;
-	DuplicateEntry->OSVersion       = OSVersion;
-	DuplicateEntry->BuildVersion    = BuildVersion;
-//  CopyKernelAndKextPatches(&DuplicateEntry->KernelAndKextPatches, &KernelAndKextPatches);
-  DuplicateEntry->KernelAndKextPatches = KernelAndKextPatches;
-	return DuplicateEntry;
+  //  CopyKernelAndKextPatches(&DuplicateEntry->KernelAndKextPatches,
+  //  &KernelAndKextPatches);
+  //DuplicateEntry->KernelAndKextPatches = KernelAndKextPatches;
+  //DuplicateEntry->KernelAndKextPatches.takeValueFrom(KernelAndKextPatches);
+
+  return DuplicateEntry;
 }
-

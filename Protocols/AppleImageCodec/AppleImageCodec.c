@@ -16,7 +16,10 @@
 #include <Protocol/UgaDraw.h>
 #include <Protocol/AppleImageCodecProtocol.h>
 
+//#include "XImage.h"
+
 #include "picopng.h"
+//#include "lodepng.h"
 
 //#define DBG(...) AsciiPrint(__VA_ARGS__);
 #define DBG(...)
@@ -169,7 +172,7 @@ DecodeImageData (//IN APPLE_IMAGE_CODEC_PROTOCOL* This,
   }
   
   DBG("EFI_SUCCESS, RawImageDataSize=%d\n", *RawImageDataSize);
-  DBG("ImageBuffer=%p, ImageSize=%d\n", ImageBuffer, ImageSize);
+  DBG("ImageBuffer, ImageSize=%d\n", ImageSize);
   DBG("Decoded: W=%d, H=%d\n", Image->Width, Image->Height);
   for (Index=0; Index<10; Index++) {
     DBG("P%d: r,g,b,a= %x, %x, %x, %x\n", Index, (*RawImageData)[Index].Red, (*RawImageData)[Index].Green, (*RawImageData)[Index].Blue, (*RawImageData)[Index].Reserved);
@@ -216,13 +219,13 @@ AppleImageCodecEntrypoint (
 )
 {
   EFI_STATUS              Status;
-  EFI_HANDLE              NewHandle;
+//  EFI_HANDLE              NewHandle;
   
   //
   // Install instance of Apple image codec protocol for
   // PNG files
   //
-  NewHandle = NULL;  // install to a new handle
+//  NewHandle = NULL;  // install to a new handle
 //  Status = gBS->InstallMultipleProtocolInterfaces(&NewHandle, &gAppleImageCodecProtocolGuid, &gAppleImageCodec, NULL);
   Status      = gBS->InstallProtocolInterface (
                                                &ImageHandle,

@@ -1,8 +1,10 @@
-//*************************************************************************************************
-//
-//                                          Read only Buffer
-//
-//*************************************************************************************************
+/*
+ *
+ * Created by jief in 1997.
+ * Copyright (c) 2020 Jief
+ * All rights reserved.
+ *
+ */
 
 #if !defined(__XRBUFFER_CPP__)
 #define __XRBUFFER_CPP__
@@ -30,7 +32,7 @@ XRBuffer<T>::XRBuffer(const XRBuffer &aXRBuffer, size_t pos, size_t count) : _RD
 	if ( pos < aXRBuffer.size() ) {
     m_size = count;
 		if ( m_size > aXRBuffer.size()-pos ) m_size = aXRBuffer.size()-pos;
-		_RData = (unsigned char*)aXRBuffer.Data(pos);
+		_RData = (unsigned char*)aXRBuffer.CData(pos);
 	}
 }
 /*

@@ -1383,8 +1383,8 @@ SimpleString testtrim_(const InitialValue& initialValue, const ExpectedValue& ex
 	XStringClass str;
 	str.takeValueFrom(initialValue.cha);
 	
-	char32_t expectedChar = 0;
-	if ( initialValue.utf32_length > 0) expectedChar = initialValue.utf32[initialValue.utf32_length-1];
+//	char32_t expectedChar = 0;
+//	if ( initialValue.utf32_length > 0) expectedChar = initialValue.utf32[initialValue.utf32_length-1];
 	
 	str.trim();
 	
@@ -1417,8 +1417,8 @@ SimpleString teststartWith_(const InitialValue& initialValue)
 	XStringClass initia__String;
 	initia__String.takeValueFrom(initialValue.cha);
 	
-	char32_t expectedChar = 0;
-	if ( initialValue.utf32_length > 0) expectedChar = initialValue.utf32[initialValue.utf32_length-1];
+//	char32_t expectedChar = 0;
+//	if ( initialValue.utf32_length > 0) expectedChar = initialValue.utf32[initialValue.utf32_length-1];
 
 	for ( size_t count = 0 ; count < initialValue.utf32_length+3 ; count+=1 )
 	{
@@ -1514,13 +1514,12 @@ XStringClass xstr2 = initia__String.basename();
 // U'𐄔' = 0x10114 : this is 2 utf16 chars (codepoint > 0xFFFF)
 // U'𐅃' = 0x10143 : this is 2 utf16 chars (codepoint > 0xFFFF)
 
+#include "../cpp_foundation/XBuffer.h"
 int XString_tests()
 {
 #ifdef JIEF_DEBUG
 //	printf("XString_tests -> Enter\n");
 #endif
-
-
 
 //char c = 'a';
 //int ii = sizeof(size_t);
@@ -1554,6 +1553,31 @@ int XString_tests()
 //SetConsoleOutputCP(65001);
 #endif
 
+//  {
+//    NSDate *methodStart = [NSDate date];
+//
+//    XString8 xs8;
+//    for ( size_t i = 0 ; i < 300000 ; ++i ) {
+//      xs8.S8Catf("foo");
+//    }
+//
+//    NSDate *methodFinish = [NSDate date];
+//    NSTimeInterval executionTime = [methodFinish timeIntervalSinceDate:methodStart];
+//    NSLog(@"executionTime = %f", executionTime);
+//  }
+//  {
+//    NSDate *methodStart = [NSDate date];
+//
+//    XBuffer<char> xs8;
+//    for ( size_t i = 0 ; i < 300000 ; ++i ) {
+//      xs8.S8Catf("foo");
+//    }
+//
+//    NSDate *methodFinish = [NSDate date];
+//    NSTimeInterval executionTime = [methodFinish timeIntervalSinceDate:methodStart];
+//    NSLog(@"executionTime = %f", executionTime);
+//  }
+//exit(1);
 //teststrncpy_<XString>("utf8", testStringMultiCodedArray[1].utf8, testStringMultiCodedArray[1].wchar);
 //testindexOf(XString, utf8, utf16);
 //testCompare(XString, utf8, utf16);
@@ -1567,7 +1591,7 @@ int XString_tests()
   xsw.insertAtPos(L'A', 2);
   
   XStringW xsw2;
-  xsw2.takeValueFrom(xsw, 1);
+  xsw2.strncpy(xsw.s(), 1);
   
   {
     XString8 xs8 = "  to TRIM  "_XS8;
@@ -1694,6 +1718,14 @@ int XString_tests()
     memcpy((char*)p16, (char*)u"0123456789", 11*sizeof(char16_t));
     XString16 t16;
     t16.stealValueFrom(p16);
+  }
+
+  {
+    XString8 xs8 = "11"_XS8;
+    bool b = xs8.startWithOrEqualTo("112");
+    if ( b  ) {
+      nbTestFailed += 1;
+    }
   }
 
 

@@ -18,12 +18,20 @@
  *   Header Files                                                               *
  *******************************************************************************/
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
-#include <Protocol/OSInfo.h>
-#include <Protocol/AppleGraphConfig.h>
-#include <Protocol/KeyboardInfo.h>
-#include <Protocol/OcQuirksProtocol4Clover.h>
+#include <Efi.h>
+//#include <Protocol/OcQuirksProtocol4Clover.h>
 #include "Injectors.h"
+//#include "../include/SmcHelper.h"
 #include "../Platform/Settings.h"
+
+
+#include <Protocol/FirmwareVolume.h>
+#include <Protocol/AppleSMC.h>
+#include <Protocol/AppleSystemInfo.h>
+#include <Protocol/AppleImageCodecProtocol.h>
+extern "C" {
+#include "../../Protocols/AppleKeyAggregator/AppleKeyAggregator.h"
+}
 
 #ifndef DEBUG_ALL
 #define DEBUG_PRO 1
@@ -38,20 +46,21 @@
 #endif
 
 
-extern EFI_GUID gEfiDevicePathPropertyDatabaseProtocolGuid;
-extern EFI_GUID gAppleFramebufferInfoProtocolGuid;
-
 UINT32 mPropSize = 0;
 UINT8* mProperties = NULL;
 CHAR8* gDeviceProperties = NULL;
 
 UINT32 cPropSize = 0;
-UINT8* cProperties = NULL;
-XString8 cDeviceProperties;
+UINT8* cProperties = NULL; //this is properties as string
 CHAR8* BootOSName = NULL;
 
 UINT16 KeyboardVendor = 0x05ac; //Apple inc.
 UINT16 KeyboardProduct = 0x021d; //iMac aluminium
+
+extern UINT32      mCurrentColor;
+extern EFI_GUID gAppleUserInterfaceThemeProtocolGuid;
+extern EFI_GUID gAppleSystemInfoProtocolGuid;
+extern APPLE_IMAGE_CODEC_PROTOCOL gAppleImageCodec;
 
 typedef struct _APPLE_GETVAR_PROTOCOL APPLE_GETVAR_PROTOCOL;
 
@@ -156,7 +165,7 @@ GetDeviceProps(IN     APPLE_GETVAR_PROTOCOL   *This,
                IN OUT UINT32                  *BufferSize)
 { 
 
-  if(!gSettings.StringInjector && (mProperties != NULL) && (mPropSize > 1)) {
+  if(!gSettings.Devices.StringInjector && (mProperties != NULL) && (mPropSize > 1)) {
     if (*BufferSize < mPropSize) {
       *BufferSize = mPropSize;
       return EFI_BUFFER_TOO_SMALL;
@@ -244,7 +253,6 @@ EFI_INTERFACE_SCREEN_INFO mScreenInfo=
 // OS_INFO_VENDOR_NAME
 #define OS_INFO_VENDOR_NAME  "Apple Inc."
 
-extern EFI_GUID gAppleOSLoadedNamedEventGuid;
 // OSInfoOSNameImpl
 void
 EFIAPI
@@ -257,7 +265,7 @@ OSInfoOSNameImpl (
   // as it will be set by boot.efi
   BootOSName = (__typeof__(BootOSName))AllocateCopyPool(AsciiStrLen(OSName) + 1, (void*)OSName);
   DBG("OSInfo:OSName called. OSName=%s\n", OSName);
-  EfiNamedEventSignal (&gAppleOSLoadedNamedEventGuid);
+  EfiNamedEventSignal(gAppleOSLoadedNamedEventGuid);
 }
 
 // OSInfoOSVendorImpl
@@ -284,6 +292,7 @@ EFI_OS_INFO_PROTOCOL mEfiOSInfo = {
   EFI_OS_INFO_PROTOCOL_REVISION,
   OSInfoOSNameImpl,
   OSInfoOSVendorImpl,
+  NULL,
   NULL
 };
 
@@ -292,7 +301,7 @@ EFI_OS_INFO_PROTOCOL mEfiOSInfo = {
 ->LocateProtocol(gAppleGraphConfigProtocolGuid, 0, 78000000438/1F7DAEC8) = Success
  call sub_30150
   ->GetVariable(boot-gamma, gEfiAppleBootGuid, 0/50, 0, 0) = Not Found
- mRestored = TRUE;
+ mRestored = true;
 ->GraphConfig.RestoreConfig(2, 400, 1FFCE8B0, 1FFCE0B0, 1FFCD8B0) status=Success
 */
 
@@ -337,26 +346,55 @@ EFI_KEYBOARD_INFO_PROTOCOL mKeyboardInfo = {
   UsbKbGetKeyboardDeviceInfo
 };
 
-//#define OCQUIRKS_PROTOCOL_REVISION  23
-//
-//EFI_STATUS
-//EFIAPI
-//GetQuirksConfig (IN  OCQUIRKS_PROTOCOL  *This,
-//                 OUT OC_ABC_SETTINGS_4CLOVER    *Buffer,
-//                 OUT BOOLEAN            *GopEnable
-//                 )
-//{
-//  DBG("GetQuirksConfig called\n");
-//  CopyMem(Buffer, &gQuirks, sizeof(OC_ABC_SETTINGS_4CLOVER));
-//  *GopEnable = gProvideConsoleGopEnable;
-//  return EFI_SUCCESS;
-//}
-//
-//OCQUIRKS_PROTOCOL mQuirksConfig = {
-//  OCQUIRKS_PROTOCOL_REVISION,
-//  0,  //reserved
-//  GetQuirksConfig
-//};
+extern EFI_GUID gAppleUserInterfaceThemeProtocolGuid;
+
+typedef EFI_STATUS (EFIAPI *APPLE_USER_INTERFACE_THEME_GETCOLOR) (
+  IN OUT UINT32 * Color
+);
+
+
+typedef struct {
+  UINT64                                Version;
+  APPLE_USER_INTERFACE_THEME_GETCOLOR   GetColor;
+} APPLE_USER_INTERFACE_THEME_PROTOCOL;
+
+EFI_STATUS
+EFIAPI
+UserInterfaceThemeGetColor (
+  UINT32    *Color
+  )
+{
+  if (Color == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *Color = mCurrentColor;
+  return EFI_SUCCESS;
+}
+
+STATIC APPLE_USER_INTERFACE_THEME_PROTOCOL mAppleUserInterfaceThemeProtocol = {
+  1,
+  UserInterfaceThemeGetColor
+};
+
+BOOLEAN
+EFIAPI
+IsGibraltar ()
+{
+	return FALSE;
+}
+
+APPLE_SYSTEM_INFO_PROTOCOL mSystemInfo =
+{
+	1,
+	IsGibraltar
+};
+
+
+
+extern EFI_FIRMWARE_VOLUME_PROTOCOL   FirmwareVolume;
+extern APPLE_SMC_IO_PROTOCOL SMCHelperProtocol;
+extern APPLE_SMC_STATE_PROTOCOL SMCStateProtocol;
 
 EFI_STATUS
 SetPrivateVarProto(void)
@@ -364,25 +402,60 @@ SetPrivateVarProto(void)
   EFI_STATUS  Status;
   //This must be independent install
   // optional protocols
-  Status = gBS->InstallMultipleProtocolInterfaces (&gImageHandle,
+  EFI_HANDLE  NewHandle = NULL;
+  Status = gBS->InstallMultipleProtocolInterfaces (  &NewHandle,///&gImageHandle,
                                                        &gAppleFramebufferInfoProtocolGuid,
                                                        &mScreenInfo, 
 //                                                       &gEfiOSInfoProtocolGuid,
 //                                                       &mEfiOSInfo,
-                                                       &gAppleGraphConfigProtocolGuid,
-                                                       &mGraphConfig,
+//                                                       &gAppleGraphConfigProtocolGuid,
+//                                                       &mGraphConfig,
                                                        &gEfiKeyboardInfoProtocolGuid,
                                                        &mKeyboardInfo,
-//                                                       &gOcQuirksProtocolGuid,
-//                                                       &mQuirksConfig,
+                                                       &gAppleUserInterfaceThemeProtocolGuid,
+                                                       &mAppleUserInterfaceThemeProtocol,
+                                                       &gEfiFirmwareVolumeProtocolGuid,
+                                                       &FirmwareVolume,
+										               &gAppleSMCProtocolGuid,
+										               &SMCHelperProtocol,
+										               &gAppleSMCStateProtocolGuid,
+										               &SMCStateProtocol,
+										               &gAppleImageCodecProtocolGuid,
+										               &gAppleImageCodec,
                                                        NULL
-                                                       );
+                                                     );
+  if (EFI_ERROR(Status)) {
+    DBG("Error installing multiple protocol, Status = %s\n", efiStrError(Status));
+  }
+
+//
+//  Status      = gBS->InstallProtocolInterface (
+//                                               &gImageHandle,
+//                                               &gAppleImageCodecProtocolGuid,
+//                                               EFI_NATIVE_INTERFACE,
+//                                               (VOID *)&gAppleImageCodec
+//                                               );
+//
+//  if (EFI_ERROR(Status)) {
+//    DBG("AppleImageCodec: error installing protocol, Status = %s\n", efiStrError(Status));
+//  }
+
+  Status = InstallAggregator();
+  if (EFI_ERROR(Status)) {
+    DBG("AppleKeyAggregator: error installing protocol, Status = %s\n", efiStrError(Status));
+  }
+
+
 	//obligatory protocol
   Status = gBS->InstallProtocolInterface (&gImageHandle,
                                           &gEfiDevicePathPropertyDatabaseProtocolGuid,
                                           EFI_NATIVE_INTERFACE,
                                           &mDeviceProperties
                                           );
+  if (EFI_ERROR(Status)) {
+    DBG("DevicePathPropertyDatabase: error installing protocol, Status = %s\n", efiStrError(Status));
+  }
+
 	
   return Status;
 }

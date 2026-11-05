@@ -11,10 +11,11 @@ Portion from XOM project
 Copyright (c) 2006 JLA 
 */
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
+#include <Efi.h>
 #include "LegacyBiosThunk.h"
-//#include <Protocol/Bds.h>
 #include "AcpiPatcher.h"
-#include "Self.h"
+#include "../Settings/Self.h"
+#include "../refit/lib.h"
 
 
 #ifndef DEBUG_ALL
@@ -36,38 +37,38 @@ Copyright (c) 2006 JLA
 //CONST MBR_PARTITION_INFO tMBR = {0x80, {0xFE, 0xFF, 0xFF}, 0x06, {0xFE, 0xFF, 0xFF}, 0, 0};
 CONST MBR_PARTITION_INFO tMBR = {0x80, {0xFE, 0xFF, 0xFF}, 0xEE, {0xFE, 0xFF, 0xFF}, 0, 0};
 
-typedef struct {
-  UINT8 loader[0x1BE];
-  MBR_PARTITION_INFO p[4];
-  UINT16 signature;
-} MBR;
+//typedef struct {
+//  UINT8 loader[0x1BE];
+//  MBR_PARTITION_INFO p[4];
+//  UINT16 signature;
+//} MBR;
 
-typedef struct {
-  UINT64 signature;
-  UINT32 revision;
-  UINT32 headerSize;
-  UINT32 headerCRC;
-  UINT32 reserved;
-  UINT64 myLBA;
-  UINT64 alternateLBA;
-  UINT64 firstUsableLBA;
-  UINT64 lastUsableLBA;
-  EFI_GUID diskGUID;
-  UINT64 partitionEntryLBA;
-  UINT32 numberOfPartitionEntries;
-  UINT32 sizeOfPartitionEntry;
-  UINT32 partitionEntryArrayCRC32;
-  UINT8  filler[4];  //alignment
-} GPT_HEADER;
-
-typedef struct {
-  EFI_GUID   partitionType;
-  EFI_GUID   partitionGuid;
-  UINT64 startingLBA;
-  UINT64 endingLBA;
-  UINT64 attributes;
-  CHAR16 partitionName[72 / 2];
-} GPT_ENTRY;
+//typedef struct {
+//  UINT64 signature;
+//  UINT32 revision;
+//  UINT32 headerSize;
+//  UINT32 headerCRC;
+//  UINT32 reserved;
+//  UINT64 myLBA;
+//  UINT64 alternateLBA;
+//  UINT64 firstUsableLBA;
+//  UINT64 lastUsableLBA;
+//  EFI_GUID diskGUID;
+//  UINT64 partitionEntryLBA;
+//  UINT32 numberOfPartitionEntries;
+//  UINT32 sizeOfPartitionEntry;
+//  UINT32 partitionEntryArrayCRC32;
+//  UINT8  filler[4];  //alignment
+//} GPT_HEADER;
+//
+//typedef struct {
+//  EFI_GUID   partitionType;
+//  EFI_GUID   partitionGuid;
+//  UINT64 startingLBA;
+//  UINT64 endingLBA;
+//  UINT64 attributes;
+//  CHAR16 partitionName[72 / 2];
+//} GPT_ENTRY;
 
 typedef struct Address_t {
   UINT32 offset;
@@ -85,7 +86,7 @@ typedef struct {
 	UINT64	lba;			// LBA of starting sector
 } BIOS_DISK_ADDRESS_PACKET;
 
-//located at 0x7F00 
+//located at 0x7F00
 CONST UINT8 VideoTest[] = {
   0xb8, 0x02, 0x00,                   //mov ax,2
   0xcd, 0x10,                         //int 0x10
@@ -196,7 +197,7 @@ EFI_STATUS BiosReadSectorsFromDrive(UINT8 DriveNum, UINT64 Lba, UINTN NumSectors
 	Regs.H.DL = DriveNum;
 	Status = EFI_SUCCESS;
 	if (LegacyBiosInt86(0x13, &Regs)) {
-		// TRUE = error
+		// true = error
     DBG("Reset 0 disk controller: %hhX\n", DriveNum);
     Regs.H.AH = 0x0D;		// INT 13h AH=00h: Reset disk controller
     Regs.H.DL = DriveNum;
@@ -219,7 +220,7 @@ EFI_STATUS BiosReadSectorsFromDrive(UINT8 DriveNum, UINT64 Lba, UINTN NumSectors
 	
 	Status = EFI_SUCCESS;
 	if (LegacyBiosInt86(0x13, &Regs)) {
-		// TRUE = error
+		// true = error
     Regs.H.AH = 0x01;		// INT 13h AH=01h: Get Status of Last Drive Operation
     LegacyBiosInt86(0x13, &Regs);
 		Status = EFI_NOT_FOUND;
@@ -421,12 +422,12 @@ EFI_STATUS bootElTorito(REFIT_VOLUME*	volume)
 	
 	// Boot it
 	//  dbgStart(bootLoadAddress, enableDebugger);
-  Status = gBS->LocateProtocol(&gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
+  Status = gBS->LocateProtocol(gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
 	if (EFI_ERROR(Status)) {
 		return Status;
 	}
 /*  mCpu = NULL;
-  Status = gBS->LocateProtocol (&gEfiCpuArchProtocolGuid, NULL, (void **) &mCpu);
+  Status = gBS->LocateProtocol(gEfiCpuArchProtocolGuid, NULL, (void **) &mCpu);
 	if (EFI_ERROR(Status)) {
 		return Status;
 	}
@@ -475,12 +476,12 @@ EFI_STATUS bootMBR(REFIT_VOLUME* volume)
 	SetMem(&Regs, sizeof (Regs), 0);
 	addrEnablePaging(0);
 	
-	Status = gBS->LocateProtocol(&gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
+	Status = gBS->LocateProtocol(gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
 	if (EFI_ERROR(Status)) {
 		return Status;
 	}
   mCpu = NULL;
-  Status = gBS->LocateProtocol (&gEfiCpuArchProtocolGuid, NULL, (void **) &mCpu);
+  Status = gBS->LocateProtocol(gEfiCpuArchProtocolGuid, NULL, (void **) &mCpu);
 	if (EFI_ERROR(Status)) {
 		return Status;
 	}
@@ -603,7 +604,7 @@ EFI_STATUS bootPBRtest(REFIT_VOLUME* volume)
 	EFI_BLOCK_IO*               pDisk     = volume->BlockIO;
 	UINT8*                      pBootSector	= (UINT8*)(UINTN)0x7C00;
   UINT8*                      mBootSector;
-  MBR_PARTITION_INFO*					pMBR      = (MBR_PARTITION_INFO*)(UINTN)0x7BE;
+  volatile MBR_PARTITION_INFO*		volatile	pMBR; //      = (MBR_PARTITION_INFO*)(UINTN)0x7BE;
 	UINT32                      LbaOffset	= 0;
 	UINT32                      LbaSize		= 0;
 	HARDDRIVE_DEVICE_PATH       *HdPath     = NULL; 
@@ -612,11 +613,13 @@ EFI_STATUS bootPBRtest(REFIT_VOLUME* volume)
 //  UINT16                      OldMask;
 //  UINT16                      NewMask;
   UINTN                       i, j;  //for debug dump
-  UINT8                       *ptr;
+  UINT8*             ptr;
  // UINT32                      MBRCRC32;
   //UINTN         LogSize;
   EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE		  *FadtPointer = NULL;
   EFI_ACPI_4_0_FIRMWARE_ACPI_CONTROL_STRUCTURE	*Facs = NULL;
+
+  pMBR     = (volatile MBR_PARTITION_INFO*)(UINTN)0x7BE;
 	
 	IA32_REGISTER_SET   Regs;
 	SetMem(&Regs, sizeof (Regs), 0);
@@ -642,7 +645,7 @@ EFI_STATUS bootPBRtest(REFIT_VOLUME* volume)
 		return Status;
 	}
 	
-	Status = gBS->LocateProtocol(&gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
+	Status = gBS->LocateProtocol(gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
 	if (EFI_ERROR(Status)) {
 		return Status;
 	}
@@ -680,7 +683,7 @@ EFI_STATUS bootPBRtest(REFIT_VOLUME* volume)
 	Regs.H.DL = 0x80;
 	Status = EFI_SUCCESS;
 	if (LegacyBiosInt86(0x13, &Regs)) {
-		// TRUE = error
+		// true = error
 		Status = EFI_NOT_FOUND;
     DBG("reset controller 0x80 error\n");
     //		return Status;
@@ -698,7 +701,7 @@ EFI_STATUS bootPBRtest(REFIT_VOLUME* volume)
   ptr = (UINT8*)(UINTN)0x7F00;
   CopyMem(ptr, &VideoTest[0], 30);
     
-	CopyMem(pMBR, &tMBR, 16);
+	CopyMem((void*)pMBR, &tMBR, 16);
 	pMBR->StartLBA = LbaOffset;
 	pMBR->Size = LbaSize;
   
@@ -748,7 +751,7 @@ gRT->ResetSystem(EfiResetWarm, EFI_SUCCESS, 0, NULL);
 /** For BIOS and some UEFI boots.
  * Loads partition boot record (PBR) and starts it.
  */
-EFI_STATUS bootPBR(REFIT_VOLUME* volume, BOOLEAN SataReset)
+EFI_STATUS bootPBR(REFIT_VOLUME* volume, XBool SataReset)
 {
   EFI_STATUS					Status;
   EFI_BLOCK_IO				*pDisk			= volume->BlockIO;
@@ -778,7 +781,7 @@ EFI_STATUS bootPBR(REFIT_VOLUME* volume, BOOLEAN SataReset)
   //
   // get EfiLegacy8259Protocol - mandatory
   //
-  Status = gBS->LocateProtocol(&gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
+  Status = gBS->LocateProtocol(gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
   DBG("EfiLegacy8259ProtocolGuid: %s\n", efiStrError(Status));
   if (EFI_ERROR(Status)) {
     return Status;
@@ -791,7 +794,7 @@ EFI_STATUS bootPBR(REFIT_VOLUME* volume, BOOLEAN SataReset)
   //
   // get EfiLegacyBiosProtocol - optional
   //
-  Status = gBS->LocateProtocol(&gEfiLegacyBiosProtocolGuid, NULL, (void**)&LegacyBios);
+  Status = gBS->LocateProtocol(gEfiLegacyBiosProtocolGuid, NULL, (void**)&LegacyBios);
   DBG("EfiLegacyBiosProtocolGuid: %s\n", efiStrError(Status));
   if (!EFI_ERROR(Status)) {
     //
@@ -962,7 +965,7 @@ EFI_STATUS bootPBR(REFIT_VOLUME* volume, BOOLEAN SataReset)
     Regs.X.SI = (UINT16)(UINTN)pMBR;
   }
 
-	DBG("mbr: %hhX index: %llX pointer: %llX dx: %hX si: %hX\n", volume->IsMbrPartition, volume->MbrPartitionIndex, (uintptr_t)volume->MbrPartitionTable, Regs.X.DX, Regs.X.SI);
+	DBG("mbr: %d index: %llX pointer: %llX dx: %hX si: %hX\n", (bool)volume->IsMbrPartition, volume->MbrPartitionIndex, (uintptr_t)volume->MbrPartitionTable, Regs.X.DX, Regs.X.SI);
 	DBG("pmbr: %llX start: %X size: %X\n", (uintptr_t)&pMBR[volume->MbrPartitionIndex], pMBR[volume->MbrPartitionIndex].StartLBA, pMBR[volume->MbrPartitionIndex].Size);
 
   //
@@ -972,7 +975,7 @@ EFI_STATUS bootPBR(REFIT_VOLUME* volume, BOOLEAN SataReset)
   LegacyBiosFarCall86(0, 0x7c00, &Regs);
   
   //Status = gLegacy8259->SetMask(gLegacy8259, &OldMask, NULL, NULL, NULL);
-  PauseForKey(L"save legacy-boot.log ...\n");
+  PauseForKey("save legacy-boot.log ..."_XS8);
   Status = SaveBooterLog(&self.getCloverDir(), LEGBOOT_LOG);
   if (EFI_ERROR(Status)) {
     DBG("can't save legacy-boot.log\n");
@@ -1060,7 +1063,7 @@ EFI_STATUS bootLegacyBiosDefault(IN UINT16 LegacyBiosDefaultEntry)
 	//
 	// get EfiLegacyBiosProtocol - optional
 	//
-	Status = gBS->LocateProtocol(&gEfiLegacyBiosProtocolGuid, NULL, (void**)&LegacyBios);
+	Status = gBS->LocateProtocol(gEfiLegacyBiosProtocolGuid, NULL, (void**)&LegacyBios);
 	DBG("EfiLegacyBiosProtocolGuid: %s\n", efiStrError(Status));
 	if (EFI_ERROR(Status)) {
 		return Status;
@@ -1112,7 +1115,7 @@ void DumpBiosMemoryMap()
 	SetMem(&Regs, sizeof (Regs), 0);
 	addrEnablePaging(0);
   
-  Status = gBS->LocateProtocol(&gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
+  Status = gBS->LocateProtocol(gEfiLegacy8259ProtocolGuid, NULL, (void**)&gLegacy8259);
 	if (EFI_ERROR(Status)) {
 		return;
 	}

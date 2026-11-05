@@ -4,7 +4,7 @@
  *
  *	Cleaned and merged by iNDi
  */
-// UEFI adaptation by usr-sse2, then slice, dmazar
+// UEFI adaptation by usr-sse2, then slice, dmazar, jief
 
 
 
@@ -80,7 +80,6 @@ XString8 get_pci_dev_path(pci_dt_t *PciDt)
     return NullXString8;
   returnValue = FileDevicePathToXStringW(DevicePath);
   return returnValue;
-
 }
 
 UINT32 pci_config_read32(pci_dt_t *PciDt, UINT8 reg)
@@ -91,7 +90,8 @@ UINT32 pci_config_read32(pci_dt_t *PciDt, UINT8 reg)
   PCI_TYPE00				Pci;
   UINT32					res;
 
-  Status = gBS->OpenProtocol(PciDt->DeviceHandle, &gEfiPciIoProtocolGuid, (void**)&PciIo, gImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+  //somehow definition for gBS->OpenProtocol() is different from other parts of the project
+  Status = gBS->OpenProtocol(PciDt->DeviceHandle, gEfiPciIoProtocolGuid, (void**)&PciIo, gImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
   if (EFI_ERROR(Status)){
     DBG("pci_config_read cant open protocol\n");
     return 0;
@@ -115,10 +115,25 @@ UINT32 pci_config_read32(pci_dt_t *PciDt, UINT8 reg)
   return res;
 }
 
-UINT32 PciAddrFromDevicePath(EFI_DEVICE_PATH_PROTOCOL* DevicePath)
+bool SameDevice(DevPropDevice* D1, DevPropDevice* D2)
 {
-	return 0;
+//  DBG("paths 1=%u 2=%u\n", D1->num_pci_devpaths, D2->num_pci_devpaths);
+  if (D1->num_pci_devpaths != D2->num_pci_devpaths) return false;
+  for (UINT32 x=0; x < D1->num_pci_devpaths; x++) {
+//    DBG("  funcs 1=%u 2=%u\n", D1->pci_dev_path[x].function, D2->pci_dev_path[x].function);
+    if (D1->pci_dev_path[x].function != D2->pci_dev_path[x].function) return false;
+//    DBG("  devs 1=%u 2=%u\n", D1->pci_dev_path[x].device, D2->pci_dev_path[x].device);
+    if (D1->pci_dev_path[x].device != D2->pci_dev_path[x].device) return false;
+  }
+  DBG("found same device\n");
+  return true;
 }
+
+
+//UINT32 PciAddrFromDevicePath(EFI_DEVICE_PATH_PROTOCOL* DevicePath)
+//{
+//	return 0;
+//}
 //Size = GetDevicePathSize (DevicePath);
 
 //dmazar: replaced by devprop_add_device_pci
@@ -133,8 +148,11 @@ DevPropDevice *devprop_add_device_pci(DevPropString *StringBuf, pci_dt_t *PciDt,
     return NULL;
   }
 
+  // scan StringBuf->entries[] for the same device
+  //SameDevice(DevPropDevice* D1, DevPropDevice* D2)
+
   if (!DevicePath && (PciDt != 0)) {
-  DevicePath = DevicePathFromHandle(PciDt->DeviceHandle);
+    DevicePath = DevicePathFromHandle(PciDt->DeviceHandle);
   }
   // 	DBG("devprop_add_device_pci %ls ", DevicePathToStr(DevicePath));
   if (!DevicePath)
@@ -172,10 +190,9 @@ DevPropDevice *devprop_add_device_pci(DevPropString *StringBuf, pci_dt_t *PciDt,
     DevicePath = NextDevicePathNode(DevicePath);
     if (DevicePath->Type == HARDWARE_DEVICE_PATH && DevicePath->SubType == HW_PCI_DP) {
       CopyMem(&device->pci_dev_path[NumPaths], DevicePath, sizeof(struct PCIDevPath));
-//     			DBG("PCI[%d] f=%X, d=%X ", NumPaths, device->pci_dev_path[NumPaths].function, device->pci_dev_path[NumPaths].device);
+ //   	DBG("PCI[%d] f=%X, d=%X ", NumPaths, device->pci_dev_path[NumPaths].function, device->pci_dev_path[NumPaths].device);
     } else {
       // not PCI path - break the loop
-      //			DBG("not PCI ");
       break;
     }
   }
@@ -196,7 +213,7 @@ DevPropDevice *devprop_add_device_pci(DevPropString *StringBuf, pci_dt_t *PciDt,
 
   device->string = StringBuf;
   device->data = NULL;
-  StringBuf->length += device->length;
+
 
   if(!StringBuf->entries) {
     StringBuf->entries = (DevPropDevice**)AllocateZeroPool(MAX_NUM_DEVICES * sizeof(device));
@@ -206,6 +223,16 @@ DevPropDevice *devprop_add_device_pci(DevPropString *StringBuf, pci_dt_t *PciDt,
     }
   }
 
+  DevPropDevice* D1;
+  for (int i=0; i<StringBuf->numentries; i++) {
+    D1 = StringBuf->entries[i];
+    if (SameDevice(D1, device)) {
+      FreePool(device);
+      return D1;
+    }
+  }
+
+  StringBuf->length += device->length;
   StringBuf->entries[StringBuf->numentries++] = device;
 
   return device;
@@ -213,7 +240,7 @@ DevPropDevice *devprop_add_device_pci(DevPropString *StringBuf, pci_dt_t *PciDt,
 
 
 
-BOOLEAN devprop_add_value(DevPropDevice *device, CONST CHAR8 *nm, UINT8 *vl, UINTN len)
+XBool devprop_add_value(DevPropDevice *device, CONST CHAR8 *nm, const UINT8 *vl, UINTN len)
 {
   UINT32 offset;
   UINT32 off;
@@ -224,7 +251,7 @@ BOOLEAN devprop_add_value(DevPropDevice *device, CONST CHAR8 *nm, UINT8 *vl, UIN
   UINT8 *newdata;
 
   if(!device || !nm || !vl /*|| !len*/) //rehabman: allow zero length data
-    return FALSE;
+    return false;
   /*	DBG("devprop_add_value %s=", nm);
    for (i=0; i<len; i++) {
    DBG("%02X", vl[i]);
@@ -234,7 +261,7 @@ BOOLEAN devprop_add_value(DevPropDevice *device, CONST CHAR8 *nm, UINT8 *vl, UIN
   length = (UINT32)((l * 2) + len + (2 * sizeof(UINT32)) + 2);
   data = (UINT8*)AllocateZeroPool(length);
   if(!data)
-    return FALSE;
+    return false;
 
   off= 0;
 
@@ -259,8 +286,10 @@ BOOLEAN devprop_add_value(DevPropDevice *device, CONST CHAR8 *nm, UINT8 *vl, UIN
   offset = device->length - (24 + (6 * device->num_pci_devpaths));
 
   newdata = (UINT8*)AllocateZeroPool((length + offset));
-  if(!newdata)
-    return FALSE;
+  if(!newdata) {
+    FreePool(data);
+    return false;
+  }
   if((device->data) && (offset > 1)) {
  		CopyMem((void*)newdata, (void*)device->data, offset);
   }
@@ -273,93 +302,91 @@ BOOLEAN devprop_add_value(DevPropDevice *device, CONST CHAR8 *nm, UINT8 *vl, UIN
   device->data = newdata;
 
   FreePool(data);
-  return TRUE;
+  return true;
 }
 
-CHAR8 *devprop_generate_string(DevPropString *StringBuf)
+XBool devprop_add_value(DevPropDevice *device, const XString8& nm, const XBuffer<uint8_t>& vl)
+{
+  return devprop_add_value(device, nm.data(), vl.data(), vl.size());
+}
+
+XBuffer<char> devprop_generate_string(DevPropString *StringBuf)
 {
   UINTN len = StringBuf->length * 2;
-  INT32 i = 0;
-  UINT32 x = 0;
-  CHAR8 *buffer = (CHAR8*)AllocatePool(len + 1);
-  CHAR8 *ptr = buffer;
 
-  //   DBG("devprop_generate_string\n");
-  if(!buffer)
-    return NULL;
+  XBuffer<char> buffer;
+  buffer.dataSized(len+1);
 
-	snprintf(buffer, len, "%08X%08X%04hX%04hX", SwapBytes32(StringBuf->length), StringBuf->WHAT2,
-              SwapBytes16(StringBuf->numentries), StringBuf->WHAT3);
-  buffer += 24;
+//  DbgHeader("Devprop Generate String");
 
-  while(i < StringBuf->numentries) {
+  buffer.S8Catf("%08X%08X%04hX%04hX", SwapBytes32(StringBuf->length), StringBuf->WHAT2, SwapBytes16(StringBuf->numentries), StringBuf->WHAT3);
+  for (int i = 0; i < StringBuf->numentries; i++) {
     UINT8 *dataptr = StringBuf->entries[i]->data;
-	  snprintf(buffer, len, "%08X%04hX%04hX", SwapBytes32(StringBuf->entries[i]->length),
+    if (!dataptr) continue;
+    buffer.S8Catf("%08X%04hX%04hX", SwapBytes32(StringBuf->entries[i]->length),
                 SwapBytes16(StringBuf->entries[i]->numentries), StringBuf->entries[i]->WHAT2); //FIXME: wrong buffer sizes!
 
-    buffer += 16;
-	  snprintf(buffer, len, "%02hhX%02hhX%04hX%08X%08X", StringBuf->entries[i]->acpi_dev_path.type,
+    buffer.S8Catf("%02hhX%02hhX%04hX%08X%08X", StringBuf->entries[i]->acpi_dev_path.type,
                 StringBuf->entries[i]->acpi_dev_path.subtype,
                 SwapBytes16(StringBuf->entries[i]->acpi_dev_path.length),
                 SwapBytes32(StringBuf->entries[i]->acpi_dev_path._HID),
                 SwapBytes32(StringBuf->entries[i]->acpi_dev_path._UID));
 
-    buffer += 24;
-    for(x = 0; x < StringBuf->entries[i]->num_pci_devpaths; x++) {
-		snprintf(buffer, len, "%02hhX%02hhX%04hX%02hhX%02hhX", StringBuf->entries[i]->pci_dev_path[x].type,
+    for(int x = 0; x < StringBuf->entries[i]->num_pci_devpaths; x++) {
+      buffer.S8Catf("%02hhX%02hhX%04hX%02hhX%02hhX", StringBuf->entries[i]->pci_dev_path[x].type,
                   StringBuf->entries[i]->pci_dev_path[x].subtype,
                   SwapBytes16(StringBuf->entries[i]->pci_dev_path[x].length),
                   StringBuf->entries[i]->pci_dev_path[x].function,
                   StringBuf->entries[i]->pci_dev_path[x].device);
-      buffer += 12;
     }
 
-	  snprintf(buffer, len, "%02hhX%02hhX%04hX", StringBuf->entries[i]->path_end.type,
+    buffer.S8Catf("%02hhX%02hhX%04hX", StringBuf->entries[i]->path_end.type,
                 StringBuf->entries[i]->path_end.subtype,
                 SwapBytes16(StringBuf->entries[i]->path_end.length));
 
-    buffer += 8;
-    for(x = 0; x < (StringBuf->entries[i]->length) - (24 + (6 * StringBuf->entries[i]->num_pci_devpaths)); x++) {
-      snprintf(buffer, len, "%02hhX", *dataptr++);
-      buffer += 2;
+    for(UINT32 x = 0; x < (StringBuf->entries[i]->length) - (24 + (6 * StringBuf->entries[i]->num_pci_devpaths)); x++) {
+      buffer.S8Catf("%02hhX", *dataptr++);
     }
-    i++;
+
   }
-  return ptr;
+//  DBG("string=%s\n", buffer.data());
+  return buffer;
 }
 
-void devprop_free_string(DevPropString *StringBuf)
+
+void devprop_free_string()
 {
   INT32 i;
-  if(!StringBuf)
+  if(!device_inject_string)
     return;
 
-  for(i = 0; i < StringBuf->numentries; i++) {
-    if(StringBuf->entries[i]) {
-      if(StringBuf->entries[i]->data) {
-        FreePool(StringBuf->entries[i]->data);
+  for(i = 0; i < device_inject_string->numentries; i++) {
+    if(device_inject_string->entries[i]) {
+      if(device_inject_string->entries[i]->data) {
+        FreePool(device_inject_string->entries[i]->data);
       }
     }
   }
-  FreePool(StringBuf->entries);
-  FreePool(StringBuf);
-  //	StringBuf = NULL;
+  FreePool(device_inject_string->entries);
+  FreePool(device_inject_string);
+  device_inject_string = NULL;
 }
 
+static UINT8   builtin = 0x0;
+
 // Ethernet built-in device injection
-BOOLEAN set_eth_props(pci_dt_t *eth_dev)
+XBool set_eth_props(pci_dt_t *eth_dev)
 {
 #if DEBUG_INJECT
 //  CHAR8           *devicepath;
 #endif
   DevPropDevice   *device = NULL;
-  UINT8           builtin = 0x0;
-  BOOLEAN         Injected = FALSE;
+  XBool           Injected = false;
   UINTN           i;
   CHAR8           compatible[64];
   
-  if (!gSettings.LANInjection) {
-    return FALSE;
+  if (!gSettings.Devices.LANInjection) {
+    return false;
   }
 
   if (!device_inject_string) {
@@ -370,11 +397,11 @@ BOOLEAN set_eth_props(pci_dt_t *eth_dev)
 #endif
   if (eth_dev && !eth_dev->used) {
     device = devprop_add_device_pci(device_inject_string, eth_dev, NULL);
-    eth_dev->used = TRUE;
+    eth_dev->used = true;
   }
 
   if (!device) {
-    return FALSE;
+    return false;
   }
   // -------------------------------------------------
 //  DBG("LAN Controller [%04X:%04X] :: %s\n", eth_dev->vendor_id, eth_dev->device_id, devicepath);
@@ -383,37 +410,34 @@ BOOLEAN set_eth_props(pci_dt_t *eth_dev)
  		builtin = 0x01;
   }
 
-  if (gSettings.NrAddProperties != 0xFFFE) {
-    for (i = 0; i < gSettings.NrAddProperties; i++) {
-      if (gSettings.AddProperties[i].Device != DEV_LAN) {
+  if (gSettings.Devices.AddPropertyArray.size() != 0xFFFE) { // Looks like NrAddProperties == 0xFFFE is not used anymore
+    for (i = 0; i < gSettings.Devices.AddPropertyArray.size(); i++) {
+      if (gSettings.Devices.AddPropertyArray[i].Device != DEV_LAN) {
         continue;
       }
-      Injected = TRUE;
+      Injected = true;
 
-      if (!gSettings.AddProperties[i].MenuItem.BValue) {
-        //DBG("  disabled property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+      if (!gSettings.Devices.AddPropertyArray[i].MenuItem.BValue) {
+        //DBG("  disabled property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
       } else {
-        devprop_add_value(device,
-                          gSettings.AddProperties[i].Key,
-                          (UINT8*)gSettings.AddProperties[i].Value,
-                          gSettings.AddProperties[i].ValueLen);
-        //DBG("  added property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+        devprop_add_value(device, gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].Value);
+        //DBG("  added property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
       }
     }
   }
   if (Injected) {
     DBG("custom LAN properties injected, continue\n");
-    //    return TRUE;
+    //    return true;
   }
 
   //  DBG("Setting dev.prop built-in=0x%X\n", builtin);
 //  devprop_add_value(device, "device_type", (UINT8*)"Ethernet", 9);
-  if (gSettings.FakeLAN) {
-    UINT32 FakeID = gSettings.FakeLAN >> 16;
+  if (gSettings.Devices.FakeID.FakeLAN) {
+    UINT32 FakeID = gSettings.Devices.FakeID.FakeLAN >> 16;
     devprop_add_value(device, "device-id", (UINT8*)&FakeID, 4);
-    snprintf(compatible, 64, "pci%x,%x", (gSettings.FakeLAN & 0xFFFF), FakeID);
+    snprintf(compatible, 64, "pci%x,%x", (gSettings.Devices.FakeID.FakeLAN & 0xFFFF), FakeID);
     devprop_add_value(device, "compatible", (UINT8*)&compatible[0], 12);
-    FakeID = gSettings.FakeLAN & 0xFFFF;
+    FakeID = gSettings.Devices.FakeID.FakeLAN & 0xFFFF;
     devprop_add_value(device, "vendor-id", (UINT8*)&FakeID, 4);
   }
   else if (eth_dev->vendor_id == 0x11AB && eth_dev->device_id == 0x4364)
@@ -429,22 +453,20 @@ BOOLEAN set_eth_props(pci_dt_t *eth_dev)
 #define PCI_IF_XHCI 0x30
 
 static UINT8   clock_id = 0;
-static UINT8   builtin = 0x0;
-
 static UINT16  current_available = 1200; //mA
 static UINT16  current_extra     = 700;
 static UINT16  current_in_sleep  = 1000;
 static UINT16  current_available_high = 2100; //mA
 static UINT16  current_extra_high    = 3200;
 
-BOOLEAN set_usb_props(pci_dt_t *usb_dev)
+XBool set_usb_props(pci_dt_t *usb_dev)
 {
 #if DEBUG_INJECT
 //  CHAR8           *devicepath;
 #endif
   DevPropDevice   *device = NULL;
   UINT32          fake_devid;
-  BOOLEAN         Injected = FALSE;
+  XBool           Injected = false;
   UINTN           i;
 
   if (!device_inject_string)
@@ -455,40 +477,37 @@ BOOLEAN set_usb_props(pci_dt_t *usb_dev)
 
   if (usb_dev && !usb_dev->used) {
     device = devprop_add_device_pci(device_inject_string, usb_dev, NULL);
-    usb_dev->used = TRUE;
+    usb_dev->used = true;
   }
 
   if (!device) {
-    return FALSE;
+    return false;
   }
  // -------------------------------------------------
  // DBG("USB Controller [%04X:%04X] :: %s\n", usb_dev->vendor_id, usb_dev->device_id, devicepath);
  // DBG("Setting dev.prop built-in=0x%X\n", builtin);
 
-  if (gSettings.NrAddProperties != 0xFFFE) {
-    for (i = 0; i < gSettings.NrAddProperties; i++) {
-      if (gSettings.AddProperties[i].Device != DEV_USB) {
+  if (gSettings.Devices.AddPropertyArray.size() != 0xFFFE) { // Looks like NrAddProperties == 0xFFFE is not used anymore
+    for (i = 0; i < gSettings.Devices.AddPropertyArray.size(); i++) {
+      if (gSettings.Devices.AddPropertyArray[i].Device != DEV_USB) {
         continue;
       }
-      Injected = TRUE;
+      Injected = true;
 
-      if (!gSettings.AddProperties[i].MenuItem.BValue) {
-        //DBG("  disabled property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+      if (!gSettings.Devices.AddPropertyArray[i].MenuItem.BValue) {
+        //DBG("  disabled property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
       } else {
-        devprop_add_value(device,
-                          gSettings.AddProperties[i].Key,
-                          (UINT8*)gSettings.AddProperties[i].Value,
-                          gSettings.AddProperties[i].ValueLen);
-        //DBG("  added property Key: %s, len: %d\n", gSettings.AddProperties[i].Key, gSettings.AddProperties[i].ValueLen);
+        devprop_add_value(device, gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].Value);
+        //DBG("  added property Key: %s, len: %d\n", gSettings.Devices.AddPropertyArray[i].Key, gSettings.Devices.AddPropertyArray[i].ValueLen);
       }
     }
   }
   if (Injected) {
     DBG("custom USB properties injected, continue\n");
-    //    return TRUE;
+    //    return true;
   }
 
-  if (gSettings.InjectClockID) {
+  if (gSettings.Devices.USB.InjectClockID) {
     devprop_add_value(device, "AAPL,clock-id", (UINT8*)&clock_id, 1);
     clock_id++;
   }
@@ -509,7 +528,7 @@ BOOLEAN set_usb_props(pci_dt_t *usb_dev)
       break;
     case PCI_IF_EHCI:
       devprop_add_value(device, "device_type", (UINT8*)"EHCI", 4);
-      if (gSettings.HighCurrent) {
+      if (gSettings.Devices.USB.HighCurrent) {
         devprop_add_value(device, "AAPL,current-available", (UINT8*)&current_available_high, 2);
         devprop_add_value(device, "AAPL,current-extra",     (UINT8*)&current_extra_high, 2);
       } else {
@@ -520,7 +539,7 @@ BOOLEAN set_usb_props(pci_dt_t *usb_dev)
       break;
     case PCI_IF_XHCI:
       devprop_add_value(device, "device_type", (UINT8*)"XHCI", 4);
-      if (gSettings.HighCurrent) {
+      if (gSettings.Devices.USB.HighCurrent) {
         devprop_add_value(device, "AAPL,current-available", (UINT8*)&current_available_high, 2);
         devprop_add_value(device, "AAPL,current-extra",     (UINT8*)&current_extra_high, 2);
       } else {

@@ -8,6 +8,11 @@
 #ifndef __LIBSAIO_DEVICE_INJECT_H
 #define __LIBSAIO_DEVICE_INJECT_H
 
+extern "C" {
+#include <Protocol/DevicePath.h>
+}
+
+#include "../cpp_foundation/XBuffer.h"
 #include "../include/Pci.h"
 
 /* No more used
@@ -91,7 +96,6 @@ struct DevPropDevice {
 	struct DevPropString *string;
 	// ------------------------
 };
-
 typedef struct DevPropDevice  DevPropDevice;
 
 struct DevPropString {
@@ -106,22 +110,24 @@ struct DevPropString {
 
 typedef struct DevPropString  DevPropString;
 
-extern UINT32                          devices_number;
-extern DevPropString *device_inject_string;
-extern UINT8 *device_inject_stringdata;
-extern UINT32 device_inject_stringlength;
-
+#ifndef DONT_DEFINE_GLOBALS
+extern UINT32         devices_number;
+extern DevPropString  *device_inject_string;
+extern UINT8          *device_inject_stringdata;
+extern UINT32         device_inject_stringlength;
+#endif
 
 DevPropString	*devprop_create_string(void);
 //DevPropDevice	*devprop_add_device(DevPropString *string, char *path);
 DevPropDevice	*devprop_add_device_pci(DevPropString *string, pci_dt_t *PciDt, EFI_DEVICE_PATH_PROTOCOL *DevicePath);
-BOOLEAN			devprop_add_value(DevPropDevice *device, CONST CHAR8 *nm, UINT8 *vl, UINTN len);
-CHAR8			*devprop_generate_string(DevPropString *string);
-void			devprop_free_string(DevPropString *string);
+XBool			devprop_add_value(DevPropDevice *device, CONST CHAR8 *nm, const UINT8 *vl, UINTN len); // to be removed
+XBool     devprop_add_value(DevPropDevice *device, const XString8& nm, const XBuffer<uint8_t>& vl);
+XBuffer<char> devprop_generate_string(DevPropString *string);
+void		    devprop_free_string();
 
-BOOLEAN set_eth_props(pci_dt_t *eth_dev);
-BOOLEAN set_usb_props(pci_dt_t *usb_dev);
+XBool set_eth_props(pci_dt_t *eth_dev);
+XBool set_usb_props(pci_dt_t *usb_dev);
 
-UINT32 PciAddrFromDevicePath(EFI_DEVICE_PATH_PROTOCOL* DevicePath);
+//UINT32 PciAddrFromDevicePath(EFI_DEVICE_PATH_PROTOCOL* DevicePath);
 
 #endif /* !__LIBSAIO_DEVICE_INJECT_H */

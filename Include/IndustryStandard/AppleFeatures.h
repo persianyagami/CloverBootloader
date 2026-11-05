@@ -174,6 +174,11 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #define FW_FEATURE_DISABLE_BOOTSCRIPT_WORKAROUND      0x80000000U // 31
 
 //
+// Supports large BaseSystem. Checked by patchd. Required by macOS 12.
+//
+#define FW_FEATURE_SUPPORTS_LARGE_BASESYSTEM         0x800000000U // 35
+
+//
 // OEM Platform Feature Information - Platform feature bits
 // These bits are exposed via APPLE_SMBIOS_TABLE_TYPE133 FirmwareFeatures:
 // UINT64 PlatformFeature.
@@ -208,7 +213,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 // Supports Power Chime sound at boot.
 //
 #define PT_FEATURE_SUPPORTS_POWER_CHIME        0x00000010 // 4
-#define PT_FEATURE_UNKNOWN_BIT5                0x00000020 // 5
+#define PT_FEATURE_HAS_T2_CHIP                 0x00000020 // 5
 #define PT_FEATURE_UNKNOWN_BIT6                0x00000040 // 6
 #define PT_FEATURE_UNKNOWN_BIT7                0x00000080 // 7
 #define PT_FEATURE_UNKNOWN_BIT8                0x00000100 // 8

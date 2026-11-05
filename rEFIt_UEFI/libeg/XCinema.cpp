@@ -9,7 +9,9 @@
 
 #include "libegint.h"
 #include "XCinema.h"
-#include "../gui/REFIT_MENU_SCREEN.h"
+//#include "../gui/REFIT_MENU_SCREEN.h"
+#include "../libeg/XTheme.h"
+#include "../refit/lib.h"
 
 #ifndef DEBUG_ALL
 #define DEBUG_CINEMA 0
@@ -23,44 +25,6 @@
 #define DBG(...) DebugLog(DEBUG_CINEMA, __VA_ARGS__)
 #endif
 
-
-//Screen.UpdateAnime(); called from Menu cycle wait for event
-
-// object XCinema Cinema is a part of Theme
-// object FILM* FilmC is a part or current Screen. Must be initialized from Cinema somewhere on Screen init
-// assumed one Film per screen
-void REFIT_MENU_SCREEN::UpdateFilm()
-{
-  if (FilmC == nullptr || !FilmC->AnimeRun) {
-//    DBG("no anime -> run=%d\n", FilmC->AnimeRun?1:0);
-    return;
-  }
-  // here we propose each screen has own link to a Film
-  INT64      Now = AsmReadTsc();
-
-  if (FilmC->LastDraw == 0) {
-    DBG("=== Update Film ===\n");
-    DBG("FilmX=%lld\n", FilmC->FilmX);
-    DBG("ID=%lld\n", FilmC->GetIndex());
-    DBG("RunOnce=%d\n", FilmC->RunOnce?1:0);
-    DBG("NumFrames=%lld\n", FilmC->NumFrames);
-    DBG("FrameTime=%lld\n", FilmC->FrameTime);
-    DBG("Path=%ls\n", FilmC->Path.wc_str());
-    DBG("LastFrame=%lld\n\n", FilmC->LastFrameID());
-  }
-
-  if (TimeDiff(FilmC->LastDraw, Now) < (UINTN)FilmC->FrameTime) return;
-
-  XImage Frame = FilmC->GetImage(); //take current image
-  if (!Frame.isEmpty()) {
-    Frame.DrawOnBack(FilmC->FilmPlace.XPos, FilmC->FilmPlace.YPos, ThemeX.Background);
-  }
-  FilmC->Advance(); //next frame no matter if previous was not found
-  if (FilmC->Finished()) { //first loop finished
-    FilmC->AnimeRun = !FilmC->RunOnce; //will stop anime if it set as RunOnce
-  }
-  FilmC->LastDraw = Now;
-}
 
 FILM* XCinema::GetFilm(INTN Id)
 {
@@ -94,7 +58,7 @@ const XImage& FILM::GetImage(INTN Index) const
   return NullImage;
 }
 
-const XImage& FILM::GetImage(bool *free) const
+const XImage& FILM::GetImage(XBool *free) const
 {
   /*
    * for SVG anime we have to generate new XImage using CurrentFrame as an argument
@@ -126,6 +90,7 @@ void FILM::AddFrame(XImage* Frame, INTN Index)
   }
 }
 
+// 2023-11 : this is currently never called when theme is svg
 void FILM::GetFrames(XTheme& TheTheme /*, const XStringW& Path*/) // Path already exist as a member. Is it the same ?
 {
   const EFI_FILE *ThemeDir = &TheTheme.getThemeDir();
@@ -134,18 +99,33 @@ void FILM::GetFrames(XTheme& TheTheme /*, const XStringW& Path*/) // Path alread
   for (INTN Index = 0; Index < NumFrames; Index++) {
     XImage NewImage;
     Status = EFI_NOT_FOUND;
-    if (TheTheme.TypeSVG) {
-      Status = TheTheme.LoadSvgFrame(Index, &NewImage);
-    } else {
-      XStringW Name = SWPrintf("%ls\\%ls_%03lld.png", Path.wc_str(), Path.wc_str(), Index);
- //     DBG("try to load %ls\n", Name.wc_str()); //fine
-      if (FileExists(ThemeDir, Name)) {
-        Status = NewImage.LoadXImage(ThemeDir, Name);
-      }
-//      DBG("  read status=%s\n", efiStrError(Status));
+    XStringW Name = SWPrintf("%ls\\%ls_%03lld.png", Path.wc_str(), Path.wc_str(), Index);
+//     DBG("try to load %ls\n", Name.wc_str()); //fine
+    if (FileExists(ThemeDir, Name)) {
+      Status = NewImage.LoadXImage(ThemeDir, Name);
     }
+//      DBG("  read status=%s\n", efiStrError(Status));
     if (!EFI_ERROR(Status)) {
       AddFrame(&NewImage, Index);
     }
   }
 }
+
+
+// 2023-11 : this is currently never called
+// This should be 2 implementations of the same method in 2 different subclass, I think.
+void FILM::GetFramesSVG(NSVGparser* SVGParser, XTheme& TheTheme /*, const XStringW& Path*/) // Path already exist as a member. Is it the same ?
+{
+  EFI_STATUS Status;
+  LastIndex = 0;
+  for (INTN Index = 0; Index < NumFrames; Index++) {
+    XImage NewImage;
+    Status = TheTheme.LoadSvgFrame(SVGParser, Index, &NewImage);
+    if (!EFI_ERROR(Status)) {
+      AddFrame(&NewImage, Index);
+    }
+  }
+}
+
+
+

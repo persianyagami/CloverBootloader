@@ -29,7 +29,8 @@ DEVICE_MANAGER_CALLBACK_DATA  gDeviceManagerPrivate = {
     FakeExtractConfig,
     FakeRouteConfig,
     DriverHealthCallback
-  }
+  },
+  0,
 };
 
 #define  MAX_MAC_ADDRESS_NODE_LIST_LEN    10
@@ -2469,7 +2470,7 @@ GetDriverNameWorker (
                             BestLanguage,
                             DriverName
                             );
-  FreePool(BestLanguage);
+  FreePool(BestLanguage); // it was not allocated // Jief : it is allocated by GetBestLanguage from DriverHealthSelectBestLanguage from GetComponentNameWorker
  
   return Status;
 }

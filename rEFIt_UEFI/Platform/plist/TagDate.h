@@ -12,25 +12,27 @@
 
 class TagDate : public TagStruct
 {
-  static XObjArray<TagDate> tagsFree;
   XString8 string;
 
 public:
+#ifdef TagStruct_USE_CACHE
+  static XObjArray<TagDate> tagsFree;
+#endif
 
   TagDate() : string() {}
   TagDate(const TagDate& other) = delete; // Can be defined if needed
   const TagDate& operator = (const TagDate&); // Can be defined if needed
   virtual ~TagDate() { }
   
-  virtual bool operator == (const TagStruct& other) const;
+  virtual XBool operator == (const TagStruct& other) const;
 
   virtual TagDate* getDate() { return this; }
   virtual const TagDate* getDate() const { return this; }
 
-  virtual bool isDict() const { return true; }
+  virtual XBool isDict() const { return true; }
   virtual const XString8 getTypeAsXString8() const { return "Dict"_XS8; }
   static TagDate* getEmptyTag();
-  virtual void FreeTag();
+  virtual void ReleaseTag();
   
   virtual void sprintf(unsigned int ident, XString8* s) const;
 
@@ -44,8 +46,11 @@ public:
   }
   void setDateValue(const XString8& xstring)
   {
-    if ( xstring.isEmpty() ) panic("TagDate::setDateValue() : xstring.isEmpty() ");
     string = xstring;
+  }
+  void setDateValue(const char* value, size_t length)
+  {
+    string.strncpy(value, length); // strncpy can handle value==NULL, *value=0 and length=0
   }
 
 };

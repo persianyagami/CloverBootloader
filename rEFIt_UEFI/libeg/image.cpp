@@ -34,6 +34,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
+#include <Efi.h>
+
 #include "libegint.h"
 #include "lodepng.h"
 
@@ -76,11 +79,11 @@ EFI_STATUS egLoadFile(const EFI_FILE* BaseDir, IN CONST CHAR16 *FileName,
   FileInfo = EfiLibFileInfo(FileHandle);
   if (FileInfo == NULL) {
     FileHandle->Close(FileHandle);
+    Status = EFI_NOT_READY;
     goto Error;
   }
   ReadSize = FileInfo->FileSize;
-  if (ReadSize > MAX_FILE_SIZE)
-    ReadSize = MAX_FILE_SIZE;
+  if (ReadSize > MAX_FILE_SIZE) ReadSize = MAX_FILE_SIZE;
   FreePool(FileInfo);
 
   BufferSize = (UINTN)ReadSize;   // was limited to 1 GB above, so this is safe
@@ -104,6 +107,11 @@ EFI_STATUS egLoadFile(const EFI_FILE* BaseDir, IN CONST CHAR16 *FileName,
   if (FileDataLength) {
     *FileDataLength = BufferSize;
   }
+  // be 100% sure that we don't return EFI_SUCCESS with *FileData == NULL
+  if ( !EFI_ERROR(Status) && *FileData == NULL ) {
+    log_technical_bug("%s : EFI_ERROR(Status) && ConfigPtr", __PRETTY_FUNCTION__);
+    return EFI_COMPROMISED_DATA;
+  }
   return Status;
 Error:
   if (FileData) {
@@ -112,10 +120,15 @@ Error:
   if (FileDataLength) {
     *FileDataLength = 0;
   }
+  // be 100% sure that we don't return EFI_SUCCESS with *FileData == NULL
+  if ( !EFI_ERROR(Status) && *FileData == NULL ) {
+    log_technical_bug("%s : EFI_ERROR(Status) && ConfigPtr", __PRETTY_FUNCTION__);
+    return EFI_COMPROMISED_DATA;
+  }
   return Status;
 }
 //Slice - this is gEfiPartTypeSystemPartGuid
-//static EFI_GUID ESPGuid = { 0xc12a7328, 0xf81f, 0x11d2, { 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b } };
+//constexpr const EFI_GUID ESPGuid = { 0xc12a7328, 0xf81f, 0x11d2, { 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b } };
 //there is assumed only one ESP partition. What if there are two HDD gpt formatted?
 EFI_STATUS egFindESP(OUT EFI_FILE** RootDir)
 {
@@ -139,7 +152,7 @@ EFI_STATUS egSaveFile(const EFI_FILE* BaseDir OPTIONAL, IN CONST CHAR16 *FileNam
   EFI_STATUS          Status;
   EFI_FILE*           FileHandle;
   UINTN               BufferSize;
-  BOOLEAN             CreateNew = TRUE;
+  XBool               CreateNew = true;
   CONST CHAR16        *p = FileName + StrLen(FileName);
   CHAR16              DirName[256];
   UINTN               dirNameLen;
@@ -181,7 +194,7 @@ EFI_STATUS egSaveFile(const EFI_FILE* BaseDir OPTIONAL, IN CONST CHAR16 *FileNam
     Status = FileHandle->Delete(FileHandle);
     if (Status == EFI_WARN_DELETE_FAILURE) {
       //This is READ_ONLY file system
-      CreateNew = FALSE; // will write into existing file (Slice - ???)
+      CreateNew = false; // will write into existing file (Slice - ???)
 //      DBG("RO FS %s\n", efiStrError(Status));
     }
   }

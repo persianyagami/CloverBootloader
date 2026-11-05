@@ -191,9 +191,23 @@ enum {
 #define CPU_MODEL_ICELAKE_Y      0x7D
 #define CPU_MODEL_ICELAKE_U      0x7E
 #define CPU_MODEL_ICELAKE_SP     0x9F /* Some variation of Ice Lake */
-#define CPU_MODEL_COMETLAKE_S    0xA5 /* desktop CometLake */
+//#define CPU_MODEL_COMETLAKE_S    0xA5 /* desktop CometLake */
 #define CPU_MODEL_COMETLAKE_Y    0xA5 /* aka 10th generation Amber Lake Y */
 #define CPU_MODEL_COMETLAKE_U    0xA6
+//From Clover collection
+#define CPU_MODEL_ATOM_TM        0x86  /* Tremont */
+#define CPU_MODEL_TIGERLAKE_C    0x8C  /* 11h generation Tiger Lake */
+#define CPU_MODEL_TIGERLAKE_D    0x8D  /* 11h generation Tiger Lake */
+#define CPU_MODEL_ALDERLAKE      0x97  /* 12h generation Alder Lake */
+#define CPU_MODEL_ALDERLAKE_ULT  0x9A  /* 12h generation Alder Lake, i5-12500h */
+#define CPU_MODEL_ROCKETLAKE     0xA7  /* 11h Rocket Lake */
+#define CPU_MODEL_RAPTORLAKE     0xB7  /* 13h Raptor Lake */
+#define CPU_MODEL_RAPTORLAKE_B   0xBF  /* 13h Raptor Lake, i5-13400h */
+#define CPU_MODEL_RAPTORLAKE_M   0xBA    // Raptor Lake Mobile
+#define CPU_MODEL_METEORLAKE     0xAA  /* 14h Meteor Lake */
+#define CPU_MODEL_ARROWLAKE		 0xC6  /* 15h Arrow Lake */
+#define CPU_MODEL_ARROWLAKE_X	 0xC5  /* 15h Arrow Lake */
+#define CPU_MODEL_ARROWLAKE_U	 0xB5  /* 15h Arrow Lake */
 
 #define CPU_SOCKET_UNKNOWN  0x02
 #define CPU_SOCKET_PGA478   0x0F
@@ -203,9 +217,12 @@ enum {
 #define CPU_SOCKET_LGA1366  0x19
 
 #define AMD_CPU_FAMILY          0xF
+#define AMD_CPU_EXT_FAMILY_0FH  0x0
+#define AMD_CPU_EXT_FAMILY_10H  0x1
 #define AMD_CPU_EXT_FAMILY_15H  0x6
 #define AMD_CPU_EXT_FAMILY_16H  0x7
 #define AMD_CPU_EXT_FAMILY_17H  0x8
+#define AMD_CPU_EXT_FAMILY_19H  0xA
 
 // CPU_P_STATE_COORDINATION
 /// P-State Coordination

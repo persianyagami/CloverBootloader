@@ -20,6 +20,7 @@
 */
 
 #include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
+#include <Efi.h>
 
 STATIC EFI_CONSOLE_CONTROL_SCREEN_MODE CurrentMode = EfiConsoleControlScreenText;
 
@@ -35,11 +36,11 @@ GetModeImpl (
   *Mode = CurrentMode;
 
   if (GopUgaExists) {
-    *GopUgaExists = TRUE;
+    *GopUgaExists = true;
   }
 
   if (StdInLocked) {
-    *StdInLocked  = FALSE;
+    *StdInLocked  = false;
   }
 
   return EFI_SUCCESS;

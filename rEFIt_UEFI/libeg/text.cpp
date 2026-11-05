@@ -39,12 +39,13 @@ extern "C" {
 #include <Protocol/GraphicsOutput.h>
 }
 
+#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 #include "libegint.h"
 #include "nanosvg.h"
 #include "VectorGraphics.h"
 #include "XTheme.h"
 #include "../Platform/Settings.h"
-#include "Self.h"
+#include "../Settings/Self.h"
 
 //#include "egemb_font.h"
 //#define FONT_CELL_WIDTH (7)
@@ -63,7 +64,6 @@ extern "C" {
 #endif
 
 const EFI_GRAPHICS_OUTPUT_BLT_PIXEL SemiWhitePixel = {0xFF, 0xFF, 0xFF, 0xD2}; //semitransparent white
-NSVGfontChain *fontsDB = NULL;
 
 //
 // Text rendering
@@ -84,7 +84,7 @@ void XTheme::MeasureText(IN const XStringW& Text, OUT INTN *Width, OUT INTN *Hei
   if (Height != NULL)
     *Height = ScaledHeight;
 }
-void XTheme::LoadFontImage(IN BOOLEAN UseEmbedded, IN INTN Rows, IN INTN Cols)
+void XTheme::LoadFontImage(IN XBool UseEmbedded, IN INTN Rows, IN INTN Cols)
 {
   EFI_STATUS Status = EFI_NOT_FOUND;
   XImage      NewImage; //tempopary image from file
@@ -93,7 +93,7 @@ void XTheme::LoadFontImage(IN BOOLEAN UseEmbedded, IN INTN Rows, IN INTN Cols)
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL *PixelPtr;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL *FontPtr;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL FirstPixel;
-  BOOLEAN     isKorean = (gLanguage == korean);
+  XBool       isKorean = (gSettings.GUI.languageCode == korean);
   XStringW    fontFilePath;
   const XStringW& commonFontDir = L"font"_XSW;
 
@@ -101,13 +101,13 @@ void XTheme::LoadFontImage(IN BOOLEAN UseEmbedded, IN INTN Rows, IN INTN Cols)
     Status = NewImage.FromPNG(ACCESS_EMB_DATA(emb_font_data), ACCESS_EMB_SIZE(emb_font_data)); //always success
     MsgLog("Using embedded font\n");
   } else if (isKorean){
-    Status = NewImage.LoadXImage(ThemeDir, L"FontKorean.png"_XSW);
+    Status = NewImage.LoadXImage(ThemeDir, "FontKorean.png"_XS8);
     MsgLog("Loading korean font from ThemeDir: %s\n", efiStrError(Status));
     if (!EFI_ERROR(Status)) {
       CharWidth = 22; //standard for korean
     } else {
       MsgLog("...using english\n");
-      gLanguage = english;
+      gSettings.GUI.languageCode = english;
     }
   }
 
@@ -120,7 +120,7 @@ void XTheme::LoadFontImage(IN BOOLEAN UseEmbedded, IN INTN Rows, IN INTN Cols)
 
   if (EFI_ERROR(Status)) {
     //then take from common font folder
-//    fontFilePath = SWPrintf(L"%s\\%s", commonFontDir, isKorean ? L"FontKorean.png" : ThemeX.FontFileName.data());
+//    fontFilePath = SWPrintf(L"%s\\%s", commonFontDir, isKorean ? L"FontKorean.png" : FontFileName.data());
     fontFilePath = commonFontDir + FontFileName;
     Status = NewImage.LoadXImage(&self.getCloverDir(), fontFilePath);
     //else use embedded even if it is not embedded
@@ -161,8 +161,8 @@ void XTheme::LoadFontImage(IN BOOLEAN UseEmbedded, IN INTN Rows, IN INTN Cols)
             (PixelPtr->Red == FirstPixel.Red)
             ) {
           PixelPtr->Reserved = 0; //if a pixel has same color as first pixel then it will be transparent
-        //} else if (ThemeX.DarkEmbedded) {
-        } else if (ThemeX.embedded && !ThemeX.Daylight) {
+        //} else if (DarkEmbedded) {
+        } else if (embedded && !Daylight) {
           *PixelPtr = SemiWhitePixel;  //special case to change a text to semi white, not blue pixels
         }
         FontPtr[Ypos + x] = *PixelPtr++; //not (x, YPos) !!!
@@ -182,7 +182,7 @@ void XTheme::PrepareFont()
   // load the font
   if (FontImage.isEmpty()) {
     DBG("load font image type %d\n", Font);
-    LoadFontImage(TRUE, 16, 16); //anyway success
+    LoadFontImage(true, 16, 16); //anyway success
   }
 
   if (!FontImage.isEmpty()) {
@@ -207,7 +207,7 @@ void XTheme::PrepareFont()
 }
 
 //search pixel similar to first
-inline bool SamePix(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL& Ptr, const EFI_GRAPHICS_OUTPUT_BLT_PIXEL& FirstPixel)
+inline XBool SamePix(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL& Ptr, const EFI_GRAPHICS_OUTPUT_BLT_PIXEL& FirstPixel)
 {
   //compare with first pixel of the array top-left point [0][0]
   return ((Ptr.Red >= FirstPixel.Red - (FirstPixel.Red >> 2)) &&
@@ -254,7 +254,7 @@ INTN XTheme::GetEmpty(const XImage& Buffer, const EFI_GRAPHICS_OUTPUT_BLT_PIXEL&
 INTN XTheme::RenderText(IN const XString8& Text, OUT XImage* CompImage_ptr,
                         IN INTN PosX, IN INTN PosY, IN UINTN Cursor, INTN textType, float textScale)
 {
-  const XStringW& UTF16Text = XStringW().takeValueFrom(Text.c_str());
+  const XStringW UTF16Text = XStringW().takeValueFrom(Text.c_str());
   return RenderText(UTF16Text, CompImage_ptr, PosX, PosY, Cursor, textType, textScale);
 }
 
@@ -307,7 +307,7 @@ INTN XTheme::RenderText(IN const XStringW& Text, OUT XImage* CompImage_ptr,
   for (UINTN i = 0; i < TextLength && c0 != 0; i++) {
     UINT16 c = Text.wc_str()[i]; //including UTF8 -> UTF16 conversion
     DBG("initial char to render 0x%hx\n", c); //good
-    if (gLanguage != korean) { //russian Codepage = 0x410
+    if (gSettings.GUI.languageCode != korean) { //russian Codepage = 0x410
       if (c >= 0x410 && c < 0x450) {
         //we have russian raster fonts with chars at 0xC0
         c -= 0x350;

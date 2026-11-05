@@ -25,7 +25,7 @@ extern "C" {
 #define DBG(...) DebugLog(DEBUG_XICON, __VA_ARGS__)
 #endif
 
-CONST CHAR8* IconsNames[] = {
+CONST LString8 IconsNames[] = {
   "func_about",
   "func_options",
   "func_clover",
@@ -83,6 +83,13 @@ CONST CHAR8* IconsNames[] = {
    "os_clover",  //52 == ICON_CLOVER
    //other oses will be added below
    "os_bigsur",  //53 == ICON_BIGSUR
+   "os_monterey",  //54 == ICON_MONTEREY
+   "os_ventura",  //55 == ICON_VENTURA
+   "os_sonoma",  //56 == ICON_SONOMA
+   "os_sequoia",  //57 == ICON_SEQUOIA
+   "os_tahoe",  //58 == ICON_TAHOE
+   "os_arch",   //59 == ICON_ARCH
+   "os_alt", //60 == ICON_ALT
   ""
 };
 const INTN IconsNamesSize = sizeof(IconsNames) / sizeof(IconsNames[0]);
@@ -98,37 +105,15 @@ Empty = EFI_ERROR(Image.FromPNG(ACCESS_EMB_DATA(ico), ACCESS_EMB_SIZE(ico))); \
 ImageNight.FromPNG(ACCESS_EMB_DATA(dark), ACCESS_EMB_SIZE(dark)); \
 }
 
-XIcon::XIcon(INTN Index, bool TakeEmbedded) : Id(Index), Name(), Image(), ImageNight(), Native(false),
-  ImageSVG(nullptr), ImageSVGnight(nullptr), Empty(0)
+
+XIcon::XIcon(INTN Index, XBool TakeEmbedded) : Id(Index), Empty(false)
 {
-//  Id = Index;
-//  Name.setEmpty();
-//  Native = false;
-//  ImageSVG = nullptr;
-//  ImageSVGnight = nullptr;
   if (Index >= BUILTIN_ICON_FUNC_ABOUT && Index < IconsNamesSize) { //full table
-    Name.takeValueFrom(IconsNames[Index]);
+    Name = IconsNames[Index];
   }
   if (TakeEmbedded) {
     GetEmbedded();
   }
-}
-
-XIcon& XIcon::operator=(const XIcon& src)
-{
-  Id = src.Id;
-  Name = src.Name;
-  if (!src.isEmpty()) {
-    Image = src.Image;
-    if (!src.ImageNight.isEmpty()) {
-      ImageNight = src.ImageNight;
-    }
-    setFilled();
-    //this moment we copy pointers. Later it will be class variables
-    ImageSVG = src.ImageSVG;
-    ImageSVGnight = src.ImageSVGnight;
-  }
-  return *this;
 }
 
 void XIcon::GetEmbedded()
@@ -214,7 +199,7 @@ void XIcon::GetEmbedded()
       DEC_BUILTIN_ICON(BUILTIN_CHECKBOX_CHECKED, emb_checkbox_checked)
       break;
     case BUILTIN_ICON_SELECTION:
-      Name.takeValueFrom("selection_indicator");
+      Name = "selection_indicator"_XS8;
       DEC_BUILTIN_ICON(BUILTIN_ICON_SELECTION, emb_selection_indicator)
       break;
     default:
@@ -223,8 +208,6 @@ void XIcon::GetEmbedded()
   }
   //something to do else?
 }
-
-XIcon::~XIcon() {}
 
 //copy from XImage for our purpose
 EFI_STATUS XIcon::LoadXImage(const EFI_FILE *BaseDir, const char* IconName)
@@ -242,47 +225,12 @@ EFI_STATUS XIcon::LoadXImage(const EFI_FILE *BaseDir, const XStringW& IconName)
 {
   EFI_STATUS Status = Image.LoadXImage(BaseDir, IconName);
   ImageNight.LoadXImage(BaseDir, IconName + L"_night"_XSW);
-  if (!EFI_ERROR(Status)) setFilled();
   return Status;
 }
 
-XImage* XIcon::GetBest(bool night, bool *free)
+const XImage& XIcon::GetBest(XBool night) const
 {
-#if 1
-  if (ImageSVG) {
-    NSVGimage* sImage = (NSVGimage*)ImageSVGnight;
-    if (!night || !ImageSVGnight) sImage = (NSVGimage*)ImageSVG;
-    float Scale = sImage->scale;
-    NSVGrasterizer* rast = nsvgCreateRasterizer();
-    float Height = sImage->height * Scale;
-    float Width = sImage->width * Scale;
-    int iWidth = (int)(Width + 0.5f);
-    int iHeight = (int)(Height + 0.5f);
-    XImage* NewImage = new XImage(iWidth, iHeight); //TODO creating new XImage we have to delete it after use
-    if (sImage->shapes == NULL) {
-      if (free) *free = true;
-      return NewImage;
-    }
-    float bounds[4];
-    nsvg__imageBounds(sImage, bounds);
-
-    float tx = 0.f, ty = 0.f;
-    float realWidth = (bounds[2] - bounds[0]) * Scale;
-    float realHeight = (bounds[3] - bounds[1]) * Scale;
-    tx = (Width - realWidth) * 0.5f;
-    ty = (Height - realHeight) * 0.5f;
-    
-    nsvgRasterize(rast, sImage, tx, ty, Scale, Scale, (UINT8*)NewImage->GetPixelPtr(0,0), iWidth, iHeight, iWidth*4);
-    nsvgDeleteRasterizer(rast);
-//    if (night) ImageNight = *NewImage;
-//    else Image = *NewImage;
-//    delete NewImage;
-    if (free) *free = true;
-    return NewImage;
-  }
-#endif
-  XImage* RetImage = (night && !ImageNight.isEmpty())? &ImageNight : &Image;
-  if (free) *free = false;
+  const XImage& RetImage = (night && !ImageNight.isEmpty())? ImageNight : Image;
   return RetImage;
 }
 

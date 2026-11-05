@@ -1,5 +1,5 @@
 /*
- * Nvram.h
+ * DataHubCpu.h
  *
  *  Created on: 16 Apr 2020
  *      Author: jief
@@ -9,6 +9,7 @@
 #define PLATFORM_DATAHUBCPU_H_
 
 #include "../gui/menu_items/menu_items.h"
+#include "DataHubExt.h"
 
 EFI_STATUS
 EFIAPI
@@ -18,7 +19,7 @@ SetVariablesForOSX (LOADER_ENTRY *Entry);
 EFI_STATUS
 EFIAPI
 LogDataHub (
-  EFI_GUID *TypeGuid,
+  const EFI_GUID& TypeGuid,
   CONST CHAR16   *Name,
   const void     *Data,
   UINT32   DataSize
@@ -26,7 +27,7 @@ LogDataHub (
 
 void
 EFIAPI
-SetupDataForOSX (BOOLEAN Hibernate);
+SetupDataForOSX (XBool Hibernate);
 
 
 #endif /* PLATFORM_DATAHUBCPU_H_ */

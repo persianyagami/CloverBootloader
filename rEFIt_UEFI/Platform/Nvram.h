@@ -14,8 +14,8 @@
 #include "../gui/REFIT_MENU_SCREEN.h"
 
 
-extern EFI_GUID                       *gEfiBootDeviceGuid;
-extern EFI_DEVICE_PATH_PROTOCOL       *gEfiBootDeviceData;
+extern EFI_GUID                        gEfiBootDeviceGuid;
+extern apd<EFI_DEVICE_PATH_PROTOCOL*>  gEfiBootDeviceData;
 
 
 
@@ -28,21 +28,20 @@ FindStartupDiskVolume (
 void
 *GetNvramVariable(
     IN      CONST CHAR16   *VariableName,
-    IN      EFI_GUID       *VendorGuid,
+    const EFI_GUID&    VendorGuid,
     OUT  UINT32            *Attributes    OPTIONAL,
     OUT  UINTN             *DataSize      OPTIONAL
   );
 XString8 GetNvramVariableAsXString8(
     IN      CONST CHAR16   *VariableName,
-    IN      EFI_GUID       *VendorGuid,
-    OUT     UINT32         *Attributes    OPTIONAL,
-    OUT     UINTN          *DataSize      OPTIONAL
+    const EFI_GUID&    VendorGuid,
+    OUT     UINT32         *Attributes    OPTIONAL
   );
 
 EFI_STATUS
 AddNvramVariable (
   IN  CONST CHAR16   *VariableName,
-  IN  EFI_GUID *VendorGuid,
+  const EFI_GUID& VendorGuid,
   IN  UINT32   Attributes,
   IN  UINTN    DataSize,
   IN  const void     *Data
@@ -50,7 +49,7 @@ AddNvramVariable (
 EFI_STATUS
 AddNvramXString8 (
   IN  CONST CHAR16   *VariableName,
-  IN  EFI_GUID *VendorGuid,
+  const EFI_GUID& VendorGuid,
   IN  UINT32   Attributes,
   const XString8& s
   );
@@ -58,32 +57,32 @@ AddNvramXString8 (
 EFI_STATUS
 SetNvramVariable (
   IN  CONST CHAR16      *VariableName,
-  IN  EFI_GUID    *VendorGuid,
-  IN  UINT32       Attributes,
-  IN  UINTN        DataSize,
-  IN  CONST void  *Data
+  const EFI_GUID&  VendorGuid,
+  IN  UINT32            Attributes,
+  IN  UINTN             DataSize,
+  IN  CONST void       *Data
   );
 EFI_STATUS
 SetNvramXString8 (
     IN  CONST CHAR16     *VariableName,
-    IN  EFI_GUID   *VendorGuid,
-    IN  UINT32      Attributes,
-    const XString8& s
+    const EFI_GUID&  VendorGuid,
+    IN  UINT32            Attributes,
+    const XString8&       s
   );
 
 EFI_STATUS
 DeleteNvramVariable (
-  IN  CONST CHAR16   *VariableName,
-  IN  EFI_GUID *VendorGuid
+  IN  CONST CHAR16     *VariableName,
+  const EFI_GUID&  VendorGuid
   );
 
 void
 ResetNvram (void);
 
-BOOLEAN
+XBool
 IsDeletableVariable (
-  IN CHAR16    *Name,
-  IN EFI_GUID  *Guid
+  IN CHAR16           *Name,
+  const EFI_GUID& Guid
   );
 
 EFI_STATUS
@@ -94,7 +93,7 @@ EFI_STATUS
 GetEfiBootDeviceFromNvram (void);
 
 EFI_GUID
-*FindGPTPartitionGuidInDevicePath (
+FindGPTPartitionGuidInDevicePath (
   const  EFI_DEVICE_PATH_PROTOCOL *DevicePath
   );
 
@@ -102,7 +101,7 @@ void
 PutNvramPlistToRtVars (void);
 
 void
-GetSmcKeys(BOOLEAN WriteToSMC);
+GetSmcKeys(XBool WriteToSMC);
 #if CHECK_SMC
 void DumpSmcKeys();
 #endif
@@ -118,5 +117,11 @@ RemoveStartupDiskVolume (void);
 
 UINT64
 GetEfiTimeInMs (IN EFI_TIME *T);
+
+#ifdef JIEF_DEBUG
+EFI_STATUS DumpNvram();
+#endif
+
+
 
 #endif /* PLATFORM_NVRAM_H_ */

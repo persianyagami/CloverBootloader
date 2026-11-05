@@ -158,7 +158,7 @@ Clover_FindDevicePathNodeWithType (
 
 
 /** Creates device path for boot option: device path for file system volume + file name.
- *  If UseShortForm == TRUE, then only the hard drive media dev path will be used instead
+ *  If UseShortForm == true, then only the hard drive media dev path will be used instead
  *  of full device path.
  *  Long (full) form:
  *   PciRoot(0x0)/Pci(0x1f,0x2)/Sata(0x1,0x0)/HD(1,GPT,96004846-a018-49ad-bc9f-4e5a340adc4b,0x800,0x64000)/\EFI\BOOT\File.efi
@@ -168,9 +168,9 @@ Clover_FindDevicePathNodeWithType (
  */
 EFI_STATUS
 CreateBootOptionDevicePath (
-    IN  EFI_HANDLE      FileDeviceHandle,
+    IN  EFI_HANDLE       FileDeviceHandle,
     IN  CONST XStringW&  FileName,
-    IN  BOOLEAN         UseShortForm,
+    IN  XBool            UseShortForm,
     OUT EFI_DEVICE_PATH_PROTOCOL    **DevicePath
     )
 {
@@ -219,14 +219,14 @@ CreateBootOptionDevicePath (
 }
 
 
-/** Returns TRUE if dev paths are equal. Has special ascii case insensitive compare for file dev paths. */
-BOOLEAN
+/** Returns true if dev paths are equal. Has special ascii case insensitive compare for file dev paths. */
+XBool
 DevicePathEqual (
     IN  EFI_DEVICE_PATH_PROTOCOL    *DevicePath1,
     IN  EFI_DEVICE_PATH_PROTOCOL    *DevicePath2
     )
 {
-    BOOLEAN         Equal;
+    XBool           Equal;
     UINT8           Type1;
     UINT8           SubType1;
     UINTN           Len1;
@@ -234,9 +234,9 @@ DevicePathEqual (
     CHAR16          *FPath2;
     
     
-    Equal = FALSE;
+    Equal = false;
     
-    while (TRUE) {
+    while (true) {
         Type1 = DevicePathType (DevicePath1);
         SubType1 = DevicePathSubType (DevicePath1);
         Len1 = DevicePathNodeLength (DevicePath1);
@@ -265,7 +265,7 @@ DevicePathEqual (
         
         if (IsDevicePathEnd (DevicePath1)) {
             // END node - they are the same
-            Equal = TRUE;
+            Equal = true;
             break;
         }
         
@@ -355,7 +355,7 @@ GetBootOrder (
   //
   // Get gEfiGlobalVariableGuid:BootOrder and it's length
   //
-  *BootOrder = (__typeof_am__(*BootOrder))GetNvramVariable(BOOT_ORDER_VAR, &gEfiGlobalVariableGuid, NULL, &BootOrderSize);
+  *BootOrder = (__typeof_am__(*BootOrder))GetNvramVariable(BOOT_ORDER_VAR, gEfiGlobalVariableGuid, NULL, &BootOrderSize);
   if (*BootOrder == NULL) {
     DBG(" EFI_NOT_FOUND\n");
     return EFI_NOT_FOUND;
@@ -391,9 +391,31 @@ AddToBootOrder (
 
   if (BootIndexNew > BootOrderLen) {
     BootIndexNew = BootOrderLen;
-	  DBG("AddToBootOrder: Index too big. Setting to: %llu\n", BootIndexNew);
+	DBG("AddToBootOrder: Index too big. Setting to: %llu\n", BootIndexNew);
   }
 
+  //
+  // shrink BootOrder array
+  //
+  for (Index = 0; Index < BootOrderLen; Index++) {
+	  BO_BOOT_OPTION  BootOption;
+	  EFI_STATUS status =  GetBootOption (Index, &BootOption);
+	  if (status == EFI_NOT_FOUND) {
+		    //
+		    // BootNum found at Index - copy the rest over it
+		    //
+		    if (Index < BootOrderLen - 1) {
+		        CopyMem(&BootOrder[Index],
+		                 &BootOrder[Index + 1],
+		                 (BootOrderLen - (Index + 1)) * sizeof(UINT16)
+		                 );
+		    }
+		    BootOrderLen--;
+		    if (BootIndexNew > Index) BootIndexNew--;
+	  } else {
+		  FreePool(BootOption.Variable);
+	  }
+  }
   //
   // Make new order buffer with space for our option
   //
@@ -405,12 +427,8 @@ AddToBootOrder (
 	}
     return EFI_OUT_OF_RESOURCES;
   }
-  BootOrderLen += 1;
+  BootOrderLen++;
 
-
-  //
-  // Make BootOrderNew array
-  //
 
   // copy all before BootIndex first
   for (Index = 0; Index < BootIndexNew; Index++) {
@@ -429,7 +447,7 @@ AddToBootOrder (
   // Save it
   //
   Status = gRT->SetVariable (BOOT_ORDER_VAR,
-                             &gEfiGlobalVariableGuid,
+                             gEfiGlobalVariableGuid,
                              EFI_VARIABLE_NON_VOLATILE
                              | EFI_VARIABLE_BOOTSERVICE_ACCESS
                              | EFI_VARIABLE_RUNTIME_ACCESS,
@@ -443,7 +461,7 @@ AddToBootOrder (
   FreePool(BootOrderNew);
 
   // Debug: Get and print new BootOrder value
-  //GetBootOrder (&BootOrder, &BootOrderLen);
+  GetBootOrder (&BootOrder, &BootOrderLen);
 
   return Status;
 }
@@ -499,7 +517,7 @@ DeleteFromBootOrder (
     // Save it
     //
     Status = gRT->SetVariable (BOOT_ORDER_VAR,
-                               &gEfiGlobalVariableGuid,
+                               gEfiGlobalVariableGuid,
                                EFI_VARIABLE_NON_VOLATILE
                                | EFI_VARIABLE_BOOTSERVICE_ACCESS
                                | EFI_VARIABLE_RUNTIME_ACCESS,
@@ -697,7 +715,7 @@ GetBootOption (
   BootOption->BootNum = BootNum;
 	snwprintf(VarName, sizeof(VarName), "Boot%04hX", BootNum);
 
-  BootOption->Variable = (__typeof__(BootOption->Variable))GetNvramVariable(VarName, &gEfiGlobalVariableGuid, NULL, (UINTN *)(UINTN)(OFFSET_OF(BO_BOOT_OPTION, VariableSize) + (UINTN)BootOption));
+  BootOption->Variable = (__typeof__(BootOption->Variable))GetNvramVariable(VarName, gEfiGlobalVariableGuid, NULL, (UINTN *)(UINTN)(OFFSET_OF(BO_BOOT_OPTION, VariableSize) + (UINTN)BootOption));
   if (BootOption->Variable == NULL) {
     return EFI_NOT_FOUND;
   }
@@ -724,7 +742,7 @@ FindFreeBootNum (
   for (Index = 0; Index <= 0xFFFF; Index++) {
 	  snwprintf(VarName, sizeof(VarName), "Boot%04llX", Index);
     VarSize = 0;
-    Status = gRT->GetVariable (VarName, &gEfiGlobalVariableGuid, NULL, &VarSize, NULL);
+    Status = gRT->GetVariable (VarName, gEfiGlobalVariableGuid, NULL, &VarSize, NULL);
     if (Status == EFI_NOT_FOUND) {
       *BootNum = (UINT16)Index;
       return EFI_SUCCESS;
@@ -769,14 +787,14 @@ FindBootOptionForFile (
   //
   // Create FileDeviceHandle/FileName device paths (long and short form) - we will search boot options for that.
   //
-  Status = CreateBootOptionDevicePath (FileDeviceHandle, FileName, FALSE, &SearchedDevicePath[0]);
+  Status = CreateBootOptionDevicePath (FileDeviceHandle, FileName, false, &SearchedDevicePath[0]);
   if (EFI_ERROR(Status)) {
     return EFI_OUT_OF_RESOURCES;
   }
   SearchedDevicePathSize[0] = GetDevicePathSize (SearchedDevicePath[0]);
 	DBG(" Searching for: %ls (Len: %llu)\n", FileDevicePathToXStringW(SearchedDevicePath[0]).wc_str(), SearchedDevicePathSize[0]);
 
-  Status = CreateBootOptionDevicePath (FileDeviceHandle, FileName, TRUE, &SearchedDevicePath[1]);
+  Status = CreateBootOptionDevicePath (FileDeviceHandle, FileName, true, &SearchedDevicePath[1]);
   if (EFI_ERROR(Status)) {
     return EFI_OUT_OF_RESOURCES;
   }
@@ -799,6 +817,7 @@ FindBootOptionForFile (
     if (EFI_ERROR(Status)) {
 		DBG("FindBootOptionForFile: Boot%04hX: %s\n", BootOrder[Index], efiStrError(Status));
       //WaitForKeyPress(L"press a key to continue\n\n");
+
       continue;
     }
 
@@ -828,10 +847,10 @@ FindBootOptionForFile (
   return EFI_NOT_FOUND;
 }
 
-/** Prints BootXXXX vars found listed in BootOrder, plus print others if AllBootOptions == TRUE. */
+/** Prints BootXXXX vars found listed in BootOrder, plus print others if AllBootOptions == true. */
 void
 PrintBootOptions (
-    IN  BOOLEAN         AllBootOptions
+    IN  XBool AllBootOptions
     )
 {
   EFI_STATUS          Status;
@@ -840,7 +859,7 @@ PrintBootOptions (
   UINTN               Index;
   UINTN               BootNum;
   BO_BOOT_OPTION      BootOption;
-  BOOLEAN             FoundOthers;
+  XBool               FoundOthers;
 
 
   DBG("\nBoot options:\n-------------\n");
@@ -873,7 +892,7 @@ PrintBootOptions (
 
   if (AllBootOptions) {
     DBG("\nBoot options not in BootOrder list:\n");
-    FoundOthers = FALSE;
+    FoundOthers = false;
     //
     // Additionally print BootXXXX vars which are not in BootOrder
     //
@@ -902,7 +921,7 @@ PrintBootOptions (
 
       PrintBootOption (&BootOption, 0);
       FreePool(BootOption.Variable);
-      FoundOthers = TRUE;
+      FoundOthers = true;
     }
     if (!FoundOthers) {
       DBG(" not found\n");
@@ -934,12 +953,12 @@ AddBootOption (
 
   DBG("AddBootOption: %ls\n", BootOption->Description);
   DBG(" FilePath: %ls\n", FileDevicePathToXStringW(BootOption->FilePathList).wc_str());
-	DBG(" BootIndex: %llu\n", BootIndex);
+  DBG(" BootIndex: %llu\n", BootIndex);
 
   //
   // Find free BootXXXX var slot.
   //
-  Status = FindFreeBootNum (&BootOption->BootNum);
+  Status = FindFreeBootNum(&BootOption->BootNum);
   if (EFI_ERROR(Status)) {
     DBG("FindFreeBootNum: %s\n", efiStrError(Status));
     return Status;
@@ -950,7 +969,7 @@ AddBootOption (
   //
   // Prepare BootOption variable
   //
-  Status = CompileBootOption (BootOption);
+  Status = CompileBootOption(BootOption);
   if (EFI_ERROR(Status)) {
     return Status;
   }
@@ -958,8 +977,8 @@ AddBootOption (
   //
   // Save BootXXXX var
   //
-  Status = gRT->SetVariable (VarName,
-                             &gEfiGlobalVariableGuid,
+  Status = gRT->SetVariable(VarName,
+                             gEfiGlobalVariableGuid,
                              EFI_VARIABLE_NON_VOLATILE
                              | EFI_VARIABLE_BOOTSERVICE_ACCESS
                              | EFI_VARIABLE_RUNTIME_ACCESS,
@@ -980,7 +999,7 @@ AddBootOption (
   //
   // Update BootOrder - add our new boot option as BootIndex in the list
   //
-  Status = AddToBootOrder (BootOption->BootNum, BootIndex);
+  Status = AddToBootOrder(BootOption->BootNum, BootIndex);
 
   return Status;
 }
@@ -988,7 +1007,7 @@ AddBootOption (
 
 /** Adds new boot option for given file system device handle FileDeviceHandle, file path FileName
  *  and Description, to be BootIndex in the list of options (0 based).
- *  If UseShortForm == TRUE, then only the hard drive media dev path will be used instead
+ *  If UseShortForm == true, then only the hard drive media dev path will be used instead
  *  of full device path.
  *  Long (full) form:
  *   PciRoot(0x0)/Pci(0x1f,0x2)/Sata(0x1,0x0)/HD(1,GPT,96004846-a018-49ad-bc9f-4e5a340adc4b,0x800,0x64000)/\EFI\BOOT\File.efi
@@ -997,13 +1016,13 @@ AddBootOption (
  */
 EFI_STATUS
 AddBootOptionForFile (
-    IN  EFI_HANDLE      FileDeviceHandle,
+    IN  EFI_HANDLE       FileDeviceHandle,
     IN  CONST XStringW&  FileName,
-    IN  BOOLEAN         UseShortForm,
-    IN  CONST CHAR16          *Description,
+    IN  XBool            UseShortForm,
+    IN  CONST CHAR16    *Description,
     IN  UINT8           *OptionalData,
-    IN  UINTN           OptionalDataSize,
-    IN  UINTN           BootIndex,
+    IN  UINTN            OptionalDataSize,
+    IN  UINTN            BootIndex,
     OUT UINT16          *BootNum
     )
 {
@@ -1033,7 +1052,7 @@ AddBootOptionForFile (
   BootOption.OptionalData = OptionalData;
   BootOption.OptionalDataSize = OptionalDataSize;
 
-  Status = AddBootOption (&BootOption, BootIndex);
+  Status = AddBootOption(&BootOption, BootIndex);
   if (EFI_ERROR(Status)) {
     FreePool(BootOption.FilePathList);
     DBG("AddBootOptionForFile: Error: %s\n", efiStrError(Status));
@@ -1052,7 +1071,7 @@ AddBootOptionForFile (
     *BootNum = BootOption.BootNum;
   }
 
-  DBG("AddBootOptionForFile: done.\n");
+  DBG("AddBootOptionForFile: done at %d\n", *BootNum);
   //WaitForKeyPress(L"press a key to continue\n\n");
   return EFI_SUCCESS;
 }
@@ -1076,7 +1095,7 @@ DeleteBootOption (
   // Delete BootXXXX var
   //
   Status = gRT->SetVariable (VarName,
-                             &gEfiGlobalVariableGuid,
+                             gEfiGlobalVariableGuid,
                              0,
                              0,
                              NULL

@@ -10,10 +10,9 @@
 #ifndef _AML_GENERATOR_H
 #define _AML_GENERATOR_H
 
-#include <Platform.h> // Only use angled for Platform, else, xcode project won't compile
 
 /*
-static inline BOOLEAN aml_isvalidchar(char c)
+static inline XBool aml_isvalidchar(char c)
 {
 	return IS_UPPER(c) || IS_DIGIT(c) || c == '_';
 };
@@ -71,7 +70,7 @@ typedef struct aml_chunk AML_CHUNK;
 #define  AML_CHUNK_ARG3          0x6B
 
 
-BOOLEAN aml_add_to_parent(AML_CHUNK* parent, AML_CHUNK* node);
+XBool aml_add_to_parent(AML_CHUNK* parent, AML_CHUNK* node);
 AML_CHUNK* aml_create_node(AML_CHUNK* parent);
 void aml_destroy_node(AML_CHUNK* node);
 AML_CHUNK* aml_add_buffer(AML_CHUNK* parent, CONST UINT8* buffer, UINT32 size);
@@ -92,7 +91,7 @@ UINT32 aml_write_size(UINT32 size, CHAR8* buffer, UINT32 offset);
 
 // add by pcj
 AML_CHUNK* aml_add_string(AML_CHUNK* parent, CONST CHAR8* string);
-AML_CHUNK* aml_add_byte_buffer(AML_CHUNK* parent, /* CONST*/ UINT8* data,UINT32 size);
+AML_CHUNK* aml_add_byte_buffer(AML_CHUNK* parent, CONST UINT8* data,UINT32 size);
 AML_CHUNK* aml_add_string_buffer(AML_CHUNK* parent, CONST CHAR8* string);
 AML_CHUNK* aml_add_device(AML_CHUNK* parent, CONST CHAR8* name);
 AML_CHUNK* aml_add_local0(AML_CHUNK* parent);

@@ -161,7 +161,7 @@ BdsLibConnectDevicePath (
           PreviousHandle = Handle;
           //
           // Connect all drivers that apply to Handle and RemainingDevicePath,
-          // the Recursive flag is FALSE so only one level will be expanded.
+          // the Recursive flag is false so only one level will be expanded.
           //
           // Do not check the connect status here, if the connect controller fail,
           // then still give the chance to do dispatch, because partial
@@ -174,7 +174,7 @@ BdsLibConnectDevicePath (
           //    change, then avoid the dispatch, we have chance to continue the
           //    next connection
           //
-          gBS->ConnectController (Handle, NULL, RemainingDevicePath, FALSE);
+          gBS->ConnectController (Handle, NULL, RemainingDevicePath, false);
         }
       }
       //
@@ -229,7 +229,7 @@ BdsLibConnectAllEfi (
 
   for (Index = 0; Index < HandleCount; Index++) {
     //Status = 
-    gBS->ConnectController (HandleBuffer[Index], NULL, NULL, TRUE);
+    gBS->ConnectController (HandleBuffer[Index], NULL, NULL, true);
   }
 
   if (HandleBuffer != NULL) {
@@ -328,31 +328,31 @@ EFI_STATUS ScanDeviceHandles(EFI_HANDLE ControllerHandle,
     if (!EFI_ERROR(Status)) {      
       for (ProtocolIndex = 0; ProtocolIndex < ArrayCount; ProtocolIndex++) {
         
-        if (CompareGuid (ProtocolGuidArray[ProtocolIndex], &gEfiLoadedImageProtocolGuid)) {
+        if ( *(ProtocolGuidArray[ProtocolIndex]) == gEfiLoadedImageProtocolGuid ) {
           (*HandleType)[HandleIndex] |= EFI_HANDLE_TYPE_IMAGE_HANDLE;
         }
         
-        if (CompareGuid (ProtocolGuidArray[ProtocolIndex], &gEfiDriverBindingProtocolGuid)) {
+        if ( *(ProtocolGuidArray[ProtocolIndex]) == gEfiDriverBindingProtocolGuid ) {
           (*HandleType)[HandleIndex] |= EFI_HANDLE_TYPE_DRIVER_BINDING_HANDLE;
         }
         
-        if (CompareGuid (ProtocolGuidArray[ProtocolIndex], &gEfiDriverConfigurationProtocolGuid)) {
+        if ( *(ProtocolGuidArray[ProtocolIndex]) == gEfiDriverConfigurationProtocolGuid ) {
           (*HandleType)[HandleIndex] |= EFI_HANDLE_TYPE_DRIVER_CONFIGURATION_HANDLE;
         }
         
-        if (CompareGuid (ProtocolGuidArray[ProtocolIndex], &gEfiDriverDiagnosticsProtocolGuid)) {
+        if ( *(ProtocolGuidArray[ProtocolIndex]) == gEfiDriverDiagnosticsProtocolGuid ) {
           (*HandleType)[HandleIndex] |= EFI_HANDLE_TYPE_DRIVER_DIAGNOSTICS_HANDLE;
         }
         
-        if (CompareGuid (ProtocolGuidArray[ProtocolIndex], &gEfiComponentName2ProtocolGuid)) {
+        if ( *(ProtocolGuidArray[ProtocolIndex]) == gEfiComponentName2ProtocolGuid ) {
           (*HandleType)[HandleIndex] |= EFI_HANDLE_TYPE_COMPONENT_NAME_HANDLE;
         }
         
-        if (CompareGuid (ProtocolGuidArray[ProtocolIndex], &gEfiComponentNameProtocolGuid) ) {
+        if ( *(ProtocolGuidArray[ProtocolIndex]) == gEfiComponentNameProtocolGuid ) {
           (*HandleType)[HandleIndex] |= EFI_HANDLE_TYPE_COMPONENT_NAME_HANDLE;
         }
         
-        if (CompareGuid (ProtocolGuidArray[ProtocolIndex], &gEfiDevicePathProtocolGuid)) {
+        if ( *(ProtocolGuidArray[ProtocolIndex]) == gEfiDevicePathProtocolGuid ) {
           (*HandleType)[HandleIndex] |= EFI_HANDLE_TYPE_DEVICE_HANDLE;
         }
         
@@ -390,15 +390,10 @@ EFI_STATUS ScanDeviceHandles(EFI_HANDLE ControllerHandle,
             }
           }
           
-//MsgLog("ScanDeviceHandles FreePool(OpenInfo)\n");
-          FreePool(OpenInfo);
-//MsgLog("ScanDeviceHandles FreePool(OpenInfo) after\n");
+          gBS->FreePool(OpenInfo); // use gBS->FreePool instead of FreePool to avoid message from MemoryTracker
         }
       }
-//MsgLog("ScanDeviceHandles FreePool(ProtocolGuidArray)\n");
-      
-      FreePool(ProtocolGuidArray);
-//MsgLog("ScanDeviceHandles FreePool(ProtocolGuidArray) after\n");
+      gBS->FreePool(ProtocolGuidArray); // use gBS->FreePool instead of FreePool to avoid message from MemoryTracker
     }
   }
   
@@ -410,7 +405,7 @@ Error:
   }
   
   if (*HandleBuffer != NULL) {
-    FreePool(*HandleBuffer);
+    gBS->FreePool(*HandleBuffer); // use gBS->FreePool instead of FreePool to avoid message from MemoryTracker
   }
   
   *HandleCount  = 0;
@@ -432,8 +427,8 @@ EFI_STATUS BdsLibConnectMostlyAllEfi()
 	EFI_HANDLE				*HandleBuffer = NULL;
 	UINT32            *HandleType = NULL;
 	UINTN             HandleIndex;
-	BOOLEAN           Parent;
-	BOOLEAN           Device;
+	XBool             Parent;
+	XBool             Device;
 	EFI_PCI_IO_PROTOCOL*	PciIo = NULL;
 	PCI_TYPE00				Pci;
   
@@ -447,18 +442,18 @@ EFI_STATUS BdsLibConnectMostlyAllEfi()
 		if (EFI_ERROR(Status))
 			goto Done;
     
-		Device = TRUE;
+		Device = true;
 		
 		if (HandleType[Index] & EFI_HANDLE_TYPE_DRIVER_BINDING_HANDLE)
-			Device = FALSE;
+			Device = false;
 		if (HandleType[Index] & EFI_HANDLE_TYPE_IMAGE_HANDLE)
-			Device = FALSE;
+			Device = false;
     
 		if (Device) {					
-			Parent = FALSE;
+			Parent = false;
 			for (HandleIndex = 0; HandleIndex < HandleCount; HandleIndex++) {
 				if (HandleType[HandleIndex] & EFI_HANDLE_TYPE_PARENT_HANDLE)
-					Parent = TRUE;
+					Parent = true;
 			}
       
 			if (!Parent) {
@@ -467,22 +462,22 @@ EFI_STATUS BdsLibConnectMostlyAllEfi()
 					if (!EFI_ERROR(Status)) {
 						Status = PciIo->Pci.Read (PciIo,EfiPciIoWidthUint32, 0, sizeof (Pci) / sizeof (UINT32), &Pci);
 						if (!EFI_ERROR(Status)) {
-							if(IS_PCI_VGA(&Pci)==TRUE) {
+							if(IS_PCI_VGA(&Pci)==true) {
 								gBS->DisconnectController(AllHandleBuffer[Index], NULL, NULL);
 							}
 						}
 					}
-					Status = gBS->ConnectController(AllHandleBuffer[Index], NULL, NULL, TRUE);
+					Status = gBS->ConnectController(AllHandleBuffer[Index], NULL, NULL, true);
 				}
 			}
 		}
     
-		FreePool(HandleBuffer);
+		gBS->FreePool(HandleBuffer); // use gBS->FreePool instead of FreePool to avoid message from MemoryTracker
 		FreePool(HandleType);
 	}
   
 Done:
-	FreePool(AllHandleBuffer);
+	gBS->FreePool(AllHandleBuffer); // use gBS->FreePool instead of FreePool to avoid message from MemoryTracker
 	return Status;
 }
 
@@ -552,7 +547,7 @@ BdsLibConnectUsbDevByShortFormDP(
   UINTN                                 Index;
   EFI_PCI_IO_PROTOCOL                   *PciIo;
   UINT8                                 Class[3];
-  BOOLEAN                               AtLeastOneConnected;
+  XBool                                 AtLeastOneConnected;
 
   //
   // Check the passed in parameters
@@ -579,7 +574,7 @@ BdsLibConnectUsbDevByShortFormDP(
   //
   // Find the usb host controller firstly, then connect with the remaining device path
   //
-  AtLeastOneConnected = FALSE;
+  AtLeastOneConnected = false;
   Status = gBS->LocateHandleBuffer (
                   ByProtocol,
                   &gEfiPciIoProtocolGuid,
@@ -607,10 +602,10 @@ BdsLibConnectUsbDevByShortFormDP(
                               HandleArray[Index],
                               NULL,
                               RemainingDevicePath,
-                              FALSE
+                              false
                               );
               if (!EFI_ERROR(Status)) {
-                AtLeastOneConnected = TRUE;
+                AtLeastOneConnected = true;
               }
             }
           }

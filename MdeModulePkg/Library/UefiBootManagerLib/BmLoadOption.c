@@ -805,7 +805,7 @@ EfiBootManagerIsValidLoadOptionVariableName (
   //
   // Return FALSE when the variable name doesn't start with Driver/SysPrep/Boot/PlatformRecovery.
   //
-  for (LocalOptionType = 0; LocalOptionType < ARRAY_SIZE (mBmLoadOptionName); LocalOptionType++) {
+  for (LocalOptionType = 0; (UINTN)LocalOptionType < ARRAY_SIZE (mBmLoadOptionName); LocalOptionType++) {
     if ((VariableNameLen - 4 == StrLen (mBmLoadOptionName[LocalOptionType])) &&
         (StrnCmp (VariableName, mBmLoadOptionName[LocalOptionType], VariableNameLen - 4) == 0)
         ) {
@@ -822,7 +822,7 @@ EfiBootManagerIsValidLoadOptionVariableName (
   LocalOptionNumber = 0;
   for (Index = VariableNameLen - 4; Index < VariableNameLen; Index++) {
     Uint = BmCharToUint (VariableName[Index]);
-    if (Uint == -1) {
+    if (Uint == (UINTN)-1) { // BmCharToUint can return (UINTN)-1
       break;
     } else {
       LocalOptionNumber = (UINT16) Uint + LocalOptionNumber * 0x10;
